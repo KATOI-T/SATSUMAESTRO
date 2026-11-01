@@ -1,0 +1,9 @@
+id = "shopcart-tax-and-bug-multi"
+prompt = "shopcart について次をそれぞれ調べて報告して。税率 TAX_RATE の値を調べて。format_receipt のドキュメントに記載されている既知の不具合の内容も調べて。"
+prompt_en = "Look into the following about shopcart and report on each. Find the value of the tax rate TAX_RATE. Also find the known bug described in the documentation of format_receipt."
+category = "WHAT/concept-definition"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["TAX_RATE"]
+regex = ["0\\.1", "(最後|last)"]

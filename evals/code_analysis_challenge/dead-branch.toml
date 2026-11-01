@@ -1,0 +1,8 @@
+id = "dead-branch"
+prompt = "pipeline.py の dispatch_all にある status == \"ERROR\" の分岐は、実際には一度も実行されません。その理由を、関係するファイルと処理を挙げて説明してください。"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/relay"
+
+[checks]
+# normalize が事前に status を小文字化するため "ERROR"（大文字）とは一致し得ない。
+contains_all = ["normalize", "lower"]

@@ -1,0 +1,8 @@
+id = "find-definition"
+prompt = "apply_discount 関数はどのファイルで定義されていますか。ファイル名を含めて答えてください。"
+prompt_en = "Which file defines the apply_discount function? Include the file name in your answer."
+category = "WHERE/identifier-location"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["pricing.py"]

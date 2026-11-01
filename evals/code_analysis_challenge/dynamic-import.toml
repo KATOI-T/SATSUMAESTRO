@@ -1,0 +1,9 @@
+id = "dynamic-import"
+prompt = "pipeline.py はイベントごとの処理ハンドラをどうやって選択して読み込んでいますか。仕組みを具体的に答えてください。"
+prompt_en = "How does pipeline.py choose and load the handler for each event? Explain the mechanism concretely."
+category = "WHAT/dependency-tracing"
+fixture = "../fixtures/relay"
+
+[checks]
+# importlib.import_module によるモジュール名の動的組み立て（route 番号を埋め込む）。
+contains_all = ["import_module", "route"]

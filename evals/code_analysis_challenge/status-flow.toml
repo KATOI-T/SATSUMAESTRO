@@ -1,0 +1,8 @@
+id = "status-flow"
+prompt = "Event の status フィールドを読み書きしている処理は、それぞれどのファイルにありますか。"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/relay"
+
+[checks]
+# 書き込みは normalize.py、読み取りは pipeline.py。
+contains_all = ["normalize.py", "pipeline.py"]

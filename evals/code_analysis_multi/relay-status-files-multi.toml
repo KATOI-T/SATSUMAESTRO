@@ -1,0 +1,8 @@
+id = "relay-status-files-multi"
+prompt = "relay について次をそれぞれ調べて報告して。Event の status フィールドを定義しているファイルを特定して。status を小文字へ変換しているファイルも特定して。send_with_retry が最大何回試行するかも調べて。"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/relay"
+
+[checks]
+contains_all = ["events.py", "normalize.py"]
+regex = ["(?<![0-9])3(?![0-9])"]

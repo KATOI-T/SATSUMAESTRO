@@ -1,0 +1,80 @@
+SATSUMAESTRO
+============
+
+Copyright 2026 KATO IT, LLC and contributors
+
+SATSUMAESTRO is licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+This product also includes third-party material identified below.
+These notices are for informational purposes and do not modify the license.
+
+Web-Bench
+---------
+
+The following test material reproduces short parts of the "survey" project of
+Web-Bench (https://github.com/bytedance/web-bench), including code that a
+model wrote while solving its tasks:
+
+- tests/test_p264_related_code.py (the test fixture)
+- tests/test_p259_syntax_check.py (the JavaScript of tasks 19 and 20)
+- tests/test_p260_edit_mismatch.py and tests/fixtures/issue260_preview.js
+  (preview.js)
+- tests/test_p261_unknown_tool.py (the recorded tool calls)
+
+Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this material except in compliance with the License. You may obtain a
+copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+
+Aider polyglot benchmark (Exercism exercises)
+---------------------------------------------
+
+evals/official/aider-polyglot/ reproduces the instructions and the test names
+of the 225 exercises of the Aider polyglot benchmark
+(https://github.com/Aider-AI/polyglot-benchmark, commit 7e0611e7). All
+exercise content comes from the Exercism language tracks for C++, Go, Java,
+JavaScript, Python and Rust (https://github.com/exercism) and is licensed
+under the MIT License:
+
+MIT License
+
+Copyright (c) 2021 Exercism
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+aider benchmark harness
+-----------------------
+
+scripts/official/polyglot.py and scripts/official/aider_runner.py follow the
+benchmark harness of aider (https://github.com/Aider-AI/aider, commit
+5dc9490b). The prompt texts in polyglot.py are copied from
+benchmark/prompts.py, and the test commands and the way the second attempt is
+given the test output follow benchmark/benchmark.py and cpp-test.sh. aider is
+licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).

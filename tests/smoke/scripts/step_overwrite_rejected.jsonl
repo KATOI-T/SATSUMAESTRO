@@ -1,0 +1,10 @@
+# 段 1 で a.html を write_file ＋ append_file で作り、段 2 で CSS の部分を write_file で出す（実機の事故の形）。
+# ハーネスが書かずに差し戻し（画面に ✗ write_file rejected: a.html already has 5 lines …）、擬似プロバイダは
+# 差し戻しの文どおり append_file に切り替えて完走する。a.html に骨格と CSS の両方が残る。
+{"when": {"role": "user", "contains": "三つのファイル"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "{plan_file}", "content": "# 計画\n\n## Steps\n1. a.html の骨格を書く (~5 lines)\n2. a.html に CSS を足す (~5 lines)\n"}}]}, "note": "計画を書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": ".satsuma/plans/"}, "reply": {"tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "承認を求める"}
+{"when": {"role": "tool", "tool": "exit_plan_mode", "contains": "Do ONLY step 1 of 2"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.html", "content": "<!DOCTYPE html>\n<html>\n<head>\n"}}, {"name": "append_file", "args": {"path": "a.html", "content": "</head>\n<body>\n"}}]}, "note": "段 1: 骨格を write_file ＋ append_file"}
+{"when": {"role": "tool", "tool": "append_file", "contains": "a.html"}, "times": 1, "reply": {"text": "段 1 完了: a.html の骨格を作成しました。"}, "note": "段 1 の要約"}
+{"when": {"role": "user", "contains": "Now do the last step (2 of 2)"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.html", "content": "<style>\nbody { margin: 0; }\n</style>\n"}}]}, "note": "段 2: CSS の部分を write_file で出す（事故の形）"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "write_file rejected"}, "reply": {"tool_calls": [{"name": "append_file", "args": {"path": "a.html", "content": "<style>\nbody { margin: 0; }\n</style>\n"}}]}, "note": "差し戻しを受けて append_file に切り替える"}
+{"when": {"role": "tool", "tool": "append_file", "contains": "a.html"}, "reply": {"text": "すべての段を終えました。a.html に CSS を足しました。"}, "note": "最終段の要約"}

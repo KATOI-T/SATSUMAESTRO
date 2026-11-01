@@ -1,0 +1,7 @@
+id = "done-literal"
+prompt = "文字列リテラル 'done' を実コード（コメントを除く）で使っているのはどのファイルですか。"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["runner.py"]

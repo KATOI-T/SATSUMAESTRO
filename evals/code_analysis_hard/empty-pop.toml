@@ -1,0 +1,8 @@
+id = "empty-pop"
+prompt = "空の TaskQueue に対して pop を呼ぶと何が起きますか。挙動を具体的に答えてください。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/taskflow"
+
+[checks]
+# ガードは無く heapq.heappop の IndexError がそのまま伝播する。
+contains_all = ["IndexError"]

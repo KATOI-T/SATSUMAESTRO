@@ -1,0 +1,5 @@
+# ターン末尾のトークンの内訳行。usage の数を台本で固定し、REPL が
+# `— 出力 678 · 入力 12.3K（1 回） · 文脈 13K/50K` を出すこと（しきい値 50000 は検査側の settings で固定）。
+# code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "トークン"}, "reply": {"text": "数えました。", "usage": {"prompt_tokens": 12345, "completion_tokens": 678}}, "note": "usage を固定した応答"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

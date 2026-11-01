@@ -1,0 +1,15 @@
+# SearXNG settings for SATSUMAESTRO. Only the changes from the defaults.
+# SATSUMAESTRO 用の SearXNG の設定。既定から変えるところだけ。
+use_default_settings: true
+
+server:
+  # Local use only. Change it before exposing the server. / 手元用。公開する前に必ず変える。
+  secret_key: "satsumaestro-local-only-secret"
+  # The rate limiter only gets in the way of one local user. / 手元で 1 人なら不要。
+  limiter: false
+
+search:
+  # SATSUMAESTRO uses the JSON API (off by default). / SATSUMAESTRO は JSON API を使う（既定は無効）。
+  formats:
+    - html
+    - json

@@ -1,0 +1,8 @@
+id = "transitive-chain"
+prompt = "config.py の RETRY_LIMIT を変更すると、その影響はどの関数を経由して main.py まで届きますか。経路上の関数名を順に挙げてください。"
+category = "WHAT/dependency-tracing"
+fixture = "../fixtures/relay"
+
+[checks]
+# RETRY_LIMIT -> transport.send_with_retry -> pipeline.dispatch_all -> main.sample_total
+contains_all = ["send_with_retry", "dispatch_all", "sample_total"]

@@ -1,0 +1,17 @@
+# Self-hosted SearXNG for web_search. See docker/README.md.
+# web_search 用の SearXNG。docker/README.ja.md を参照。
+#   make searxng-up / make searxng-down
+services:
+  searxng:
+    # Pinned to a tested version. / 確かめた版に固定。
+    image: searxng/searxng:2026.10.30-ffa88e3ba
+    container_name: satsuma-searxng
+    ports:
+      # Local only. Change the port with SATSUMA_SEARXNG_PORT.
+      # 手元だけ。ポートは SATSUMA_SEARXNG_PORT で変える。
+      - "127.0.0.1:${SATSUMA_SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:${SATSUMA_SEARXNG_PORT:-8080}/
+    restart: unless-stopped

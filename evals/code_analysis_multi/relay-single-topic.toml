@@ -1,0 +1,7 @@
+id = "relay-single-topic"
+prompt = "relay の summarize が結果の合計へ加算している定数がどのファイルで定義されているのかを教えてほしい"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/relay"
+
+[checks]
+contains_all = ["BATCH_BONUS", "config"]

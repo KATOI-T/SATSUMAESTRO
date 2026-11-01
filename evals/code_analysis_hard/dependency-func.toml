@@ -1,0 +1,7 @@
+id = "dependency-func"
+prompt = "runner.py の run_all は、タスクの依存関係（deps）の解決にどの関数を使っていますか。関数名と、その関数が定義されているファイル名を答えてください。"
+category = "WHAT/dependency-tracing"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["resolve_order", "scheduler.py"]

@@ -1,0 +1,8 @@
+id = "invalid-rate"
+prompt = "apply_discount(100, 1.5) を呼ぶと何が起きますか。"
+prompt_en = "What happens when you call apply_discount(100, 1.5)?"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["ValueError"]

@@ -1,0 +1,8 @@
+id = "single-dispatch"
+prompt = "Event(name='t', size=6, route=5) を 1 件だけ dispatch_all に渡したとき、戻り値のリストに格納される値は何ですか。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/relay"
+
+[checks]
+# handler_05 の MODULE_INDEX(5) × size(6) = 30。
+regex = ["(?<![0-9])30(?![0-9])"]

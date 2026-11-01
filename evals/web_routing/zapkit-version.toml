@@ -1,0 +1,9 @@
+# 必須（時変・カットオフ後）: 架空ツールの現行バージョン。検索しないと答えられない。
+id = "zapkit-version"
+pattern = "must"
+prompt = "What is the current stable version of the ZapKit CLI tool? Use the most recent information available and answer with the version number."
+search_keyword = "zapkit"
+page_html = "<html><head><title>ZapKit releases</title></head><body><article><h1>ZapKit release notes</h1><p>ZapKit 9.4.2 is the current stable release (published last week). ROUTING-MARKER-ZAPKIT</p></article></body></html>"
+
+[checks]
+contains_any = ["9.4.2"]

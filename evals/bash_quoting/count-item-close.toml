@@ -1,0 +1,16 @@
+id = "count-item-close"
+# count-div-close.toml と同じ不具合の再現（read-only 段）。read-only（評価の既定・plan モード）では
+# jail 段より先に bash の検証の read-only 段が `'>' in command` の部分文字列一致で「write redirection '>'」と Block していた。
+#
+# 「bash で grep -c を使って」は再現のための足場（count-div-close.toml と同じ理由）。
+prompt = """feed.xml に閉じタグ </item> は何行ありますか。
+bash ツールで grep -c を使って数え、その数を答えてください。"""
+prompt_en = """How many lines in feed.xml contain the closing tag </item>?
+Count them with grep -c using the bash tool, and answer with the number."""
+category = "WHERE/identifier-location"
+fixture = "../fixtures/html_site"
+# 既定の read-only のまま。`grep -c '</item>' feed.xml` は読み取りの自動許可で allow になり、
+# その後の read-only 段の判定を受ける。
+
+[checks]
+regex = ["\\b9\\b"]

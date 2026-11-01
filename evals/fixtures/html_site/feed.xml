@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>在庫ダッシュボード 更新情報</title>
+    <link>https://example.com/inventory</link>
+    <description>在庫ダッシュボードのリリースノート</description>
+    <item>
+      <title>v2.4.1</title>
+      <description>アラートの更新間隔を 15 分に短縮</description>
+    </item>
+    <item>
+      <title>v2.4.0</title>
+      <description>推移グラフを追加</description>
+    </item>
+    <item>
+      <title>v2.3.2</title>
+      <description>名古屋倉庫を追加</description>
+    </item>
+    <item>
+      <title>v2.3.1</title>
+      <description>欠品数の集計漏れを修正</description>
+    </item>
+    <item>
+      <title>v2.3.0</title>
+      <description>カテゴリ別の内訳を追加</description>
+    </item>
+    <item>
+      <title>v2.2.0</title>
+      <description>入荷予定のカードを追加</description>
+    </item>
+    <item>
+      <title>v2.1.0</title>
+      <description>札幌倉庫を追加</description>
+    </item>
+    <item>
+      <title>v2.0.1</title>
+      <description>表示速度を改善</description>
+    </item>
+    <item>
+      <title>v2.0.0</title>
+      <description>ダッシュボードを刷新</description>
+    </item>
+  </channel>
+</rss>

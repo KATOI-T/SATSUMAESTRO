@@ -1,0 +1,9 @@
+id = "taskflow-queue-and-order-multi"
+prompt = "taskflow について次をそれぞれ調べて報告して。TaskQueue.push では priority が大きいものと小さいもののどちらが先に取り出されるかを調べて。resolve_order がどんなアルゴリズムでタスクの実行順を決めているかも調べて。"
+prompt_en = "Look into the following about taskflow and report on each. In TaskQueue.push, which is taken out first: a higher priority or a lower one? Also find what algorithm resolve_order uses to decide the order in which tasks run."
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["priority"]
+regex = ["(大きい|大きな|higher|larger|greater)", "(トポロジ|topolog|深さ優先|depth-first|DFS)"]

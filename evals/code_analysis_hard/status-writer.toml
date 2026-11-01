@@ -1,0 +1,7 @@
+id = "status-writer"
+prompt = "タスクの実行状態を「完了」として記録する仕組みは、どのファイルのどの関数がどのフィールドを使って実現していますか。"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["run_all", "tags"]

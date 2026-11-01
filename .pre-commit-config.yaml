@@ -1,0 +1,33 @@
+# Runs the same checks as `make check` before each commit, with the tool versions in uv.lock.
+# コミットの前に `make check` と同じ検査を、uv.lock の版の道具で走らせる。
+#   uv run pre-commit install          # install the hooks / フックを入れる
+#   uv run pre-commit run --all-files  # run them all / すべて走らせる
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy satsumaestro
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

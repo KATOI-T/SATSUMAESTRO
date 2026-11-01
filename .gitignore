@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.coverage
+
+# Secrets / 秘密
+.env
+.env.*
+!.env.example
+
+# Tool caches / ツールのキャッシュ
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# SATSUMAESTRO local state / 手元の状態
+.satsuma/.gitignore
+.satsuma/sessions/
+.satsuma/plans/
+.satsuma/background/
+.satsuma/evals/
+.satsuma/benchmarks/
+.satsuma/rag.db
+.satsuma/rag.db-*
+.satsuma/trace.jsonl
+.satsuma/memory.md
+.satsuma/policy.md
+.satsuma/settings.local.json
+.satsuma/orchestration-state.json
+.satsuma/capacity.json
+
+# Local AI tool settings / 手元の AI ツールの設定
+CLAUDE.md
+.claude/
+.aider*
+
+# OS and editors / OS とエディタ
+.DS_Store
+.vscode/
+.idea/
+*.swp

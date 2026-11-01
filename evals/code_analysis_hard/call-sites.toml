@@ -1,0 +1,9 @@
+id = "call-sites"
+prompt = "registry.py の find_by_tag 関数を実際に呼び出しているファイルを調べています。呼び出しているファイル名だけを簡潔に列挙してください。"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["runner.py", "report.py"]
+# legacy.py にあるのはコメントアウトされた呼び出しのみ（grep だけの浅い解析を弾く罠）。
+forbidden = ["legacy.py"]

@@ -1,0 +1,10 @@
+id = "find-caller"
+prompt = "with_tax 関数を呼び出しているのはどのファイルのどの関数ですか。"
+prompt_en = "Which function in which file calls the with_tax function?"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["cart.py"]
+# "subtotal" の部分一致を防ぐため total は単語境界で判定する。
+regex = ["\\btotal\\b"]

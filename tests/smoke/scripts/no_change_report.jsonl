@@ -1,0 +1,8 @@
+# 読み取り（list_directory）だけで「Implemented … `a.txt`」と報告して終える形。以前はハーネスがそれを回答と見なして
+# ターンを閉じ、ファイルは作られなかった。いまは「このターンは何も変えていない。要るならツールで書け」が user メッセージで
+# 差し戻され、擬似プロバイダはそれを受けて書く。code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "changed nothing"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "差し戻しを受けてツールで書く"}
+{"when": {"role": "user", "contains": "a と書いて"}, "reply": {"tool_calls": [{"name": "list_directory", "args": {"path": "."}}]}, "note": "読み取りだけ"}
+{"when": {"role": "tool", "tool": "list_directory"}, "reply": {"text": "Implemented the request.\n\n1. Created `a.txt` with the content `a`."}, "note": "書かずに完了を報告する"}
+{"when": {"role": "tool", "tool": "write_file"}, "reply": {"text": "a.txt を作りました。"}, "note": "完了"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

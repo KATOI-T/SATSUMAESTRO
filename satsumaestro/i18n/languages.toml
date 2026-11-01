@@ -1,0 +1,47 @@
+# 応答と画面に使う言語の定義。
+
+ignore_ranges = [[0x3000, 0x303F]]
+
+unsupported_ranges = [
+  [0xAC00, 0xD7AF],
+  [0x1100, 0x11FF],
+  [0x3130, 0x318F],
+  [0x0400, 0x04FF],
+  [0x0590, 0x05FF],
+  [0x0600, 0x06FF],
+  [0x0E00, 0x0E7F],
+]
+unsupported_ratio = 0.2
+
+request_patterns = ['\btranslate\s+(it\s+|this\s+)?(in)?to\b']
+
+[[language]]
+code = "ja"
+name = "Japanese"
+native_name = "日本語"
+locales = ["ja"]
+ui = true
+request_patterns = ['日本語(で|に|へ)', '\bin\s+japanese\b', '\bjapanese\s+(only|please)\b']
+
+[language.detect]
+kind = "script"
+ranges = [
+  [0x3040, 0x309F],
+  [0x30A0, 0x30FF],
+  [0xFF66, 0xFF9D],
+  [0x4E00, 0x9FFF],
+  [0x3400, 0x4DBF],
+]
+min_count = 3
+min_ratio = 0.10
+
+[[language]]
+code = "en"
+name = "English"
+native_name = "English"
+locales = ["en"]
+ui = true
+request_patterns = ['英語(で|に|へ)', 'えいご(で|に)', '\bin\s+english\b', '\benglish\s+(only|please)\b']
+
+[language.detect]
+kind = "latin"

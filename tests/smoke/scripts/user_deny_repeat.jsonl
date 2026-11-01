@@ -1,0 +1,6 @@
+# bash の確認カードに n → モデルが同じ呼び出しを繰り返す。修正前の REPL は拒否の結果を
+# モデルへ返し、同じカードが max_iterations まで出直す。修正後はカードが 1 回だけ出て、ターンが止まる。
+# code のまま流す（plan には入らない）。touch は読み取りでないので workspace-write で確認カードに回る。
+{"when": {"role": "user", "contains": "built.txt"}, "reply": {"tool_calls": [{"name": "bash", "args": {"command": "touch built.txt"}}]}, "note": "1 回目"}
+{"when": {"role": "tool", "tool": "bash"}, "reply": {"tool_calls": [{"name": "bash", "args": {"command": "touch built.txt"}}]}, "note": "拒否されても同じ呼び出しを繰り返す"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

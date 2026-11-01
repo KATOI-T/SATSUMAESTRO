@@ -1,0 +1,9 @@
+id = "bonus-source"
+prompt = "summarize が合計へ加算している定数の名前と値を答えてください。"
+prompt_en = "Give the name and value of the constant that summarize adds to the total."
+category = "WHAT/concept-definition"
+fixture = "../fixtures/relay"
+
+[checks]
+contains_all = ["BATCH_BONUS"]
+regex = ["(?<![0-9])8(?![0-9])"]

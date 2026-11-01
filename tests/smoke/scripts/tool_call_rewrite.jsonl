@@ -1,0 +1,8 @@
+# モデルの tool_call を Ollama が解釈できない 500 が、専用の再試行（2 回）と誘導付きの再送（2 回）の
+# 後も続く。REPL はターンを落とさず「書き直せ」を積み、書き直した呼び出しで a.txt を作って終える。
+# code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "a.txt を作って"}, "times": 2, "reply": {"http_error": {"status": 500, "message": "error parsing tool call: raw='{\"content\":\"a\nb\"}', err=invalid character '\\n' in string literal"}}, "note": "最初の要求とその再試行"}
+{"when": {"role": "user", "contains": "malformed JSON arguments"}, "times": 2, "reply": {"http_error": {"status": 500, "message": "error parsing tool call: raw='{\"content\":\"a\nb\"}', err=invalid character '\\n' in string literal"}}, "note": "誘導付きの再送とその再試行"}
+{"when": {"role": "user", "contains": "not valid JSON"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "書き直した呼び出し"}
+{"when": {"role": "tool", "tool": "write_file"}, "reply": {"text": "a.txt を作りました。"}, "note": "完了の報告"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

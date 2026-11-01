@@ -1,0 +1,9 @@
+id = "compute-output"
+prompt = "main.py の sample_total() を実行すると何を返しますか。コードを読んで正確な数値を答えてください。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/relay"
+
+[checks]
+# 4*4 + 13*7 + 7*9 = 170 に aggregate の BATCH_BONUS (8) を加えた 178。
+# ボーナス見落とし（170）・route 対応誤りは 178 が出ないため regex で落ちる。
+regex = ["(?<![0-9])178(?![0-9])"]

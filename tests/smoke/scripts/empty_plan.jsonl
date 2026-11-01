@@ -1,0 +1,5 @@
+# 計画を書かずに「...」で exit_plan_mode を呼ぶ。1 回目は「まず書け」で催促され、
+# 2 回目で承認カードが出る（本文は「（計画ファイルがありません）」）。検査が approval-card-empty を出すこと。
+{"when": {"role": "user", "contains": "三つのファイル"}, "reply": {"text": "...", "tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "計画を書かずに exit"}
+{"when": {"role": "tool", "tool": "exit_plan_mode", "contains": "No plan file yet"}, "times": 1, "reply": {"text": "...", "tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "催促されても同じ（2 回目でカード）"}
+{"when": {"role": "tool", "tool": "exit_plan_mode"}, "reply": {"text": "了解しました。"}, "note": "承認の後"}

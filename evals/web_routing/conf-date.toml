@@ -1,0 +1,9 @@
+# 必須: 架空カンファレンスの開催日（固有の最新事情）。
+id = "conf-date"
+pattern = "must"
+prompt = "When is the SatsumaConf 2027 conference scheduled? Look up the current schedule and answer with the date."
+search_keyword = "satsumaconf"
+page_html = "<html><head><title>SatsumaConf 2027</title></head><body><main><h1>SatsumaConf 2027</h1><p>SatsumaConf 2027 will be held on March 14, 2027 in Osaka. ROUTING-MARKER-CONF</p></main></body></html>"
+
+[checks]
+contains_any = ["March 14", "2027-03-14", "3月14"]

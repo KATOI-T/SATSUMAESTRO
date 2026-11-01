@@ -1,0 +1,9 @@
+id = "retry-attempts"
+prompt = "もし _send が常に False を返すとしたら、send_with_retry は _send を何回呼んでから失敗しますか。数字で答えてください。"
+prompt_en = "If _send always returned False, how many times would send_with_retry call _send before giving up? Answer with a number."
+category = "HOW/api-framework-support"
+fixture = "../fixtures/relay"
+
+[checks]
+# RETRY_LIMIT = 3（config.py）回試行して ConnectionError。
+regex = ["(?<![0-9])3(?![0-9])"]

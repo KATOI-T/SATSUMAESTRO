@@ -1,0 +1,13 @@
+# 段 1 で BLOCKED → 無関係な依頼（削除）では段を再開しない → 「続けて」で段 1 から再開して完走。
+# 修正前は、直前が BLOCKED なら発話の中身を見ずに段を再開したため、削除の依頼で a.txt の作成が走った
+# （そのときは「削除」の規則が not_contains で外れ、「Resuming step 1 of 3」の規則に落ちる）。
+{"when": {"role": "user", "contains": "三つのファイル"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "{plan_file}", "content": "# 計画\n\n## Steps\n1. a.txt を作る (~5 lines)\n2. b.txt を作る (~5 lines)\n3. c.txt を作る (~5 lines)\n"}}]}, "note": "計画を書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": ".satsuma/plans/"}, "reply": {"tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "承認を求める"}
+{"when": {"role": "tool", "tool": "exit_plan_mode", "contains": "Do ONLY step 1 of 3"}, "reply": {"text": "BLOCKED: a.txt の中身は何にしますか？"}, "note": "段 1 で判断を仰いで止まる"}
+{"when": {"role": "user", "contains": "削除", "not_contains": "Resuming step"}, "reply": {"text": "まだファイルを作っていないので、削除するものはありません。"}, "note": "無関係な依頼: 段は再開されない"}
+{"when": {"role": "user", "contains": "Resuming step 1 of 3"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "再開した段 1"}
+{"when": {"role": "user", "contains": "Now do ONLY step 2 of 3"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "b.txt", "content": "b\n"}}]}, "note": "段 2"}
+{"when": {"role": "user", "contains": "Now do the last step (3 of 3)"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "c.txt", "content": "c\n"}}]}, "note": "段 3"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "a.txt"}, "reply": {"text": "段 1 完了: a.txt を作成しました。"}, "note": "段 1 の要約"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "b.txt"}, "reply": {"text": "段 2 完了: b.txt を作成しました。"}, "note": "段 2 の要約"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "c.txt"}, "reply": {"text": "すべての段を終えました。"}, "note": "最終段の要約"}

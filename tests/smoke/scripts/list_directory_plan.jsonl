@@ -1,0 +1,6 @@
+# plan モードのまま list_directory（READ_ONLY）が実行され、表記ゆれ ls も同じツールとして走る。
+# 修正前は list_directory が「unknown tool」で候補（glob_search / bash）だけ返り、bash の ls は plan で止められた。
+{"when": {"role": "user", "contains": "何があるか"}, "reply": {"tool_calls": [{"name": "list_directory", "args": {"path": "."}}]}, "note": "直下を一覧（plan 中でも止められない）"}
+{"when": {"role": "tool", "tool": "list_directory", "contains": "src/"}, "reply": {"tool_calls": [{"name": "ls", "args": {"path": "src"}}]}, "note": "表記ゆれ ls で src を一覧"}
+{"when": {"role": "tool", "tool": "ls", "contains": "ran list_directory"}, "reply": {"text": "README.md と src/（a.py）があります。node_modules は省きました。"}, "note": "文章で答える（plan からは出ない）"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all（✗ が返ったときはこちらに落ちる）"}

@@ -1,0 +1,8 @@
+id = "resolve-order-result"
+prompt = "alpha（deps=('beta',)）、beta、gamma の 3 タスクをこの順で resolve_order に渡すと、戻り値の並びはどうなりますか。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/taskflow"
+
+[checks]
+# 深さ優先で依存が先: beta → alpha → gamma。この順で並ぶことを regex で確認。
+regex = ["beta.*alpha.*gamma"]

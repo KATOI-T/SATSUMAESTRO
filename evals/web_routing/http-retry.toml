@@ -1,0 +1,9 @@
+# 補強（最多想定）: 既存知識で答えられるが検索で鮮度が上がる。検索は任意（記録のみ）。
+id = "http-retry"
+pattern = "augment"
+prompt = "What are current best practices for retrying failed HTTP requests in a client library? Keep it short."
+search_keyword = "retry"
+page_html = "<html><head><title>HTTP retry guide</title></head><body><article><p>Use exponential backoff with jitter, cap total attempts, and honor Retry-After headers. ROUTING-MARKER-RETRY</p></article></body></html>"
+
+[checks]
+contains_any = ["backoff", "Retry-After", "jitter"]

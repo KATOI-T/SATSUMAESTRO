@@ -1,0 +1,8 @@
+id = "results-order"
+prompt = "dispatch_all(SAMPLE_EVENTS) が返すリストの中身を、順番どおりに答えてください。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/relay"
+
+[checks]
+# [16, 91, 63]（route 4/13/7 のハンドラで size 4/7/9 を処理）。
+regex = ["16.*91.*63"]

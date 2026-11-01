@@ -1,0 +1,9 @@
+id = "relay-constants-multi"
+prompt = "relay プロジェクトについて次をそれぞれ調べて報告して。config.py の RETRY_LIMIT と BATCH_BONUS の値を調べて。Event の status フィールドの既定値も調べて。"
+prompt_en = "Look into the following about the relay project and report on each. Find the values of RETRY_LIMIT and BATCH_BONUS in config.py. Also find the default value of the status field of Event."
+category = "WHAT/concept-definition"
+fixture = "../fixtures/relay"
+
+[checks]
+contains_all = ["RETRY_LIMIT", "BATCH_BONUS", "NEW"]
+regex = ["(?<![0-9])3(?![0-9])", "(?<![0-9])8(?![0-9])"]

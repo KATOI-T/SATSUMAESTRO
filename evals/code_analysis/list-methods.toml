@@ -1,0 +1,8 @@
+id = "list-methods"
+prompt = "Cart クラスが持つメソッドを全て挙げてください。"
+prompt_en = "List all the methods of the Cart class."
+category = "WHAT/architecture-exploration"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["add_item", "subtotal", "total"]

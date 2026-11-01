@@ -1,0 +1,8 @@
+id = "tags-writer"
+prompt = "Task の tags 属性へ要素を追加（append 等で変更）しているコードは、どのファイルのどの関数にありますか。実際に実行されるコードだけを対象に答えてください。"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/taskflow"
+
+[checks]
+# 実際の書き込みは runner.run_all の task.tags.append("done") のみ（legacy.py はコメント内）。
+contains_all = ["runner.py", "run_all"]

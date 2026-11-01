@@ -1,0 +1,6 @@
+# 遅延ツール（todo_write）を tool_search を挟まずに直接呼ぶ。activeForm も付けない。
+# 修正前は「読み込んだ。次の呼び出しから使える」の ✗ が出て 1 往復を空振りした。修正後は 1 回目が実行され、
+# ToDo 更新が 1 回出て、✗ は出ない。code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "TODO"}, "reply": {"tool_calls": [{"name": "todo_write", "args": {"todos": [{"content": "a.txt を作る", "status": "in_progress"}, {"content": "b.txt を作る"}]}}]}, "note": "遅延ツールを直接呼ぶ（schema 未露出・activeForm 無し）"}
+{"when": {"role": "tool", "tool": "todo_write", "contains": "[~] a.txt を作る"}, "reply": {"text": "TODO を 2 件登録しました。"}, "note": "1 回目の呼び出しが実行された"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all（✗ が返ったときはこちらに落ちる）"}

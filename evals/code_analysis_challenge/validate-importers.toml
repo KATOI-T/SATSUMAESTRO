@@ -1,0 +1,8 @@
+id = "validate-importers"
+prompt = "validate モジュールを import しているファイルは何個ありますか。数字で答えてください。"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/relay"
+
+[checks]
+# handler_01〜20 のうち handler_13 だけ import していないため 19。
+regex = ["(?<![0-9])19(?![0-9])"]

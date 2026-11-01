@@ -1,0 +1,104 @@
+[project]
+name = "satsumaestro"
+dynamic = ["version"]
+description = "An agentic coding CLI that also runs on local LLMs"
+readme = "README.md"
+requires-python = ">=3.12"          # 開発は 3.13、下限 3.12 を許容
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "KATO IT, LLC" }]
+keywords = ["agent", "coding-agent", "cli", "llm", "local-llm", "ollama"]
+# ライセンスは license の SPDX 式で表すので、License の classifier は付けない（PEP 639）。
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "anthropic>=0.40,<1",     # 公式 SDK（1 から httpx2 になり、渡している httpx.Timeout を受けない）
+    "openai>=1.50",           # OpenAI 互換
+    "typer>=0.16",            # CLI
+    "prompt_toolkit>=3.0.10", # REPL
+    "rich>=13.7",             # 描画
+    "pydantic>=2.11",         # データモデル
+    "python-dotenv>=1.0",     # .env
+    "mcp>=1.25,<2",           # MCP SDK（2 では streamablehttp_client が無く、起動できない）
+    "httpx>=0.27",            # HTTP
+    "sqlite-vec>=0.1",        # ベクトル索引
+    "regex>=2026.7.19",       # 権限ルール正規表現（ReDoS 実タイムアウト）
+    "pathspec>=1.1",          # .gitignore 準拠のインジェスト対象走査
+]
+
+[project.urls]
+Homepage = "https://github.com/KATOI-T/SATSUMAESTRO"
+Repository = "https://github.com/KATOI-T/SATSUMAESTRO"
+Issues = "https://github.com/KATOI-T/SATSUMAESTRO/issues"
+Changelog = "https://github.com/KATOI-T/SATSUMAESTRO/blob/main/CHANGELOG.md"
+
+# 開発ツールは PEP 735 dependency-groups で管理する。
+# extra（optional-dependencies）と違い uv sync で既定インストールされ、
+# uv run による暗黙同期でも prune されない（dev グループは既定で有効）。
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+    "types-regex>=2026.7.19.20260720",
+]
+
+[project.scripts]
+satsumaestro = "satsumaestro.cli.app:main"
+satsuma = "satsumaestro.cli.app:main"
+stro = "satsumaestro.cli.app:main"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "satsumaestro/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["satsumaestro"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/satsumaestro", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
+
+[tool.ruff]
+target-version = "py312"    # 下限に合わせ 3.13 専用構文の誤用を防ぐ
+line-length = 100
+# 評価フィクスチャは「わざと欠陥を含む題材」。lint で直させない。
+extend-exclude = ["evals/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# Typer の慣用（引数デフォルトに typer.Argument/Option を置く）を B008 から除外する。
+# ヘルプの文に使う ui() は str を返す（引数デフォルトに置いても共有される可変値にならない）。
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option", "satsumaestro.i18n.text.ui"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# 擬似プロバイダ＋pty の REPL 煙テスト。`uv run pytest` は飛ばし、`make smoke`
+# （`uv run pytest -m smoke tests/smoke`）で回す。`-m` は上書き型なので、コマンド行の `-m smoke` が
+# ここに勝つ（ファイル名だけを指定しても飛ばされる）。
+markers = ["smoke: 擬似プロバイダ＋pty で本物の REPL を動かす煙テスト（make smoke。GPU 不要・約 30 秒）"]
+addopts = "-m 'not smoke'"

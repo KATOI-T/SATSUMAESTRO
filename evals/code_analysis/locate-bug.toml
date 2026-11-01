@@ -1,0 +1,10 @@
+id = "locate-bug"
+prompt = "レシートに全項目が出力されないバグがあります。原因のファイルと該当するコードを特定してください。"
+prompt_en = "There is a bug where the receipt does not show every item. Identify the file that causes it and the code responsible."
+category = "WHERE/feature-location"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["report.py"]
+# 原因コードへの言及（表現揺れを許容するため OR 判定）。
+contains_any = ["range(len(items) - 1)", "range(len(items)-1)", "len(items) - 1", "len(items)-1"]

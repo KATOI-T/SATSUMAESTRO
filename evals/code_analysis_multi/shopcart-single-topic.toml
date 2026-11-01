@@ -1,0 +1,7 @@
+id = "shopcart-single-topic"
+prompt = "shopcart の Cart.total が subtotal からどのような手順で税込合計を計算しているのかを関数名を挙げながら詳しく説明してほしい"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_all = ["apply_discount", "with_tax"]

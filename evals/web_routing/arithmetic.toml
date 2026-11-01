@@ -1,0 +1,7 @@
+# 不要（閉じた知識）: 計算。検索せず即答すべき（tool_calls=0 を期待）。
+id = "arithmetic"
+pattern = "skip"
+prompt = "What is 17 * 23? Answer with just the number."
+
+[checks]
+contains_any = ["391"]

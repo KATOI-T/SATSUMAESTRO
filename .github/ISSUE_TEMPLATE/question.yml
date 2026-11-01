@@ -1,0 +1,32 @@
+name: Question
+description: Ask how to do something with SATSUMAESTRO
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Japanese are both fine. Remove API keys, tokens and other secrets from anything you paste.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to do, and what you have tried.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `satsumaestro --version`.
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      placeholder: Ollama, qwen3:8b
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and the README.
+          required: true

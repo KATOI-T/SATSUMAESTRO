@@ -1,0 +1,13 @@
+id = "spec-markdown"
+# HTML とは別の生成形式でも同じ上限に当たることを見る（形式依存でないことの確認）。
+prompt = """docs/api-spec.md に REST API の仕様書を書いてください。
+12 個のエンドポイントを扱い、各エンドポイントについて概要・HTTP メソッド・パス・
+リクエスト本文の例・レスポンス本文の例・エラー時の応答を節に分けて記述してください。
+省略や「以下同様」は使わず、12 個すべてを最後まで書いてください。"""
+category = "HOW/system-design"
+fixture = "../fixtures/blank"
+# ファイルを作らせるので workspace-write（既定の read-only では書込が拒否され、必ず落ちる）。
+permission_mode = "workspace-write"
+
+[checks]
+file_min_lines = { "docs/api-spec.md" = 250 }

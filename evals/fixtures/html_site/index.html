@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>在庫ダッシュボード</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>在庫ダッシュボード</h1>
+  </header>
+  <main>
+    <section class="cards">
+      <div class="card">
+        <span class="label">総在庫数</span>
+        <span class="value">8,640</span>
+      </div>
+      <div class="card">
+        <span class="label">欠品</span>
+        <span class="value">37</span>
+      </div>
+      <div class="card">
+        <span class="label">入荷予定</span>
+        <span class="value">5</span>
+      </div>
+    </section>
+    <section class="panels">
+      <div class="panel">
+        <h2>倉庫別</h2>
+        <div class="chart" id="by-warehouse">
+        </div>
+      </div>
+      <div class="panel">
+        <h2>カテゴリ別</h2>
+        <div class="chart" id="by-category">
+        </div>
+      </div>
+      <div class="panel">
+        <h2>推移</h2>
+        <div class="chart" id="trend">
+        </div>
+      </div>
+    </section>
+    <section class="alerts">
+      <h2>アラート</h2>
+      <ul>
+        <li>東京倉庫: 棚卸し差異あり</li>
+        <li>大阪倉庫: 入荷遅延</li>
+        <li>福岡倉庫: 温度センサー異常</li>
+        <li>札幌倉庫: 出荷停止中</li>
+        <li>名古屋倉庫: 在庫僅少</li>
+      </ul>
+      <div class="note">
+        アラートは 15 分ごとに更新されます。
+      </div>
+    </section>
+  </main>
+  <footer>
+    <div class="copyright">
+      &copy; 2026 Example Logistics
+    </div>
+    <div class="version">
+      v2.4.1
+    </div>
+  </footer>
+</body>
+</html>

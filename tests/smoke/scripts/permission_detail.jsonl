@@ -1,0 +1,7 @@
+# 権限カードで d → モデルが「何をしようとしているか」を説明 → y で許可。説明の要求は本体と同じ
+# 接頭辞に user を 1 つ足した形で届く（末尾の本文に "it has NOT run yet" の固定句がある）。依頼の照合
+# （built.txt）より先に置く: 説明の問いにも呼び出しの引数（touch built.txt）が載るため。
+{"when": {"role": "user", "contains": "it has NOT run yet"}, "reply": {"text": "空の built.txt を作ります。依頼されたファイルを用意するためです。"}, "note": "d の説明"}
+{"when": {"role": "user", "contains": "built.txt"}, "reply": {"tool_calls": [{"name": "bash", "args": {"command": "touch built.txt"}}]}, "note": "依頼"}
+{"when": {"role": "tool", "tool": "bash"}, "reply": {"text": "built.txt を作りました。"}, "note": "実行後"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

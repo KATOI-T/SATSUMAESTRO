@@ -1,0 +1,19 @@
+id = "dashboard-html"
+# 実機の再現: 1 回の write_file が read タイムアウト（既定 120 秒）を
+# 超える大きさになるよう、明示的に「省略なし」の分量を求める。
+prompt = """dashboards/index.html に管理ダッシュボードを 1 ファイルで作成してください。
+CSS と JavaScript は同じファイルへ埋め込み、左サイドバー・上部の指標カード 4 枚・
+20 行のデータ表・グラフの領域 3 つを含めてください。
+省略や「...」などのプレースホルダは使わず、完成した HTML を書いてください。"""
+prompt_en = """Create an admin dashboard as a single file at dashboards/index.html.
+Embed the CSS and JavaScript in the same file, and include a left sidebar, 4 metric cards at the top,
+a data table with 20 rows, and 3 chart areas.
+Do not leave anything out or use placeholders such as "..."; write the complete HTML."""
+category = "HOW/system-design"
+fixture = "../fixtures/blank"
+# ファイルを作らせるので workspace-write（既定の read-only では書込が拒否され、必ず落ちる）。
+permission_mode = "workspace-write"
+
+[checks]
+# 本文ではなく成果物を見る（「作りました」と言いながら途中で切れている場合を落とす）。
+file_min_lines = { "dashboards/index.html" = 200 }

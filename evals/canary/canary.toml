@@ -1,0 +1,52 @@
+# カナリー: 代表課題を 1 回だけ回す門。
+#
+# 課題は既存のスイートを参照する（ここでは増やさない）。門（安定な課題）かどうかは manifest ではなく
+# 履歴（.satsuma/evals/baselines/canary.json）から決める: 履歴 5 本以上・合格率 95% 以上。
+# 初期の集合は履歴 529 本（gpt-oss:120b）で合格率 95% 以上だった課題。中央値の合計は約 3 分。
+#
+#   uv run satsumaestro eval evals/canary/canary.toml --model gpt-oss:120b \
+#       --baseline .satsuma/evals/baselines/canary.json --out .satsuma/evals/<topic>-canary.json
+#
+# 揺らぐ課題（transitive-chain 88% / find-anomalous-handler 46% / dashboard-html 33%・+plan 11%）は
+# 入れない。plan 経路の課題を入れるなら、経路は固定のトークンで採点する（今は入れていない）。
+
+schema_version = 1
+name = "canary"
+target_minutes = 5
+
+[[cases]]
+path = "../code_analysis"             # 8 題・96〜100%（n=255〜265）・合計 65 秒
+capability = "basic-search"
+
+[[cases]]
+path = "../code_analysis_challenge/dynamic-import.toml"   # 98%（n=95）・17 秒
+capability = "import-tracing"
+
+[[cases]]
+path = "../code_analysis_challenge/retry-attempts.toml"   # 99%（n=95）・9 秒
+capability = "constant-tracing"
+
+[[cases]]
+path = "../code_analysis_challenge/bonus-source.toml"     # 100%（n=95）・10 秒
+capability = "value-origin"
+
+[[cases]]
+path = "../code_analysis_multi/relay-constants-multi.toml"        # 100%（n=6）・8 秒
+capability = "multi-topic"
+
+[[cases]]
+path = "../code_analysis_multi/shopcart-tax-and-bug-multi.toml"   # 100%（n=6）・17 秒
+capability = "multi-topic-bug"
+
+[[cases]]
+path = "../code_analysis_multi/taskflow-queue-and-order-multi.toml"  # 100%（n=6）・30 秒
+capability = "multi-topic-flow"
+
+[[cases]]
+path = "../bash_quoting"              # 2 題・100%（n=8）・合計 10 秒
+capability = "bash-args"
+
+[[cases]]
+path = "../code_analysis/find-definition.toml"   # +plan 92%（n=40）・13 秒
+plan = true
+capability = "plan-path"

@@ -1,0 +1,8 @@
+id = "read-config"
+prompt = "税率（TAX_RATE）の値はいくつですか。"
+prompt_en = "What is the value of the tax rate (TAX_RATE)?"
+category = "WHAT/concept-definition"
+fixture = "../fixtures/shopcart"
+
+[checks]
+contains_any = ["0.1", "10%", "10 %", "10％"]

@@ -1,0 +1,79 @@
+---
+# SATSUMAESTRO permission policy. Copy to .satsuma/policy.md and edit.
+# SATSUMAESTRO の権限ポリシー。.satsuma/policy.md に写して書き換える。
+#
+# mode: used when no rule matches / どの規則にも当たらないときの動き
+#   read-only           read only; the rest asks / 読み取りだけ。ほかは確認
+#   workspace-write     also writes in the workspace (default) / 作業場所の中への書き込みまで（既定）
+#   danger-full-access  almost everything / ほぼすべて
+#   prompt              always ask / 常に確認
+#   allow               always allow / 常に許可
+mode: workspace-write
+---
+
+# Order (strongest first) / 優先の順（強い順）:
+#   Denied tools > Deny > Ask > Allow > mode
+#
+# Rules / 規則:
+#   - <tool>                          whole tool (* = any) / ツール全体（* はどれでも）
+#   - <tool> when <field> glob:<pat>  glob match / glob に合うとき
+#   - <tool> when <field> re:<regex>  regex match / 正規表現に合うとき
+#   <field>: command (bash) | path (files) | url (web)
+#
+# A rule matches one tool name only: write_file does not cover edit_file.
+# 規則はツール名の完全一致。write_file の規則は edit_file には効かない。
+#
+# Every policy.md from the git root down to the working directory applies.
+# git の根から作業ディレクトリまでの policy.md がすべて効く。
+#
+# Related settings ("permission" in .satsuma/settings.json) / 関係する設定:
+#   "bash_auto_allow": "off"                    ask for every bash / bash を毎回確認
+#   "secret_access": "deny"                     refuse secret files / 秘密ファイルを拒否
+#   "secret_patterns_remove": [".env.example"]  not secret / 秘密の扱いから外す
+
+## Denied tools
+# Always refused / 常に拒否
+- web_search
+- write_file when path glob: **/.git/**
+
+## Deny
+- bash when command re: ^\s*rm\s+-rf\s+/
+- bash when command re: \bcurl\b.*\|\s*sh
+- bash when command re: \bsudo\b
+- edit_file when path glob: **/secrets/**
+- write_file when path glob: **/.env
+- edit_file when path glob: **/.env
+- append_file when path glob: **/.env
+
+## Ask
+# Asks in repl, refused in prompt / repl では確認、prompt では拒否
+- bash when command re: ^\s*git\s+push
+- bash when command re: ^\s*git\s+commit
+- web_fetch
+# Orchestration and worker tools (only when enabled) / オーケストレーションと worker（有効にしたときだけ）
+- task_create
+- task_stop
+- task_update
+- team_create
+- team_delete
+- cron_create
+- cron_delete
+- worker_create
+- worker_resolve_trust
+- worker_send_prompt
+- worker_restart
+- worker_terminate
+
+## Allow
+# Allowed within the mode above / 上の mode の範囲で許可
+- read_file
+- grep_search
+- write_file when path glob: src/**
+- edit_file when path glob: src/**
+# MCP tools ask by default; exact names only / MCP のツールは既定で確認。名前は完全一致
+- mcp__filesystem__read_file
+
+## Tool requirements
+# Mode a tool needs, to override the default / ツールが求めるモード（既定を変えるときだけ）
+- bash: danger-full-access
+- read_file: read-only

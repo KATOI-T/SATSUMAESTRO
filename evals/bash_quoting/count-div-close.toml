@@ -1,0 +1,17 @@
+id = "count-div-close"
+# 引用符の中の `</div>` を `< /div>` と読んで「path escapes workspace: /div>」で拒否していた
+# 不具合の再現（jail 段）。
+#
+# 「bash で grep -c を使って」は再現のための足場: 指定しないとモデルは grep_search を選び、
+# 不具合の経路（bash 検証）を通らない。数え方を固定するだけで、答え（個数）は変わらない。
+prompt = """index.html に閉じタグ </div> は何行ありますか。
+bash ツールで grep -c を使って数え、その数を答えてください。"""
+prompt_en = """How many lines in index.html contain the closing tag </div>?
+Count them with grep -c using the bash tool, and answer with the number."""
+category = "WHERE/identifier-location"
+fixture = "../fixtures/html_site"
+# REPL の既定と同じ workspace-write。bash は read-only 段を通らず、jail 段の判定だけを受ける。
+permission_mode = "workspace-write"
+
+[checks]
+regex = ["\\b12\\b"]

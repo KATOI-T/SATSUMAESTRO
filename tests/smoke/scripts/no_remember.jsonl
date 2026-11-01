@@ -1,0 +1,6 @@
+# 永続許可できない操作のカードには a=永続許可 を出さない。通常の touch は 4 択で a → 記録される。
+# rm は 3 択（y / n / d）と理由の 1 行。a と打っても許可にも拒否にもせず聞き直し、y で実行する。
+# code のまま流す。touch / rm は読み取りでないので workspace-write で確認カードに回る。
+{"when": {"role": "user", "contains": "built.txt"}, "reply": {"tool_calls": [{"name": "bash", "args": {"command": "touch built.txt"}}, {"name": "bash", "args": {"command": "rm -f gone.txt"}}]}, "note": "依頼（作成と削除）"}
+{"when": {"role": "tool", "tool": "bash"}, "reply": {"text": "built.txt を作り、gone.txt を消しました。"}, "note": "実行後"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

@@ -1,0 +1,8 @@
+id = "find-anomalous-handler"
+prompt = "handler_01.py〜handler_20.py の 20 個のハンドラは同じ手順で実装されているはずですが、1 つだけ validate の呼び出しが抜けています。どのファイルですか。"
+category = "WHERE/feature-location"
+fixture = "../fixtures/relay"
+
+[checks]
+# 20 ファイルの網羅確認が必要（サンプリングでは当たらない）。
+contains_all = ["handler_13"]

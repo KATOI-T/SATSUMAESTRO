@@ -1,0 +1,12 @@
+# 段 1 でモデルが大きな書き込みを 1 回で出そうとして無音になり、read タイムアウトで打ち切られる
+# （実機では 120 秒。台本は settings の request_timeout_s=2 と stall_ms=3500 で再現）。1 回目の reminder の後も
+# 同じ大きさを繰り返して 2 回目も打ち切り → 以前はここで ⚠ ターンが失敗しました。いまはハーネスが「続けて」相当の
+# 段の再開の文（cancelled again … Resuming step 1 of 2）を積み、擬似プロバイダはそれを受けて小さく書いて完走する。
+{"when": {"role": "user", "contains": "三つのファイル"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "{plan_file}", "content": "# 計画\n\n## Steps\n1. a.txt を書く (~5 lines)\n2. b.txt を書く (~5 lines)\n"}}]}, "note": "計画を書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": ".satsuma/plans/"}, "reply": {"tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "承認を求める"}
+{"when": {"role": "tool", "tool": "exit_plan_mode", "contains": "Do ONLY step 1 of 2"}, "reply": {"stall_ms": 3500, "tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "(never arrives)\n"}}]}, "note": "段 1: 大きな書き込みを 1 回で出そうとして無音（1 回目の打ち切り）"}
+{"when": {"role": "user", "contains": "Your previous response was cancelled"}, "reply": {"stall_ms": 3500, "tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "(never arrives)\n"}}]}, "note": "1 回目の reminder の後も同じ大きさを繰り返す（2 回目の打ち切り）"}
+{"when": {"role": "user", "contains": "cancelled again"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "段の再開の文を受けて小さく書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "a.txt"}, "reply": {"text": "段 1 完了: a.txt を書きました。"}, "note": "段 1 の要約"}
+{"when": {"role": "user", "contains": "Now do the last step (2 of 2)"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "b.txt", "content": "b\n"}}]}, "note": "段 2: b.txt を書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "b.txt"}, "reply": {"text": "すべての段を終えました。a.txt と b.txt を書きました。"}, "note": "最終段の要約"}

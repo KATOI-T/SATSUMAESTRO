@@ -1,0 +1,11 @@
+# 正常系: plan → 3 段の計画 → 承認 → 段 1..3 で a/b/c.txt を書く → 完走 → 削除
+{"when": {"role": "user", "contains": "三つのファイル"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "{plan_file}", "content": "# 計画\n\n## Steps\n1. a.txt を作る (~5 lines)\n2. b.txt を作る (~5 lines)\n3. c.txt を作る (~5 lines)\n"}}]}, "note": "計画を書く"}
+{"when": {"role": "tool", "tool": "write_file", "contains": ".satsuma/plans/"}, "reply": {"tool_calls": [{"name": "exit_plan_mode", "args": {}}]}, "note": "承認を求める"}
+{"when": {"role": "tool", "tool": "exit_plan_mode", "contains": "Do ONLY step 1 of 3"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "段 1"}
+{"when": {"role": "user", "contains": "Now do ONLY step 2 of 3"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "b.txt", "content": "b\n"}}]}, "note": "段 2"}
+{"when": {"role": "user", "contains": "Now do the last step (3 of 3)"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "c.txt", "content": "c\n"}}]}, "note": "段 3"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "a.txt"}, "reply": {"text": "段 1 完了: a.txt を作成しました。"}, "note": "段 1 の要約（ツール無しで終える）"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "b.txt"}, "reply": {"text": "段 2 完了: b.txt を作成しました。"}, "note": "段 2 の要約"}
+{"when": {"role": "tool", "tool": "write_file", "contains": "c.txt"}, "reply": {"text": "すべての段を終えました。"}, "note": "最終段の要約"}
+{"when": {"role": "user", "contains": "削除して"}, "reply": {"tool_calls": [{"name": "delete_path", "args": {"path": "a.txt"}}, {"name": "delete_path", "args": {"path": "b.txt"}}, {"name": "delete_path", "args": {"path": "c.txt"}}]}, "note": "削除（カードが 3 回出る）"}
+{"when": {"role": "tool", "tool": "delete_path"}, "reply": {"text": "3 ファイルを削除しました。"}, "note": "削除の報告"}

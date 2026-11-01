@@ -1,0 +1,9 @@
+id = "exact-count"
+prompt = "emitter.py の emit 関数は、このコードベースのソースコード上で何箇所から呼び出されていますか。コメント・docstring・関数定義自体は数えず、数字で答えてください。"
+category = "WHERE/identifier-location"
+fixture = "../fixtures/relay"
+
+[checks]
+# 正解 21（ハンドラ 20 + pipeline 1）。transport.py のコメント・emitter.py の
+# docstring は数えない。前後に数字が続かない 21 のみ正解とする。
+regex = ["(?<![0-9])21(?![0-9])"]

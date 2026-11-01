@@ -1,0 +1,8 @@
+id = "tie-break"
+prompt = "TaskQueue に同じ priority のタスクを複数 push したとき、pop で取り出される順序は何によって決まりますか。"
+category = "HOW/algorithm-implementation"
+fixture = "../fixtures/taskflow"
+
+[checks]
+# heappush タプルの第 2 要素 _counter（投入順）が決める。
+contains_any = ["_counter", "counter", "投入順", "登録順", "push した順", "先入れ", "FIFO"]

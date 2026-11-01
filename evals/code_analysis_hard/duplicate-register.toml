@@ -1,0 +1,8 @@
+id = "duplicate-register"
+prompt = "registry.register を同じ name のタスクで 2 回呼ぶと、レジストリの中身はどうなりますか。"
+category = "HOW/api-framework-support"
+fixture = "../fixtures/taskflow"
+
+[checks]
+# dict へ name キーで格納するため後勝ちで上書きされる。
+contains_any = ["上書き", "置き換え", "後勝ち", "overwrite", "replace", "後の"]

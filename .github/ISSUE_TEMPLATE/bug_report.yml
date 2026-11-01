@@ -1,0 +1,68 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. English and Japanese are both fine.
+        **Security issues must not be reported here**: follow [SECURITY.md](https://github.com/KATOI-T/SATSUMAESTRO/blob/main/SECURITY.md) instead.
+        Remove API keys, tokens and other secrets from anything you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. cd into a project and run `satsumaestro repl`
+        2. Ask "..."
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `satsumaestro --version`
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and install method
+      placeholder: macOS 15 (Apple M2, 16 GB), uv tool install
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      description: For Ollama, include its version and the context window (`num_ctx`) if you changed it.
+      placeholder: Ollama 0.33.2, qwen3:8b, context window 16K
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `satsumaestro doctor --probe`
+      description: Check that it contains no secrets before pasting.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screen output or logs
+      description: Run with `--debug` to also show developer logs on the screen.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This is not a security vulnerability (see SECURITY.md).
+          required: true
+        - label: I searched the existing issues.
+          required: true

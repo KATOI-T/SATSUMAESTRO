@@ -1,0 +1,7 @@
+# 最初の応答が glob_search の引数だけの JSON（ツール名も tool_calls も無い）。以前はハーネスがそれを回答と見なして
+# ターンを閉じ、ファイルが 1 つも作られなかった。いまは「それは `glob_search` の引数に見える。ツール呼び出しとして呼べ」
+# が user メッセージで差し戻され、擬似プロバイダはそれを受けて書く。code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "a.txt"}, "reply": {"text": "{\"path\": \".\", \"pattern\": \"**/*.txt\", \"limit\": 100}"}, "note": "引数だけの JSON を本文で返す（ツール名なし）"}
+{"when": {"role": "user", "contains": "looks like the arguments of the tool"}, "reply": {"tool_calls": [{"name": "write_file", "args": {"path": "a.txt", "content": "a\n"}}]}, "note": "差し戻しを受けてツールで書く"}
+{"when": {"role": "tool", "tool": "write_file"}, "reply": {"text": "a.txt を作りました。"}, "note": "完了"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

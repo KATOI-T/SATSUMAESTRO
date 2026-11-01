@@ -1,0 +1,9 @@
+id = "shared-state-bug"
+prompt = "タグを指定せずに作ったタスク同士で tags の中身が共有されてしまうバグがあります。原因のファイルと、原因となっているコードを特定してください。"
+category = "WHERE/data-control-flow"
+fixture = "../fixtures/taskflow"
+
+[checks]
+contains_all = ["models.py"]
+# 可変既定値への言及（コード断片 or 日英の説明語のいずれか）。deps=() は罠（イミュータブルなので無害）。
+contains_any = ["tags: list = []", "tags=[]", "tags = []", "可変", "ミュータブル", "mutable", "既定値", "デフォルト引数", "default argument"]

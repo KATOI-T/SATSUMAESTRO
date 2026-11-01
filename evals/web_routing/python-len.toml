@@ -1,0 +1,7 @@
+# 不要: 言語仕様の基本。
+id = "python-len"
+pattern = "skip"
+prompt = "In Python, what does len(\"abc\") return? Answer briefly."
+
+[checks]
+contains_any = ["3"]
