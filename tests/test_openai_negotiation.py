@@ -188,6 +188,24 @@ async def test_rejected_effort_none_drops_tools_without_looping(
     assert [n.kind for n in seen] == ["tools_dropped"]
 
 
+async def test_rejected_user_effort_is_not_restored_when_tools_are_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    errors = [
+        _err("reasoning_effort", "unsupported_value", "xhigh is not supported"),
+        _err(message="tools need effort none"),
+        _err("reasoning_effort", "unsupported_value", "none is not supported"),
+        None,
+    ]
+    provider, calls = _provider(monkeypatch, errors)
+    req = _req("gpt-6-astra", sampling=SamplingConfig(reasoning_effort="xhigh"))
+    await _run(provider, req)
+    assert [c.get("reasoning_effort") for c in calls] == ["xhigh", None, "none", None]
+    assert calls[3]["tools"] is NOT_GIVEN
+    quirks = model_quirks_for(_OFFICIAL, "gpt-6-astra")
+    assert quirks.tools_unsupported is True and quirks.dropped_params == {"reasoning_effort"}
+
+
 @pytest.mark.parametrize(
     ("status", "message"),
     [

@@ -368,7 +368,7 @@ def _without_tools(shape: _Shape, req: ApiRequest) -> _Shape:
     kwargs = dict(shape.kwargs)
     if shape.forced_effort_none:
         user = req.sampling.reasoning_effort if req.sampling is not None else None
-        if user is None or user in shape.dropped:
+        if user is None or "reasoning_effort" in shape.dropped:
             kwargs.pop("reasoning_effort", None)
         else:
             kwargs["reasoning_effort"] = user
