@@ -57,6 +57,7 @@ _STOP_REASONS = {
 }
 
 _KEEP_ALIVE_WAIT_S = 1.0
+_XAI_HOST = "api.x.ai"
 
 # 400 を見て形を変える再送の上限。拒まれた要求は課金されないので、コストは待ち時間だけ
 _MAX_NEGOTIATIONS = 6
@@ -64,6 +65,11 @@ _TOKEN_CAP_PARAMS = ("max_tokens", "max_completion_tokens")
 _SAMPLING_PARAMS = ("temperature", "top_p", "reasoning_effort")
 # 上限超過の本文は 2 種類ある: "Expected a value <= N" と "supports at most N completion tokens"
 _CAP_RE = re.compile(r"(?:<=|at most)\s*(\d+)")
+# xAI は param を返さず、本文で引数を名指しする: "does not support parameter reasoningEffort" など
+_NAMED_PARAM_RES = (
+    re.compile(r"does not support parameter `?(\w+)"),
+    re.compile(r"`(\w+)` value"),
+)
 
 
 def _stop_reason_for(finish_reason: str | None) -> str:
@@ -198,10 +204,29 @@ def _cap_param(kwargs: dict[str, Any]) -> str | None:
     return next((k for k in _TOKEN_CAP_PARAMS if k in kwargs), None)
 
 
+def _param_of(e: APIError) -> str | None:
+    """400 が名指しした引数。xAI は ``param`` を返さないので本文から読む。"""
+    if e.param:
+        return e.param
+    text = e.message or ""
+    for pattern in _NAMED_PARAM_RES:
+        found = pattern.search(text)
+        if found:
+            return re.sub(r"(?<!^)(?=[A-Z])", "_", found.group(1)).lower()
+    return "reasoning_effort" if "invalid reasoning effort" in text.lower() else None
+
+
 def _not_a_chat_model(e: APIError) -> bool:
-    """モデルが Chat Completions で使えない旨の応答か（pro 系は 404 で "not a chat model"）。"""
+    """モデルが Chat Completions で使えない旨の応答か（OpenAI の pro と xAI の multi-agent）。"""
     text = (e.message or "").lower()
+    if "not allowed on chat completions" in text:
+        return True
     return e.param == "model" and ("chat/completions" in text or "responses" in text)
+
+
+def _at_capacity(e: BaseException) -> bool:
+    """xAI がストリームの途中で返す混雑の通知か（HTTP の状態が無いので再試行の判定から漏れる）。"""
+    return isinstance(e, APIError) and e.code == "resource-exhausted" and status_code_of(e) is None
 
 
 def _close_objects(node: dict[str, Any]) -> dict[str, Any]:
@@ -408,6 +433,10 @@ class OpenAICompatProvider:
         tuning = openai if openai is not None else OpenAIConfig()
         host = urlparse(base_url if "://" in base_url else f"http://{base_url}").hostname or ""
         self._official = ollama_root is None and host in {h.lower() for h in tuning.hosts}
+        # xAI も 400 が名指しした引数から学ぶ（base_url での指定も含む）。ツールの手探りは公式だけ
+        self._learns = self._official or (
+            ollama_root is None and (kind is ProviderKind.XAI or host == _XAI_HOST)
+        )
         self._negotiate_400 = tuning.negotiate
         self._keep_alive = keep_alive if (ollama_root and keep_alive) else None
         self._bg: set[asyncio.Task[None]] = set()
@@ -455,7 +484,7 @@ class OpenAICompatProvider:
                 ),
                 status_code=status_code_of(e),
                 retry_after=retry_after_of(e),
-                retryable=transport_retryable(e),
+                retryable=True if _at_capacity(e) else transport_retryable(e),
             ) from e
         finally:
             if stream is not None:
@@ -466,8 +495,8 @@ class OpenAICompatProvider:
     async def _open(
         self, req: ApiRequest, tools: list[dict[str, Any]], *, strict: bool
     ) -> AsyncIterator[Any]:
-        """``create`` を発行し、400 なら形を変えて再送する（OpenAI 公式のみ引数も調整）。"""
-        quirks = model_quirks_for(self._base_url, req.model) if self._official else None
+        """``create`` を発行し、400 なら形を変えて再送する（OpenAI 公式と xAI は引数も調整）。"""
+        quirks = model_quirks_for(self._base_url, req.model) if self._learns else None
         shape = self._initial_shape(req, tools, strict, quirks)
         error: APIError | None = None
         error_strict = False
@@ -533,7 +562,7 @@ class OpenAICompatProvider:
         self, e: APIError, shape: _Shape, req: ApiRequest, quirks: ModelQuirks | None
     ) -> _Shape | None:
         """400 の内容から次に試す形を決める。None なら諦める。"""
-        param, message = e.param, e.message or ""
+        param, message = _param_of(e), e.message or ""
         if param == "model":
             return None
         negotiable = quirks is not None and self._negotiate_400
@@ -544,7 +573,7 @@ class OpenAICompatProvider:
                 return identified
         if shape.strict:
             return replace(shape, strict=False, strict_dropped=True)
-        if not negotiable or not shape.tools or shape.tools_dropped:
+        if not negotiable or not self._official or not shape.tools or shape.tools_dropped:
             return None
         # ここから先は手探りの変更なので、strict 外しが効いたとは言えず、記憶しない
         kwargs = dict(shape.kwargs)

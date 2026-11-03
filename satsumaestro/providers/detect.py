@@ -287,7 +287,7 @@ _CAPABILITIES: dict[str, ProviderCapabilities] = {}
 
 @dataclass
 class ModelQuirks:
-    """OpenAI 公式 API のモデルごとに、400 から学んだ要求の形（プロセス内）。"""
+    """OpenAI 公式 API と xAI のモデルごとに、400 から学んだ要求の形（プロセス内）。"""
 
     token_cap: int | None = None
     no_token_cap: bool = False
