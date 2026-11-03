@@ -532,10 +532,28 @@ class OpenAICompatProvider:
         param, message = e.param, e.message or ""
         if param == "model":
             return None
+        negotiable = quirks is not None and self._negotiate_400
+        if negotiable:
+            # param で原因が分かる 400 は strict を残したまま直す
+            identified = self._fix_named_param(param, message, shape, req)
+            if identified is not None:
+                return identified
         if shape.strict:
             return replace(shape, strict=False, strict_dropped=True)
-        if quirks is None or not self._negotiate_400:
+        if not negotiable or not shape.tools or shape.tools_dropped:
             return None
+        # ここから先は手探りの変更なので、strict 外しが効いたとは言えず、記憶しない
+        kwargs = dict(shape.kwargs)
+        if kwargs.get("reasoning_effort") != "none" and not shape.forced_effort_none:
+            kwargs["reasoning_effort"] = "none"
+            return replace(shape, kwargs=kwargs, forced_effort_none=True, strict_dropped=False)
+        return replace(_without_tools(shape, req), strict_dropped=False)
+
+    @staticmethod
+    def _fix_named_param(
+        param: str | None, message: str, shape: _Shape, req: ApiRequest
+    ) -> _Shape | None:
+        """400 が名指しした引数を直した形。名指しが無い・直せないなら None。"""
         kwargs = dict(shape.kwargs)
         cap = _cap_param(kwargs)
         if cap is not None and param in _TOKEN_CAP_PARAMS:
@@ -544,17 +562,13 @@ class OpenAICompatProvider:
                 kwargs[cap] = int(found.group(1))
             else:
                 del kwargs[cap]
-            return replace(shape, kwargs=kwargs)
+            return replace(shape, kwargs=kwargs, strict_dropped=False)
         if param == "reasoning_effort" and shape.forced_effort_none:
-            return _without_tools(shape, req)
+            return replace(_without_tools(shape, req), strict_dropped=False)
         if param in _SAMPLING_PARAMS and param in kwargs:
             del kwargs[param]
-            return replace(shape, kwargs=kwargs, dropped=shape.dropped | {param})
-        if shape.tools and not shape.tools_dropped:
-            if kwargs.get("reasoning_effort") != "none" and not shape.forced_effort_none:
-                kwargs["reasoning_effort"] = "none"
-                return replace(shape, kwargs=kwargs, forced_effort_none=True)
-            return _without_tools(shape, req)
+            dropped = shape.dropped | {param}
+            return replace(shape, kwargs=kwargs, dropped=dropped, strict_dropped=False)
         return None
 
     def _commit(self, shape: _Shape, req: ApiRequest, quirks: ModelQuirks | None) -> None:

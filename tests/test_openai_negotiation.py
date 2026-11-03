@@ -235,15 +235,55 @@ async def test_other_model_errors_are_not_negotiated(monkeypatch: pytest.MonkeyP
     assert len(calls) == 1
 
 
-async def test_strict_is_dropped_before_the_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+def _is_strict(call: dict[str, Any]) -> bool:
+    return bool(call["tools"][0]["function"].get("strict"))
+
+
+async def test_cap_error_on_a_strict_request_keeps_strict(monkeypatch: pytest.MonkeyPatch) -> None:
     cap_error = _err("max_completion_tokens", "integer_above_max_value", _CAP_MSG)
-    provider, calls = _provider(monkeypatch, [_err(message="strict"), cap_error, None])
+    provider, calls = _provider(monkeypatch, [cap_error, None])
+    await _run(provider, _req("gpt-4o", strict=True))
+    assert len(calls) == 2
+    assert _is_strict(calls[0]) and _is_strict(calls[1])
+    assert calls[1]["max_completion_tokens"] == 16384
+    assert capabilities_for(_OFFICIAL).strict_tools_unsupported is False
+
+
+async def test_strict_alone_fixing_the_400_is_remembered(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, calls = _provider(monkeypatch, [_err(message="schema"), None])
+    await _run(provider, _req(strict=True))
+    assert len(calls) == 2
+    assert _is_strict(calls[0]) and not _is_strict(calls[1])
+    assert "reasoning_effort" not in calls[1]
+    assert capabilities_for(_OFFICIAL).strict_tools_unsupported is True
+
+
+async def test_effort_fix_after_dropping_strict_is_not_blamed_on_strict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, calls = _provider(monkeypatch, [_err(message="x"), _err(message="x"), None])
+    await _run(provider, _req(strict=True))
+    assert len(calls) == 3
+    assert _is_strict(calls[0]) and not _is_strict(calls[1]) and not _is_strict(calls[2])
+    assert calls[2]["reasoning_effort"] == "none"
+    assert capabilities_for(_OFFICIAL).strict_tools_unsupported is False
+    assert model_quirks_for(_OFFICIAL, "gpt-6-luna").tools_need_effort_none is True
+
+    await _run(provider, _req(strict=True))
+    assert len(calls) == 4
+    assert _is_strict(calls[3]) and calls[3]["reasoning_effort"] == "none"
+
+
+async def test_cap_fix_after_dropping_strict_is_not_blamed_on_strict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cap_error = _err("max_completion_tokens", "integer_above_max_value", _CAP_MSG)
+    provider, calls = _provider(monkeypatch, [_err(message="x"), cap_error, None])
     await _run(provider, _req("gpt-4o", strict=True))
     assert len(calls) == 3
-    assert calls[0]["tools"][0]["function"].get("strict") is True
-    assert "strict" not in calls[1]["tools"][0]["function"]
+    assert _is_strict(calls[0]) and not _is_strict(calls[1]) and not _is_strict(calls[2])
     assert calls[2]["max_completion_tokens"] == 16384
-    assert capabilities_for(_OFFICIAL).strict_tools_unsupported is True
+    assert capabilities_for(_OFFICIAL).strict_tools_unsupported is False
 
 
 async def test_unknown_400_gives_up_after_effort_and_tools(monkeypatch: pytest.MonkeyPatch) -> None:
