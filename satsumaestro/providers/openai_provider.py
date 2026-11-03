@@ -223,6 +223,11 @@ def _not_a_chat_model(e: APIError) -> bool:
     return e.param == "model" and ("chat/completions" in text or "responses" in text)
 
 
+def _at_capacity(e: BaseException) -> bool:
+    """xAI がストリームの途中で返す混雑の通知か（HTTP の状態が無いので再試行の判定から漏れる）。"""
+    return isinstance(e, APIError) and e.code == "resource-exhausted" and status_code_of(e) is None
+
+
 def _close_objects(node: dict[str, Any]) -> dict[str, Any]:
     """全オブジェクトノードへ ``additionalProperties: false`` を付けた深いコピー。"""
     out: dict[str, Any] = {}
@@ -476,7 +481,7 @@ class OpenAICompatProvider:
                 ),
                 status_code=status_code_of(e),
                 retry_after=retry_after_of(e),
-                retryable=transport_retryable(e),
+                retryable=True if _at_capacity(e) else transport_retryable(e),
             ) from e
         finally:
             if stream is not None:

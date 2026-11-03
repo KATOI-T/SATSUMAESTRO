@@ -1,4 +1,4 @@
-"""xAI 向けの 400 交渉（本文で名指しされた引数の調整・Responses API 専用モデル）。"""
+"""xAI 向けの 400 交渉（本文で名指しされた引数の調整・Responses API 専用モデル・混雑の再試行）。"""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from typing import Any
 
 import httpx
 import pytest
-from openai import NOT_GIVEN, APIStatusError
+from openai import NOT_GIVEN, APIError, APIStatusError
 
 from satsumaestro.config.models import OpenAIConfig, SamplingConfig
 from satsumaestro.providers.base import ApiRequest, ProviderKind
 from satsumaestro.providers.detect import model_quirks_for, reset_capabilities
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
+from satsumaestro.providers.retry import is_retryable
 from satsumaestro.util.errors import ProviderError
 
 _XAI = "https://api.x.ai/v1"
@@ -143,3 +144,24 @@ async def test_negotiate_off_also_covers_xai(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(ProviderError):
         await _run(provider, _req(effort="max"))
     assert len(calls) == 1
+
+
+async def test_capacity_in_the_stream_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatProvider("k", _XAI, ProviderKind.XAI)
+    busy = APIError(
+        "The model is currently at capacity due to high demand.",
+        httpx.Request("POST", f"{_XAI}/chat/completions"),
+        body={"code": "resource-exhausted", "message": "at capacity"},
+    )
+
+    async def chunks() -> AsyncIterator[NS]:
+        raise busy
+        yield
+
+    async def fake_create(**_: Any) -> AsyncIterator[NS]:
+        return chunks()
+
+    monkeypatch.setattr(provider._client.chat.completions, "create", fake_create)
+    with pytest.raises(ProviderError) as exc:
+        await _run(provider, _req())
+    assert exc.value.retryable is True and is_retryable(exc.value)
