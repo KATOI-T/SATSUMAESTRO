@@ -94,6 +94,16 @@ class ModelContextInfo:
         """整合に使う長さ（実効値を優先し、無ければ本来の窓）。"""
         return self.effective if self.effective is not None else self.native
 
+    @property
+    def confirmed(self) -> bool:
+        """載っているモデルの実効の窓を読めたか。"""
+        return self.source == "ps"
+
+    @property
+    def unconfirmed(self) -> bool:
+        """載っておらず本来の窓しか読めなかったか（載ると小さくなりうる）。"""
+        return self.source == "show.model_info"
+
 
 def same_model(a: str, b: str) -> bool:
     def norm(name: str) -> str:

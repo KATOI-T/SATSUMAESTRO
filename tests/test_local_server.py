@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from satsumaestro.config.models import RuntimeConfig
+from satsumaestro.engine.context_fit import local_server_for
 from satsumaestro.providers.detect import OllamaDetectMode, is_ollama_endpoint, ollama_root
 from satsumaestro.providers.local import OllamaServer, server_for_endpoint
 
@@ -30,3 +32,11 @@ def test_the_server_matches_the_ollama_rule(
         assert server.kind == "ollama"
     else:
         assert server is None
+
+
+def test_only_the_openai_compatible_kind_has_a_local_server() -> None:
+    cfg = RuntimeConfig()
+    cfg.provider.base_url = "http://localhost:11434/v1"
+    assert local_server_for(cfg, "gpt-oss:120b", {}) == OllamaServer("http://localhost:11434")
+    assert local_server_for(RuntimeConfig(), "claude-opus-5-5", {"ANTHROPIC_API_KEY": "k"}) is None
+    assert local_server_for(RuntimeConfig(), "m", {}) is None

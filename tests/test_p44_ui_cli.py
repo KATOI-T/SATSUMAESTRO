@@ -21,7 +21,7 @@ from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 from satsumaestro.engine.context_fit import (
     ContextFitResult,
     ModelCheck,
-    check_ollama_reachable,
+    check_reachable,
     missing_model_notice,
 )
 from satsumaestro.i18n.text import pinned_ui_language
@@ -225,7 +225,7 @@ async def test_unreachable_ollama_in_english() -> None:
 
     cfg = RuntimeConfig(provider=ProviderConfig(base_url=f"{_ROOT}/v1"))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        problem = await check_ollama_reachable(cfg, "gpt-oss:120b", {}, client=client)
+        problem = await check_reachable(cfg, "gpt-oss:120b", {}, client=client)
     assert problem == (
         f"Cannot reach Ollama: {_ROOT} (ConnectError: Connection refused). Check that the "
         "server is running and check OLLAMA_HOST in .env (OLLAMA_* in .env take precedence "

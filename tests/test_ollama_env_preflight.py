@@ -10,7 +10,7 @@ import pytest
 
 from satsumaestro.config.loader import ConfigLoader, prefer_dotenv_ollama
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
-from satsumaestro.engine.context_fit import check_ollama_reachable
+from satsumaestro.engine.context_fit import check_reachable
 
 
 def test_dotenv_ollama_wins_over_shell(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -48,7 +48,7 @@ async def test_reachable_ollama_passes() -> None:
         return httpx.Response(200, json={"models": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        problem = await check_ollama_reachable(
+        problem = await check_reachable(
             _cfg("http://10.0.0.5:11434/v1"), "gpt-oss:120b", {}, client=client
         )
     assert problem is None
@@ -60,7 +60,7 @@ async def test_unreachable_ollama_names_the_host() -> None:
         raise httpx.ConnectError("Connection refused")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        problem = await check_ollama_reachable(
+        problem = await check_reachable(
             _cfg("http://10.0.0.5:11434/v1"), "gpt-oss:120b", {}, client=client
         )
     assert problem is not None
@@ -73,7 +73,7 @@ async def test_non_ollama_provider_is_not_probed() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         assert (
-            await check_ollama_reachable(
+            await check_reachable(
                 RuntimeConfig(),
                 "claude-sonnet-5",
                 {"ANTHROPIC_API_KEY": "x"},
@@ -82,6 +82,5 @@ async def test_non_ollama_provider_is_not_probed() -> None:
             is None
         )
         assert (
-            await check_ollama_reachable(_cfg("http://localhost:8080/v1"), "m", {}, client=client)
-            is None
+            await check_reachable(_cfg("http://localhost:8080/v1"), "m", {}, client=client) is None
         )
