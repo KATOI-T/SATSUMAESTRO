@@ -34,7 +34,7 @@ class RetryPolicy:
     read_timeout_max_retries: int = 0
 
 
-def _status_is_transient(status: int) -> bool:
+def status_is_transient(status: int) -> bool:
     """HTTP ステータスが、時間を置けば通る失敗を表すか。"""
     return status in (408, 409, 429) or status >= 500
 
@@ -151,7 +151,7 @@ def is_retryable(exc: BaseException) -> bool:
             getattr(getattr(e, "response", None), "status_code", None)
         )
         if status is not None:
-            return _status_is_transient(status)
+            return status_is_transient(status)
         if type(e).__name__ in _TRANSPORT_ERROR_NAMES:
             return True
     return False

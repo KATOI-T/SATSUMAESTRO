@@ -190,8 +190,18 @@ async def test_the_lookup_runs_once_and_a_4xx_is_not_retried(
     assert lookups == ["claude-y"]
 
 
-async def test_a_network_failure_is_looked_up_again(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider, lookups = _provider(monkeypatch, httpx.ConnectError("offline"))
+def _rate_limited() -> anthropic.RateLimitError:
+    request = httpx.Request("GET", "https://api.anthropic.com/v1/models/claude-x")
+    return anthropic.RateLimitError(
+        "rate limited", response=httpx.Response(429, request=request), body=None
+    )
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError("offline"), _rate_limited()])
+async def test_a_passing_failure_is_looked_up_again(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    provider, lookups = _provider(monkeypatch, failure)
     await _params(provider, _req())
     await _params(provider, _req())
     assert lookups == ["claude-x", "claude-x"]

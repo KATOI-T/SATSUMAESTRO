@@ -27,6 +27,7 @@ from satsumaestro.providers.retry import (
     describe,
     retry_after_of,
     status_code_of,
+    status_is_transient,
     transport_retryable,
 )
 from satsumaestro.session.models import (
@@ -259,8 +260,8 @@ class AnthropicProvider:
             found = await self._client.models.retrieve(model, timeout=_LOOKUP_TIMEOUT_S)
         except (APIError, httpx.HTTPError) as e:
             status = status_code_of(e)
-            # 4xx は引き直しても変わらない。通信の失敗は次の要求で引き直す
-            if status is not None and 400 <= status < 500:
+            # 404 などは引き直しても変わらない。通信の失敗と 429 などは次の要求で引き直す
+            if status is not None and status >= 400 and not status_is_transient(status):
                 info.looked_up = True
             _log.debug("could not look up %s in the Models API: %s", model, e)
             return info
