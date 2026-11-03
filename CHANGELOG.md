@@ -75,7 +75,7 @@ Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1 also completed a three-turn sessio
   (deprecated by Anthropic)
 - Haiku: `claude-haiku-5-5`, `claude-haiku-4-5-20251001`
 
-### xAI models
+### xAI models ([#4](https://github.com/KATOI-T/SATSUMAESTRO/pull/4))
 
 #### Fixed
 
