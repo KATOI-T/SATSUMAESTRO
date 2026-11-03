@@ -58,6 +58,8 @@ Deprecated by OpenAI: `gpt-5.4-nano`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-n
 - Claude Opus 4.5, Sonnet 4.5 and Haiku 4.5 no longer fail with "adaptive thinking is not
   supported". Requests follow each model's capabilities from the Models API: adaptive or budgeted
   thinking, the effort levels it accepts and its output limit.
+- When the conversation history has been edited (for example by compaction), thinking blocks that
+  no longer match it are dropped instead of failing the request with a 400.
 
 #### Checked models
 

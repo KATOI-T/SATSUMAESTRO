@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from typing import Any
 
 import httpx
@@ -43,6 +44,9 @@ _LOOKUP_TIMEOUT_S = 10.0
 _EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
 _EFFORT_ALIASES = {"none": "low", "minimal": "low"}
 _MIN_THINKING_BUDGET = 1024
+_BINDING_BETA = "thinking-binding-controls-2026-08-01"
+_UNBOUND_THINKING = "bound to a different conversation"
+_THINKING_TYPES = frozenset({"thinking", "redacted_thinking"})
 
 
 def _block_to_wire(block: Any) -> dict[str, Any] | None:
@@ -160,6 +164,34 @@ def _thinking_budget(max_tokens: int) -> int | None:
     return budget if budget >= _MIN_THINKING_BUDGET else None
 
 
+def _is_unbound_thinking(e: APIError) -> bool:
+    """履歴を書き換えたため、送り返した thinking の block が会話と合わないという 400 か。"""
+    return status_code_of(e) == 400 and _UNBOUND_THINKING in str(e)
+
+
+def _drop_unbound(params: dict[str, Any]) -> dict[str, Any] | None:
+    """合わない thinking の block を API に外させる形。thinking を送らない要求では作れない。"""
+    thinking = params.get("thinking")
+    if not isinstance(thinking, dict):
+        return None
+    binding = {"prefix_mismatch_behavior": "drop_block"}
+    return {
+        **params,
+        "thinking": {**thinking, "block_binding": binding},
+        "extra_headers": {"anthropic-beta": _BINDING_BETA},
+    }
+
+
+def _without_thinking(params: dict[str, Any]) -> dict[str, Any]:
+    """履歴から thinking の block を除いた形（text と tool_use は残す）。"""
+    messages = []
+    for message in params["messages"]:
+        content = [b for b in message["content"] if b.get("type") not in _THINKING_TYPES]
+        if content:
+            messages.append({**message, "content": content})
+    return {**params, "messages": messages}
+
+
 class AnthropicProvider:
     kind = ProviderKind.ANTHROPIC
 
@@ -247,11 +279,42 @@ class AnthropicProvider:
             )
         )
 
+    async def _enter(
+        self, stack: AsyncExitStack, params: dict[str, Any], info: AnthropicModelInfo
+    ) -> Any:
+        """ストリームを開く。thinking の block が会話と合わない 400 なら、外す形で送り直す。"""
+        dropped = _drop_unbound(params)
+        first = dropped if info.drop_unbound_thinking and dropped is not None else params
+        try:
+            return await self._open(stack, first)
+        except APIError as e:
+            if not _is_unbound_thinking(e):
+                raise
+        if first is params and dropped is not None:
+            try:
+                opened = await self._open(stack, dropped)
+            except APIError as e:
+                if status_code_of(e) != 400:
+                    raise
+            else:
+                info.drop_unbound_thinking = True
+                _log.warning(
+                    "%s: thinking blocks no longer match the edited history, so they are dropped",
+                    params["model"],
+                )
+                return opened
+        # 外させる形が使えない（thinking を送らない・ベータを受けない）なら自分で除く
+        return await self._open(stack, _without_thinking(params))
+
+    async def _open(self, stack: AsyncExitStack, params: dict[str, Any]) -> Any:
+        return await stack.enter_async_context(self._client.messages.stream(**params))
+
     async def stream(self, req: ApiRequest) -> AsyncIterator[AssistantEvent]:
         try:
             info = await self._model_info(req.model)
             params = self._build_params(req, info)
-            async with self._client.messages.stream(**params) as stream:
+            async with AsyncExitStack() as stack:
+                stream = await self._enter(stack, params, info)
                 self._notify_effort(req, info, params.get("output_config", {}).get("effort"))
                 async for ev in stream:
                     mapped = _map_anthropic_event(ev)

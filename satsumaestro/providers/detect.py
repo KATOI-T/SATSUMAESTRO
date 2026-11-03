@@ -302,13 +302,14 @@ _QUIRKS: dict[tuple[str, str], ModelQuirks] = {}
 
 @dataclass
 class AnthropicModelInfo:
-    """Anthropic のモデルごとの機能（Models API・プロセス内）。"""
+    """Anthropic のモデルごとの機能（Models API）と、400 から学んだこと（プロセス内）。"""
 
     looked_up: bool = False
     known: bool = False
     thinking_types: frozenset[str] = frozenset()
     effort_levels: frozenset[str] = frozenset()
     max_tokens: int | None = None
+    drop_unbound_thinking: bool = False
     notice_shown: bool = False
 
 

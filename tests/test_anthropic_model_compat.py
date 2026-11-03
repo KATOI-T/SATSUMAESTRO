@@ -14,7 +14,9 @@ from satsumaestro.config.models import SamplingConfig
 from satsumaestro.providers import notices
 from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import ApiRequest
-from satsumaestro.providers.detect import reset_capabilities
+from satsumaestro.providers.detect import anthropic_model_info_for, reset_capabilities
+from satsumaestro.session.models import ConversationMessage, TextBlock, ThinkingBlock
+from satsumaestro.util.errors import ProviderError
 
 ALL_EFFORT = ("low", "medium", "high", "xhigh", "max")
 
@@ -85,6 +87,13 @@ def _provider(monkeypatch: pytest.MonkeyPatch, found: Any) -> tuple[AnthropicPro
 
     monkeypatch.setattr(provider._client.models, "retrieve", retrieve)
     return provider, lookups
+
+
+def _bad_request(message: str) -> anthropic.BadRequestError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return anthropic.BadRequestError(
+        message, response=httpx.Response(400, request=request), body=None
+    )
 
 
 async def _drain(provider: AnthropicProvider, req: ApiRequest) -> None:
@@ -205,3 +214,64 @@ async def test_the_default_effort_is_not_announced(monkeypatch: pytest.MonkeyPat
     with notices.bind(seen.append):
         await _drain(provider, _req())
     assert seen == []
+
+
+UNBOUND = (
+    "messages.1.content.0: Invalid `signature` in `thinking` block. "
+    "The block is bound to a different conversation."
+)
+
+
+def _history_req() -> ApiRequest:
+    messages = [
+        ConversationMessage(role="user", blocks=[TextBlock(text="q")]),
+        ConversationMessage(
+            role="assistant",
+            blocks=[ThinkingBlock(thinking="", signature="sig"), TextBlock(text="a")],
+        ),
+        ConversationMessage(role="user", blocks=[TextBlock(text="next")]),
+    ]
+    return ApiRequest(model="claude-x", system="s", messages=messages)
+
+
+async def test_unbound_thinking_is_dropped_by_the_api_and_remembered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, _ = _provider(monkeypatch, _model())
+    stream = _Stream([_bad_request(UNBOUND)])
+    monkeypatch.setattr(provider._client.messages, "stream", stream)
+    await _drain(provider, _history_req())
+    await _drain(provider, _history_req())
+
+    first, retried, later = stream.calls
+    assert "block_binding" not in first["thinking"]
+    for params in (retried, later):
+        assert params["thinking"]["block_binding"] == {"prefix_mismatch_behavior": "drop_block"}
+        assert params["extra_headers"] == {"anthropic-beta": "thinking-binding-controls-2026-08-01"}
+    info = anthropic_model_info_for(str(provider._client.base_url), "claude-x")
+    assert info.drop_unbound_thinking is True
+
+
+async def test_thinking_is_stripped_when_the_api_cannot_drop_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, _ = _provider(monkeypatch, _model())
+    beta_refused = _bad_request("block_binding: Extra inputs are not permitted")
+    stream = _Stream([_bad_request(UNBOUND), beta_refused])
+    monkeypatch.setattr(provider._client.messages, "stream", stream)
+    await _drain(provider, _history_req())
+
+    stripped = stream.calls[-1]
+    assert "block_binding" not in stripped["thinking"]
+    assert [b["type"] for b in stripped["messages"][1]["content"]] == ["text"]
+    info = anthropic_model_info_for(str(provider._client.base_url), "claude-x")
+    assert info.drop_unbound_thinking is False
+
+
+async def test_other_bad_requests_are_not_resent(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, _ = _provider(monkeypatch, _model())
+    stream = _Stream([_bad_request("max_tokens: too large")])
+    monkeypatch.setattr(provider._client.messages, "stream", stream)
+    with pytest.raises(ProviderError, match="too large"):
+        await _drain(provider, _history_req())
+    assert len(stream.calls) == 1
