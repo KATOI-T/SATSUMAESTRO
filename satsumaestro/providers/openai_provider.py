@@ -216,8 +216,10 @@ def _param_of(e: APIError) -> str | None:
 
 
 def _not_a_chat_model(e: APIError) -> bool:
-    """モデルが Chat Completions で使えない旨の応答か（pro 系は 404 で "not a chat model"）。"""
+    """モデルが Chat Completions で使えない旨の応答か（OpenAI の pro と xAI の multi-agent）。"""
     text = (e.message or "").lower()
+    if "not allowed on chat completions" in text:
+        return True
     return e.param == "model" and ("chat/completions" in text or "responses" in text)
 
 

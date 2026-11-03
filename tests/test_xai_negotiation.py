@@ -1,4 +1,4 @@
-"""xAI 向けの 400 交渉（本文で名指しされた引数の調整）。"""
+"""xAI 向けの 400 交渉（本文で名指しされた引数の調整・Responses API 専用モデル）。"""
 
 from __future__ import annotations
 
@@ -116,6 +116,18 @@ async def test_a_rejected_effort_value_is_dropped_and_others_still_sent(
 
     await _run(provider, _req(effort="high"))
     assert calls[2]["reasoning_effort"] == "high"
+
+
+async def test_the_multi_agent_model_raises_a_clear_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, calls = _provider(
+        monkeypatch, [_err("Multi Agent requests are not allowed on chat completions")]
+    )
+    with pytest.raises(ProviderError) as exc:
+        await _run(provider, _req("grok-4.20-multi-agent-0309"))
+    assert len(calls) == 1
+    assert "Responses API" in str(exc.value) and exc.value.retryable is False
 
 
 async def test_an_unknown_400_does_not_touch_the_tools(monkeypatch: pytest.MonkeyPatch) -> None:
