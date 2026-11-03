@@ -75,6 +75,31 @@ Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1 also completed a three-turn sessio
   (deprecated by Anthropic)
 - Haiku: `claude-haiku-5-5`, `claude-haiku-4-5-20251001`
 
+### xAI models
+
+#### Fixed
+
+- A reasoning effort that a Grok model does not accept no longer fails the request. xAI names the
+  rejected parameter only in the error text, which is now read, so the request is re-sent without
+  that value and the shape that worked is remembered per model, as for OpenAI.
+  `provider.openai.negotiate: false` turns this off for xAI as well.
+- `grok-4.20-multi-agent-0309` stops at once with a message saying it needs the Responses API.
+- A "model at capacity" error that arrives in the middle of a streamed reply is retried.
+
+#### Checked models
+
+There is no fixed table of models; requests adapt to each model at run time. Each of these 7 models
+replied through `satsumaestro prompt` on `api.x.ai`, read a file with a tool, and replied with
+reasoning effort `none`, `low` and `max`.
+
+- Accept effort, except `none` and `max`: `grok-4.7`, `grok-4.6`, `grok-4.5`
+- Accept effort, except `max`: `grok-4.3`
+- Do not accept effort, so it is not sent: `grok-4.20-0309-reasoning`,
+  `grok-4.20-0309-non-reasoning`, `grok-build-0.1`
+
+Not supported: `grok-4.20-multi-agent-0309` needs the Responses API. The `grok-imagine` models
+generate images and video.
+
 ## [0.5.0] - 2026-11-01
 
 First public release.
