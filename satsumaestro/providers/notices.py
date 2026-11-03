@@ -10,7 +10,7 @@ from typing import Literal
 
 from satsumaestro.i18n.text import ui
 
-NoticeKind = Literal["retry", "fallback", "rewrite"]
+NoticeKind = Literal["retry", "fallback", "rewrite", "tools_dropped", "effort_forced"]
 RetryReason = Literal["tool_parse", "transient"]
 
 
@@ -23,6 +23,7 @@ class ProviderNotice:
     reason: RetryReason = "transient"
     from_model: str = ""
     to_model: str = ""
+    model: str = ""
 
 
 NoticeSink = Callable[[ProviderNotice], None]
@@ -57,6 +58,10 @@ def describe(notice: ProviderNotice) -> str:
         return ui("providers.notices.is_not_responding_so_switching", old=old, new=new)
     if notice.kind == "rewrite":
         return ui("providers.notices.the_model_s_output_kept")
+    if notice.kind == "tools_dropped":
+        return ui("providers.notices.tools_dropped_for_model", model=notice.model)
+    if notice.kind == "effort_forced":
+        return ui("providers.notices.effort_forced_to_none", model=notice.model)
     count = f"{notice.attempt}/{notice.limit}"
     if notice.reason == "tool_parse":
         if notice.limit:

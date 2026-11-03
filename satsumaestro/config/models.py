@@ -74,6 +74,15 @@ class OllamaConfig(BaseModel):
     detect: Literal["auto", "on", "off"] = "auto"
 
 
+class OpenAIConfig(BaseModel):
+    """OpenAI 公式 API 向けの調整。Ollama と判定された接続先や ``hosts`` 外には適用しない。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hosts: list[str] = Field(default_factory=lambda: ["api.openai.com"])
+    negotiate: bool = True
+
+
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -83,6 +92,7 @@ class ProviderConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     roles: ModelRoles = Field(default_factory=ModelRoles)
 
 

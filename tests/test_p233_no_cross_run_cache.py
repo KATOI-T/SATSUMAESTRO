@@ -12,7 +12,7 @@ from satsumaestro.config.models import DecompositionConfig, RuntimeConfig
 from satsumaestro.evals.agents import AgentAnswer, EvalAgent
 from satsumaestro.evals.models import EvalTask
 from satsumaestro.evals.runner import EvalRunner
-from satsumaestro.providers.detect import capabilities_for, reset_capabilities
+from satsumaestro.providers.detect import capabilities_for, model_quirks_for, reset_capabilities
 from satsumaestro.session.store import new_session
 
 
@@ -122,3 +122,9 @@ async def test_eval_clears_the_capability_memory_between_tasks(tmp_path: Path) -
     await EvalRunner(agent).run(tasks)
     assert agent.seen_before == [False, False, False]
     reset_capabilities()
+
+
+def test_reset_also_clears_the_model_quirks() -> None:
+    model_quirks_for("http://x/v1", "m").tools_unsupported = True
+    reset_capabilities()
+    assert model_quirks_for("http://x/v1", "m").tools_unsupported is False
