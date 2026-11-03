@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from satsumaestro.config.models import ProviderConfig, RuntimeConfig
+from satsumaestro.config.models import OllamaConfig, ProviderConfig, RuntimeConfig
 from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.factory import build_bare, build_provider
@@ -80,3 +80,16 @@ def test_explicit_version_path_preserved() -> None:
     )
     router = RuntimeConfig(provider=ProviderConfig(base_url="https://openrouter.ai/api/v1"))
     assert openai_endpoint(router, {}) == "https://openrouter.ai/api/v1"
+
+
+def test_official_openai_is_detected_by_host_but_never_for_ollama() -> None:
+    env = {"OPENAI_API_KEY": "sk-x", "OPENAI_BASE_URL": "https://api.openai.com/v1"}
+    official = build_bare(RuntimeConfig(), "gpt-5-nano", env)
+    assert isinstance(official, OpenAICompatProvider) and official._official is True
+
+    local = build_bare(RuntimeConfig(), "qwen3:8b", {"OLLAMA_HOST": "http://localhost:11434"})
+    assert isinstance(local, OpenAICompatProvider) and local._official is False
+
+    forced = ProviderConfig(base_url="https://api.openai.com/v1", ollama=OllamaConfig(detect="on"))
+    proxied = build_bare(RuntimeConfig(provider=forced), "gpt-5-nano", {"OPENAI_API_KEY": "sk-x"})
+    assert isinstance(proxied, OpenAICompatProvider) and proxied._official is False

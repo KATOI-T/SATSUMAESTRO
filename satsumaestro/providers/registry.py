@@ -21,7 +21,7 @@ def expand_model_name(model: str) -> str:
 _VENDOR_NAMES: tuple[tuple[re.Pattern[str], ProviderKind], ...] = (
     (re.compile(r"claude-"), ProviderKind.ANTHROPIC),
     (re.compile(r"grok-"), ProviderKind.XAI),
-    (re.compile(r"(?:chat)?gpt-|o[0-9]+(?:-|$)"), ProviderKind.OPENAI),
+    (re.compile(r"(?:chat)?gpt-|o[0-9]+(?:-|$)|chat-latest$"), ProviderKind.OPENAI),
 )
 
 

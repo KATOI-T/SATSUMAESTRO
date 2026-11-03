@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -285,11 +285,32 @@ class ProviderCapabilities:
 _CAPABILITIES: dict[str, ProviderCapabilities] = {}
 
 
+@dataclass
+class ModelQuirks:
+    """OpenAI 公式 API のモデルごとに、400 から学んだ要求の形（プロセス内）。"""
+
+    token_cap: int | None = None
+    no_token_cap: bool = False
+    rejected_values: set[tuple[str, str]] = field(default_factory=set)
+    tools_need_effort_none: bool = False
+    tools_unsupported: bool = False
+    notice_shown: bool = False
+
+
+_QUIRKS: dict[tuple[str, str], ModelQuirks] = {}
+
+
 def capabilities_for(base_url: str) -> ProviderCapabilities:
     """``base_url`` 単位のキャッシュを返す（無ければ作る）。"""
     return _CAPABILITIES.setdefault(base_url.rstrip("/"), ProviderCapabilities())
 
 
+def model_quirks_for(base_url: str, model: str) -> ModelQuirks:
+    """``(base_url, model)`` 単位の記憶を返す（無ければ作る）。"""
+    return _QUIRKS.setdefault((base_url.rstrip("/"), model), ModelQuirks())
+
+
 def reset_capabilities() -> None:
     """記録を空にする（テストと、評価の 1 タスクごとの初期化）。"""
     _CAPABILITIES.clear()
+    _QUIRKS.clear()

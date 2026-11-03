@@ -139,7 +139,8 @@ async def test_the_request_carries_the_longer_read_limit_only_when_extended(
     wait: float | None, read: float | None
 ) -> None:
     provider, completions = _provider()
-    await provider._create(_req(wait), [])
+    req = _req(wait)
+    await provider._create(req, provider._initial_shape(req, [], False, None))
     timeout = completions.calls[0].get("timeout")
     if read is None:
         assert timeout is None

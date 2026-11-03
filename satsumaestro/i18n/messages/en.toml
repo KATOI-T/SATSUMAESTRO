@@ -224,7 +224,7 @@ command = "Command"
 description = "Description"
 nothing_to_fold_too_few = "Nothing to fold (too few messages)"
 compacted_folded_messages_into_a = { one = "Compacted: folded {n} message into a summary", other = "Compacted: folded {n} messages into a summary" }
-reasoning_effort_change_effort_low = "reasoning effort: {current} (change: /effort low|medium|high|default)"
+reasoning_effort_change_effort_low = "reasoning effort: {current} (change: /effort none|minimal|low|medium|high|xhigh|max|default)"
 effort_must_be_one_of = "effort must be one of {values}"
 undetermined = "undetermined"
 reply_language_change_lang = "Reply language: {current} ({mode})[dim] (change: /lang {values})[/dim]"
@@ -626,11 +626,14 @@ output_broke_retry_count = "The model's output broke midway, so generating it ag
 output_broke_retry = "The model's output broke midway, so generating it again"
 reply_failed_retry_count = "The model's reply failed, so trying again in {delay} s ({count})"
 reply_failed_retry = "The model's reply failed, so trying again in {delay} s"
+tools_dropped_for_model = "'{model}' cannot call tools over this API, so this session continues without tools"
+effort_forced_to_none = "'{model}' calls tools only with reasoning effort 'none', so it is sent that way"
 
 [providers.openai_provider]
 the_stream_closed_with_neither = "{marker}: the stream closed with neither finish_reason nor usage (thinking only). Ollama may have dropped a broken tool_call"
 the_assistant_stream_ended_without = "The assistant stream ended without a single event"
 openai_compatible_api_call_failed = "OpenAI-compatible API call failed: {error}"
+model_needs_the_responses_api = "'{model}' is only available through the Responses API, which SATSUMAESTRO does not support yet; choose another model"
 
 [security.output_guard]
 deletes_files_created_in_this = "Deletes files created in this session: {names}"

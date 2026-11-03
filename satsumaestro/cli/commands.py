@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast, get_args
 
 from rich.console import Console
 from rich.markup import escape
@@ -17,6 +17,7 @@ from rich.text import Text
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
 from satsumaestro.config.loader import save_screen_language
+from satsumaestro.config.models import ReasoningEffort
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
 from satsumaestro.security.enforcer import PermissionMode
@@ -28,7 +29,7 @@ from satsumaestro.util.errors import ConfigError
 if TYPE_CHECKING:
     from satsumaestro.engine.runtime import ConversationRuntime
 
-_EFFORT_VALUES = ("low", "medium", "high", "default")
+_EFFORT_VALUES = (*get_args(ReasoningEffort), "default")
 _LANG_VALUES = ("auto", *catalog().codes())
 _SCREEN_VALUES = (*screen_languages(), language_gate.AUTO)
 _SUB_VALUES = tuple(m.value for m in PermissionMode)
@@ -178,7 +179,7 @@ class SlashDispatcher:
         self.console = console
         self.trace_log = trace_log
         self.trusted = trusted
-        self._fast_prev: Literal["low", "medium", "high"] | None = None
+        self._fast_prev: ReasoningEffort | None = None
         self._fast_on = False
 
     def _print(self, *objects: object, **kwargs: Any) -> None:
@@ -236,9 +237,7 @@ class SlashDispatcher:
             bad = ui("cli.commands.effort_must_be_one_of", values=values)
             self._print(f"[yellow]{bad}[/yellow]")
             return
-        sampling.reasoning_effort = (
-            None if value == "default" else cast(Literal["low", "medium", "high"], value)
-        )
+        sampling.reasoning_effort = None if value == "default" else cast(ReasoningEffort, value)
         self._fast_on = False
         self._print(f"[dim]reasoning effort → {value}[/dim]")
 

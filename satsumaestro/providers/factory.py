@@ -63,6 +63,7 @@ def build_bare(
         timeout=timeout,
         ollama_root=root,
         keep_alive=ollama.keep_alive or None,
+        openai=config.provider.openai,
     )
 
 

@@ -6,12 +6,16 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, replace
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import httpx
 from openai import NOT_GIVEN, APIError, AsyncOpenAI
 
+from satsumaestro.config.models import OpenAIConfig
 from satsumaestro.engine.events import (
     AssistantEvent,
     MessageStop,
@@ -22,9 +26,15 @@ from satsumaestro.engine.events import (
     Usage,
 )
 from satsumaestro.i18n.text import ui
-from satsumaestro.providers import timing
+from satsumaestro.providers import notices, timing
 from satsumaestro.providers.base import ApiRequest, ProviderKind
-from satsumaestro.providers.detect import capabilities_for, note_model_used, touch_keep_alive
+from satsumaestro.providers.detect import (
+    ModelQuirks,
+    capabilities_for,
+    model_quirks_for,
+    note_model_used,
+    touch_keep_alive,
+)
 from satsumaestro.providers.retry import (
     describe,
     retry_after_of,
@@ -47,6 +57,13 @@ _STOP_REASONS = {
 }
 
 _KEEP_ALIVE_WAIT_S = 1.0
+
+# 400 を見て形を変える再送の上限。拒まれた要求は課金されないので、コストは待ち時間だけ
+_MAX_NEGOTIATIONS = 6
+_TOKEN_CAP_PARAMS = ("max_tokens", "max_completion_tokens")
+_SAMPLING_PARAMS = ("temperature", "top_p", "reasoning_effort")
+# 上限超過の本文は 2 種類ある: "Expected a value <= N" と "supports at most N completion tokens"
+_CAP_RE = re.compile(r"(?:<=|at most)\s*(\d+)")
 
 
 def _stop_reason_for(finish_reason: str | None) -> str:
@@ -147,11 +164,11 @@ def _drain_tool_calls(partial: dict[int, dict[str, str]]) -> list[ToolUse]:
     return out
 
 
-def _request_kwargs(req: ApiRequest) -> dict[str, Any]:
-    """``chat.completions.create`` の付加引数。"""
+def _request_kwargs(req: ApiRequest, official: bool = False) -> dict[str, Any]:
+    """``chat.completions.create`` の付加引数。OpenAI 公式の推論モデルは ``max_tokens`` を拒む。"""
     kwargs: dict[str, Any] = {
         "stream_options": {"include_usage": True},
-        "max_tokens": req.max_tokens,
+        ("max_completion_tokens" if official else "max_tokens"): req.max_tokens,
     }
     sampling = req.sampling
     if sampling is not None:
@@ -162,6 +179,29 @@ def _request_kwargs(req: ApiRequest) -> dict[str, Any]:
         if sampling.reasoning_effort is not None:
             kwargs["reasoning_effort"] = sampling.reasoning_effort
     return kwargs
+
+
+@dataclass
+class _Shape:
+    """1 回の ``create`` に渡す形。400 のたびに変えて再送する。"""
+
+    tools: list[dict[str, Any]]
+    strict: bool
+    kwargs: dict[str, Any]
+    strict_dropped: bool = False
+    forced_effort_none: bool = False
+    tools_dropped: bool = False
+    rejected: frozenset[tuple[str, str]] = frozenset()
+
+
+def _cap_param(kwargs: dict[str, Any]) -> str | None:
+    return next((k for k in _TOKEN_CAP_PARAMS if k in kwargs), None)
+
+
+def _not_a_chat_model(e: APIError) -> bool:
+    """モデルが Chat Completions で使えない旨の応答か（pro 系は 404 で "not a chat model"）。"""
+    text = (e.message or "").lower()
+    return e.param == "model" and ("chat/completions" in text or "responses" in text)
 
 
 def _close_objects(node: dict[str, Any]) -> dict[str, Any]:
@@ -323,6 +363,18 @@ async def _assemble_openai(stream: AsyncIterator[Any]) -> AsyncIterator[Assistan
     yield MessageStop(stop_reason=_stop_reason_for(stop_reason))
 
 
+def _without_tools(shape: _Shape, req: ApiRequest) -> _Shape:
+    """ツールを外し、強制した ``none`` を利用者の指定に戻す。"""
+    kwargs = dict(shape.kwargs)
+    if shape.forced_effort_none:
+        user = req.sampling.reasoning_effort if req.sampling is not None else None
+        if user is None or any(name == "reasoning_effort" for name, _ in shape.rejected):
+            kwargs.pop("reasoning_effort", None)
+        else:
+            kwargs["reasoning_effort"] = user
+    return replace(shape, tools=[], kwargs=kwargs, forced_effort_none=False, tools_dropped=True)
+
+
 async def _close_sdk_stream(stream: object) -> None:
     """SDK のストリーム（``AsyncStream``）を閉じて HTTP 接続を解放する。"""
     close = getattr(stream, "close", None) or getattr(stream, "aclose", None)
@@ -348,10 +400,15 @@ class OpenAICompatProvider:
         timeout: float | httpx.Timeout | None = None,
         ollama_root: str | None = None,
         keep_alive: str | None = None,
+        openai: OpenAIConfig | None = None,
     ) -> None:
         self.kind = kind
         self._base_url = base_url
         self._ollama_root = ollama_root
+        tuning = openai if openai is not None else OpenAIConfig()
+        host = urlparse(base_url if "://" in base_url else f"http://{base_url}").hostname or ""
+        self._official = ollama_root is None and host in {h.lower() for h in tuning.hosts}
+        self._negotiate_400 = tuning.negotiate
         self._keep_alive = keep_alive if (ollama_root and keep_alive) else None
         self._bg: set[asyncio.Task[None]] = set()
         self._timeout = timeout if isinstance(timeout, httpx.Timeout) else None
@@ -409,33 +466,154 @@ class OpenAICompatProvider:
     async def _open(
         self, req: ApiRequest, tools: list[dict[str, Any]], *, strict: bool
     ) -> AsyncIterator[Any]:
-        """``create`` を発行し、strict 起因らしき 400 は非 strict で 1 回だけ再送する。"""
-        if not strict:
-            return await self._create(req, tools)
-        try:
-            return await self._create(req, _strict_tools(tools))
-        except APIError as e:
-            if status_code_of(e) != 400:
-                raise
-            stream = await self._create(req, tools)
+        """``create`` を発行し、400 なら形を変えて再送する（OpenAI 公式のみ引数も調整）。"""
+        quirks = model_quirks_for(self._base_url, req.model) if self._official else None
+        shape = self._initial_shape(req, tools, strict, quirks)
+        error: APIError | None = None
+        error_strict = False
+        for _ in range(_MAX_NEGOTIATIONS + 1):
+            try:
+                stream = await self._create(req, shape)
+            except APIError as e:
+                if _not_a_chat_model(e):
+                    text = ui(
+                        "providers.openai_provider.model_needs_the_responses_api", model=req.model
+                    )
+                    raise ProviderError(text, status_code=status_code_of(e), retryable=False) from e
+                if status_code_of(e) != 400:
+                    raise
+                if error is None or error_strict:
+                    error, error_strict = e, shape.strict
+                following = self._negotiate(e, shape, req, quirks)
+                if following is None:
+                    break
+                _log.debug(
+                    "400 from %s, so re-sending in another shape (param=%s, code=%s): %s",
+                    req.model,
+                    e.param,
+                    e.code,
+                    e.message,
+                )
+                shape = following
+                continue
+            self._commit(shape, req, quirks)
+            return stream
+        assert error is not None
+        raise error
+
+    def _initial_shape(
+        self, req: ApiRequest, tools: list[dict[str, Any]], strict: bool, quirks: ModelQuirks | None
+    ) -> _Shape:
+        """記憶済みの形を反映した最初の要求。"""
+        kwargs = _request_kwargs(req, self._official)
+        if quirks is None:
+            return _Shape(tools=tools, strict=strict, kwargs=kwargs)
+        cap = _cap_param(kwargs)
+        if cap is not None and quirks.no_token_cap:
+            del kwargs[cap]
+        elif cap is not None and quirks.token_cap is not None:
+            kwargs[cap] = min(kwargs[cap], quirks.token_cap)
+        # 拒まれた記憶は (引数名, 値) の組。同じ値のときだけ外し、別の値は改めて試す
+        rejected = frozenset(
+            (name, value)
+            for name, value in quirks.rejected_values
+            if name in kwargs and str(kwargs[name]) == value
+        )
+        for name, _ in rejected:
+            del kwargs[name]
+        shape = _Shape(tools=tools, strict=strict, kwargs=kwargs, rejected=rejected)
+        if quirks.tools_unsupported and tools:
+            return replace(shape, tools=[], tools_dropped=True)
+        if quirks.tools_need_effort_none and tools:
+            kwargs["reasoning_effort"] = "none"
+            return replace(shape, forced_effort_none=True)
+        return shape
+
+    def _negotiate(
+        self, e: APIError, shape: _Shape, req: ApiRequest, quirks: ModelQuirks | None
+    ) -> _Shape | None:
+        """400 の内容から次に試す形を決める。None なら諦める。"""
+        param, message = e.param, e.message or ""
+        if param == "model":
+            return None
+        negotiable = quirks is not None and self._negotiate_400
+        if negotiable:
+            # param で原因が分かる 400 は strict を残したまま直す
+            identified = self._fix_named_param(param, message, shape, req)
+            if identified is not None:
+                return identified
+        if shape.strict:
+            return replace(shape, strict=False, strict_dropped=True)
+        if not negotiable or not shape.tools or shape.tools_dropped:
+            return None
+        # ここから先は手探りの変更なので、strict 外しが効いたとは言えず、記憶しない
+        kwargs = dict(shape.kwargs)
+        if kwargs.get("reasoning_effort") != "none" and not shape.forced_effort_none:
+            kwargs["reasoning_effort"] = "none"
+            return replace(shape, kwargs=kwargs, forced_effort_none=True, strict_dropped=False)
+        return replace(_without_tools(shape, req), strict_dropped=False)
+
+    @staticmethod
+    def _fix_named_param(
+        param: str | None, message: str, shape: _Shape, req: ApiRequest
+    ) -> _Shape | None:
+        """400 が名指しした引数を直した形。名指しが無い・直せないなら None。"""
+        kwargs = dict(shape.kwargs)
+        cap = _cap_param(kwargs)
+        if cap is not None and param in _TOKEN_CAP_PARAMS:
+            found = _CAP_RE.search(message)
+            if found and int(found.group(1)) > 0:
+                kwargs[cap] = int(found.group(1))
+            else:
+                del kwargs[cap]
+            return replace(shape, kwargs=kwargs, strict_dropped=False)
+        if param == "reasoning_effort" and shape.forced_effort_none:
+            return replace(_without_tools(shape, req), strict_dropped=False)
+        if param in _SAMPLING_PARAMS and param in kwargs:
+            rejected = shape.rejected | {(param, str(kwargs.pop(param)))}
+            return replace(shape, kwargs=kwargs, rejected=rejected, strict_dropped=False)
+        return None
+
+    def _commit(self, shape: _Shape, req: ApiRequest, quirks: ModelQuirks | None) -> None:
+        """成功した形を記憶し、ツールに関わる変更は 1 回だけ利用者に知らせる。"""
+        if shape.strict_dropped:
             caps = capabilities_for(self._base_url)
             caps.mark_strict_unsupported()
             if not caps.strict_fallback_logged:
                 caps.strict_fallback_logged = True
                 _log.warning(
-                    "strict tools were refused with a 400, so they are no longer sent (%s): %s",
+                    "strict tools were refused with a 400, so they are no longer sent (%s)",
                     self._base_url,
-                    e,
                 )
-            return stream
+        if quirks is None:
+            return
+        cap = _cap_param(shape.kwargs)
+        if cap is None:
+            quirks.no_token_cap = True
+        elif shape.kwargs[cap] < req.max_tokens:
+            quirks.token_cap = shape.kwargs[cap]
+        quirks.rejected_values |= set(shape.rejected)
+        kind: notices.NoticeKind | None = None
+        if shape.tools_dropped:
+            quirks.tools_unsupported = True
+            kind = "tools_dropped"
+        elif shape.forced_effort_none:
+            quirks.tools_need_effort_none = True
+            kind = "effort_forced"
+        if kind is None or quirks.notice_shown:
+            return
+        quirks.notice_shown = True
+        _log.warning("%s: %s", req.model, kind)
+        notices.notify(notices.ProviderNotice(kind=kind, model=req.model))
 
-    async def _create(self, req: ApiRequest, tools: list[dict[str, Any]]) -> AsyncIterator[Any]:
+    async def _create(self, req: ApiRequest, shape: _Shape) -> AsyncIterator[Any]:
+        tools = _strict_tools(shape.tools) if shape.strict else shape.tools
         call: dict[str, Any] = {
             "model": req.model,
             "messages": _to_openai_messages(req),
             "tools": tools or NOT_GIVEN,
             "stream": True,
-            **_request_kwargs(req),
+            **shape.kwargs,
         }
         first_byte = self._first_byte_timeout(req)
         if first_byte is not None and self._timeout is not None:

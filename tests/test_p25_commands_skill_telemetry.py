@@ -111,6 +111,8 @@ async def test_state_flags_effort_fast_plan(tmp_path: Path) -> None:
     assert rt.config.provider.sampling.reasoning_effort == "high"
     await d.dispatch(parse_slash("/effort default"))  # type: ignore[arg-type]
     assert rt.config.provider.sampling.reasoning_effort is None
+    await d.dispatch(parse_slash("/effort xhigh"))  # type: ignore[arg-type]
+    assert rt.config.provider.sampling.reasoning_effort == "xhigh"
     await d.dispatch(parse_slash("/plan on"))  # type: ignore[arg-type]
     assert rt.session.mode.main == "plan"
     await d.dispatch(parse_slash("/plan off"))  # type: ignore[arg-type]

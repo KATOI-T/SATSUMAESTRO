@@ -25,14 +25,17 @@ class RetryConfig(BaseModel):
     cache_break_min_drop: int = Field(default=2000, ge=0)
 
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+
+
 class SamplingConfig(BaseModel):
-    """サンプリング制御。"""
+    """サンプリング制御。``reasoning_effort`` の許容値はモデルごとに違う。"""
 
     model_config = ConfigDict(extra="forbid")
 
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     top_p: float | None = Field(default=None, gt=0.0, le=1.0)
-    reasoning_effort: Literal["low", "medium", "high"] | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
     def is_unset(self) -> bool:
         return self.temperature is None and self.top_p is None and self.reasoning_effort is None
@@ -71,6 +74,15 @@ class OllamaConfig(BaseModel):
     detect: Literal["auto", "on", "off"] = "auto"
 
 
+class OpenAIConfig(BaseModel):
+    """OpenAI 公式 API 向けの調整。Ollama と判定された接続先や ``hosts`` 外には適用しない。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hosts: list[str] = Field(default_factory=lambda: ["api.openai.com"])
+    negotiate: bool = True
+
+
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -80,6 +92,7 @@ class ProviderConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     roles: ModelRoles = Field(default_factory=ModelRoles)
 
 
