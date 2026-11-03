@@ -158,6 +158,20 @@ async def test_an_unknown_model_is_sent_as_before(monkeypatch: pytest.MonkeyPatc
     assert params["output_config"] == {"effort": "high"}
 
 
+async def test_an_unknown_model_ignores_the_chosen_effort_without_a_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, _ = _provider(monkeypatch, httpx.ConnectError("offline"))
+    stream = _Stream()
+    monkeypatch.setattr(provider._client.messages, "stream", stream)
+    seen: list[notices.ProviderNotice] = []
+    with notices.bind(seen.append):
+        await _drain(provider, _req("xhigh"))
+        await _drain(provider, _req("low"))
+    assert [call["output_config"] for call in stream.calls] == [{"effort": "high"}] * 2
+    assert seen == []
+
+
 async def test_the_lookup_runs_once_and_a_4xx_is_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

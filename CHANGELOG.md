@@ -51,7 +51,8 @@ Deprecated by OpenAI: `gpt-5.4-nano`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-n
 
 - The effort from `/effort` and `provider.sampling.reasoning_effort` now applies to Claude models
   (`none` and `minimal` are sent as `low`). A level the model does not accept is replaced by the
-  nearest one it does, with a one-time notice.
+  nearest one it does, with a one-time notice. If the Models API cannot describe the model, the
+  request is sent as before, with effort `high`.
 
 #### Fixed
 

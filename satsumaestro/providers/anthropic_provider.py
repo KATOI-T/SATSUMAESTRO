@@ -243,11 +243,12 @@ class AnthropicProvider:
 
     @staticmethod
     def _effort(req: ApiRequest, known: AnthropicModelInfo | None) -> str | None:
-        """送る effort。利用者の指定（``/effort``）を優先し、モデルが受ける段階に合わせる。"""
+        """送る effort。機能が分かれば利用者の指定を段階に合わせ、分からなければ今までどおり。"""
+        if known is None:
+            return req.effort
         chosen = req.sampling.reasoning_effort if req.sampling is not None else None
         effort: str = chosen or req.effort
-        requested = _EFFORT_ALIASES.get(effort, effort)
-        return requested if known is None else _effort_for(requested, known.effort_levels)
+        return _effort_for(_EFFORT_ALIASES.get(effort, effort), known.effort_levels)
 
     async def _model_info(self, model: str) -> AnthropicModelInfo:
         """モデルの機能を Models API で 1 回だけ引く。引けなければ今までどおりの形で送る。"""
@@ -270,7 +271,7 @@ class AnthropicProvider:
     def _notify_effort(self, req: ApiRequest, info: AnthropicModelInfo, sent: str | None) -> None:
         """利用者が選んだ effort を変えて送ったとき、モデルごとに 1 回だけ知らせる。"""
         chosen = req.sampling.reasoning_effort if req.sampling is not None else None
-        if chosen is None or chosen == sent or info.notice_shown:
+        if not info.known or chosen is None or chosen == sent or info.notice_shown:
             return
         info.notice_shown = True
         notices.notify(
