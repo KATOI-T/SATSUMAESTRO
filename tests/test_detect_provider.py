@@ -29,6 +29,7 @@ def test_configured_base_url_keeps_every_request_local(model: str) -> None:
         ("opus", ProviderKind.ANTHROPIC),
         ("grok-3", ProviderKind.XAI),
         ("gpt-4o", ProviderKind.OPENAI),
+        ("chat-latest", ProviderKind.OPENAI),
     ],
 )
 def test_model_id_shape_decides_before_base_url_and_keys(model: str, kind: ProviderKind) -> None:
@@ -58,3 +59,8 @@ def test_keys_decide_names_without_a_vendor_shape(keys: dict[str, str], kind: Pr
 
 def test_nothing_configured_falls_back_to_openai_compatible() -> None:
     assert choose_provider_kind("unknown", {}) is ProviderKind.OPENAI
+
+
+def test_chat_latest_is_recognised_as_openai_without_a_base_url() -> None:
+    env = {"ANTHROPIC_API_KEY": "x", "OPENAI_API_KEY": "x"}
+    assert choose_provider_kind("chat-latest", env) is ProviderKind.OPENAI
