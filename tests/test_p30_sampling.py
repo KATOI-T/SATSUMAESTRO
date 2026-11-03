@@ -44,6 +44,8 @@ def test_request_kwargs_sends_only_set_fields() -> None:
 
 
 def test_sampling_config_validation() -> None:
+    assert SamplingConfig(reasoning_effort="none").reasoning_effort == "none"
+    assert SamplingConfig(reasoning_effort="xhigh").reasoning_effort == "xhigh"
     with pytest.raises(ValidationError):
         SamplingConfig(temperature=3.0)
     with pytest.raises(ValidationError):
