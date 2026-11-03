@@ -45,6 +45,33 @@ Deprecated by OpenAI: `gpt-5.4-nano`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-n
 `gpt-4.1` models and the `gpt-4o` models. Not supported: `gpt-5.5-pro`, `gpt-5.4-pro` and
 `gpt-5.2-pro` need the Responses API.
 
+### Anthropic models
+
+#### Changed
+
+- The effort from `/effort` and `provider.sampling.reasoning_effort` now applies to Claude models
+  (`none` and `minimal` are sent as `low`). A level the model does not accept is replaced by the
+  nearest one it does, with a one-time notice.
+
+#### Fixed
+
+- Claude Opus 4.5, Sonnet 4.5 and Haiku 4.5 no longer fail with "adaptive thinking is not
+  supported". Requests follow each model's capabilities from the Models API: adaptive or budgeted
+  thinking, the effort levels it accepts and its output limit.
+
+#### Checked models
+
+There is no fixed table of models; requests follow each model's capabilities from the Models API.
+Each of these 14 models replied through `satsumaestro prompt` with a tool available. The 4.5 models,
+Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1 also completed a three-turn session that calls a tool.
+
+- Fable: `claude-fable-5-1`, `claude-fable-5`
+- Opus: `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`,
+  `claude-opus-4-5-20251101`
+- Sonnet: `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-sonnet-4-5-20250929`
+  (deprecated by Anthropic)
+- Haiku: `claude-haiku-5-5`, `claude-haiku-4-5-20251001`
+
 ## [0.5.0] - 2026-11-01
 
 First public release.

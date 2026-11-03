@@ -12,7 +12,12 @@ from satsumaestro.config.models import DecompositionConfig, RuntimeConfig
 from satsumaestro.evals.agents import AgentAnswer, EvalAgent
 from satsumaestro.evals.models import EvalTask
 from satsumaestro.evals.runner import EvalRunner
-from satsumaestro.providers.detect import capabilities_for, model_quirks_for, reset_capabilities
+from satsumaestro.providers.detect import (
+    anthropic_model_info_for,
+    capabilities_for,
+    model_quirks_for,
+    reset_capabilities,
+)
 from satsumaestro.session.store import new_session
 
 
@@ -126,5 +131,7 @@ async def test_eval_clears_the_capability_memory_between_tasks(tmp_path: Path) -
 
 def test_reset_also_clears_the_model_quirks() -> None:
     model_quirks_for("http://x/v1", "m").tools_unsupported = True
+    anthropic_model_info_for("https://api.anthropic.com", "m").notice_shown = True
     reset_capabilities()
     assert model_quirks_for("http://x/v1", "m").tools_unsupported is False
+    assert anthropic_model_info_for("https://api.anthropic.com", "m").notice_shown is False

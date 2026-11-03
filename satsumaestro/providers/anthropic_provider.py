@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -18,7 +19,9 @@ from satsumaestro.engine.events import (
     Usage,
 )
 from satsumaestro.i18n.text import ui
+from satsumaestro.providers import notices
 from satsumaestro.providers.base import ApiRequest, ProviderKind
+from satsumaestro.providers.detect import AnthropicModelInfo, anthropic_model_info_for
 from satsumaestro.providers.retry import (
     describe,
     retry_after_of,
@@ -33,6 +36,13 @@ from satsumaestro.session.models import (
     ToolUseBlock,
 )
 from satsumaestro.util.errors import ProviderError
+
+_log = logging.getLogger(__name__)
+
+_LOOKUP_TIMEOUT_S = 10.0
+_EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
+_EFFORT_ALIASES = {"none": "low", "minimal": "low"}
+_MIN_THINKING_BUDGET = 1024
 
 
 def _block_to_wire(block: Any) -> dict[str, Any] | None:
@@ -110,6 +120,46 @@ def _map_anthropic_event(ev: Any) -> AssistantEvent | None:
     return None
 
 
+def _supported(node: Any) -> frozenset[str]:
+    """Models API の機能の木のうち、``supported`` が真の子の名前。"""
+    if not isinstance(node, dict):
+        return frozenset()
+    return frozenset(k for k, v in node.items() if isinstance(v, dict) and v.get("supported"))
+
+
+def _learn_model(info: AnthropicModelInfo, found: Any) -> None:
+    """Models API の応答から、要求の形に要る機能を記録する。"""
+    info.max_tokens = getattr(found, "max_tokens", None) or None
+    caps = getattr(found, "capabilities", None)
+    if caps is None:
+        return
+    tree = caps.model_dump() if hasattr(caps, "model_dump") else dict(caps)
+    thinking = tree.get("thinking") or {}
+    if thinking.get("supported"):
+        info.thinking_types = _supported(thinking.get("types"))
+    effort = tree.get("effort") or {}
+    if effort.get("supported"):
+        info.effort_levels = _supported(effort) & frozenset(_EFFORT_ORDER)
+    info.known = True
+
+
+def _effort_for(requested: str, levels: frozenset[str]) -> str | None:
+    """モデルが受ける段階のうち、``requested`` 以下でいちばん近いもの（無ければ上で近いもの）。"""
+    if requested in levels:
+        return requested
+    rank = _EFFORT_ORDER.index(requested)
+    lower = [lv for lv in _EFFORT_ORDER[:rank] if lv in levels]
+    if lower:
+        return lower[-1]
+    return next((lv for lv in _EFFORT_ORDER[rank + 1 :] if lv in levels), None)
+
+
+def _thinking_budget(max_tokens: int) -> int | None:
+    """``budget_tokens`` の値。出力の上限の半分で、下限に届かなければ thinking を付けない。"""
+    budget = max_tokens // 2
+    return budget if budget >= _MIN_THINKING_BUDGET else None
+
+
 class AnthropicProvider:
     kind = ProviderKind.ANTHROPIC
 
@@ -127,26 +177,82 @@ class AnthropicProvider:
             timeout=timeout if timeout is not None else NOT_GIVEN,
         )
 
-    def _build_params(self, req: ApiRequest) -> dict[str, Any]:
+    def _build_params(
+        self, req: ApiRequest, info: AnthropicModelInfo | None = None
+    ) -> dict[str, Any]:
+        """要求の引数。モデルの機能が分かっていれば、受けない引数を外して上限に合わせる。"""
+        known = info if info is not None and info.known else None
+        max_tokens = req.max_tokens
+        if info is not None and info.max_tokens:
+            max_tokens = min(max_tokens, info.max_tokens)
         params: dict[str, Any] = {
             "model": req.model,
-            "max_tokens": req.max_tokens,
+            "max_tokens": max_tokens,
             "system": [
                 {"type": "text", "text": req.system_text(), "cache_control": {"type": "ephemeral"}}
             ],
             "messages": _to_wire(req.messages),
-            "output_config": {"effort": req.effort},
+            "thinking": NOT_GIVEN,
         }
-        params["thinking"] = {"type": "adaptive"} if req.thinking else NOT_GIVEN
+        effort = self._effort(req, known)
+        if effort is not None:
+            params["output_config"] = {"effort": effort}
+        if req.thinking:
+            if known is None or "adaptive" in known.thinking_types:
+                params["thinking"] = {"type": "adaptive"}
+            elif "enabled" in known.thinking_types:
+                budget = _thinking_budget(max_tokens)
+                if budget is not None:
+                    params["thinking"] = {"type": "enabled", "budget_tokens": budget}
         if req.tools:
             params["tools"] = req.tools
             params["tool_choice"] = {"type": "auto"}
         return params
 
-    async def stream(self, req: ApiRequest) -> AsyncIterator[AssistantEvent]:
-        params = self._build_params(req)
+    @staticmethod
+    def _effort(req: ApiRequest, known: AnthropicModelInfo | None) -> str | None:
+        """送る effort。利用者の指定（``/effort``）を優先し、モデルが受ける段階に合わせる。"""
+        chosen = req.sampling.reasoning_effort if req.sampling is not None else None
+        effort: str = chosen or req.effort
+        requested = _EFFORT_ALIASES.get(effort, effort)
+        return requested if known is None else _effort_for(requested, known.effort_levels)
+
+    async def _model_info(self, model: str) -> AnthropicModelInfo:
+        """モデルの機能を Models API で 1 回だけ引く。引けなければ今までどおりの形で送る。"""
+        info = anthropic_model_info_for(str(self._client.base_url), model)
+        if info.looked_up:
+            return info
         try:
+            found = await self._client.models.retrieve(model, timeout=_LOOKUP_TIMEOUT_S)
+        except (APIError, httpx.HTTPError) as e:
+            status = status_code_of(e)
+            # 4xx は引き直しても変わらない。通信の失敗は次の要求で引き直す
+            if status is not None and 400 <= status < 500:
+                info.looked_up = True
+            _log.debug("could not look up %s in the Models API: %s", model, e)
+            return info
+        _learn_model(info, found)
+        info.looked_up = True
+        return info
+
+    def _notify_effort(self, req: ApiRequest, info: AnthropicModelInfo, sent: str | None) -> None:
+        """利用者が選んだ effort を変えて送ったとき、モデルごとに 1 回だけ知らせる。"""
+        chosen = req.sampling.reasoning_effort if req.sampling is not None else None
+        if chosen is None or chosen == sent or info.notice_shown:
+            return
+        info.notice_shown = True
+        notices.notify(
+            notices.ProviderNotice(
+                kind="effort_adjusted", model=req.model, requested=chosen, sent=sent or ""
+            )
+        )
+
+    async def stream(self, req: ApiRequest) -> AsyncIterator[AssistantEvent]:
+        try:
+            info = await self._model_info(req.model)
+            params = self._build_params(req, info)
             async with self._client.messages.stream(**params) as stream:
+                self._notify_effort(req, info, params.get("output_config", {}).get("effort"))
                 async for ev in stream:
                     mapped = _map_anthropic_event(ev)
                     if mapped is not None:

@@ -148,6 +148,10 @@ async def test_anthropic_stream_wraps_read_timeout_mid_iteration(
                 "timed out", request=httpx.Request("POST", "http://localhost:1")
             )
 
+    async def no_lookup(*_: Any, **__: Any) -> NoReturn:
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(provider._client.models, "retrieve", no_lookup)
     monkeypatch.setattr(provider._client.messages, "stream", lambda **_: _Ctx())
     with pytest.raises(ProviderError) as excinfo:
         async for _ in provider.stream(_req()):
