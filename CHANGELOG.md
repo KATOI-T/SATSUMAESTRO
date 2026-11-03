@@ -45,7 +45,7 @@ Deprecated by OpenAI: `gpt-5.4-nano`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-n
 `gpt-4.1` models and the `gpt-4o` models. Not supported: `gpt-5.5-pro`, `gpt-5.4-pro` and
 `gpt-5.2-pro` need the Responses API.
 
-### Anthropic models
+### Anthropic models ([#3](https://github.com/KATOI-T/SATSUMAESTRO/pull/3))
 
 #### Changed
 
