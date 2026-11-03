@@ -291,7 +291,7 @@ class ModelQuirks:
 
     token_cap: int | None = None
     no_token_cap: bool = False
-    dropped_params: set[str] = field(default_factory=set)
+    rejected_values: set[tuple[str, str]] = field(default_factory=set)
     tools_need_effort_none: bool = False
     tools_unsupported: bool = False
     notice_shown: bool = False

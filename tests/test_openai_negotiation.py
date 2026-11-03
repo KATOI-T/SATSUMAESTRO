@@ -152,6 +152,22 @@ async def test_unsupported_temperature_is_dropped_and_remembered(
     assert len(calls) == 3 and "temperature" not in calls[2]
 
 
+async def test_rejected_effort_value_does_not_block_other_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rejected = _err("reasoning_effort", "unsupported_value", "max is not supported")
+    provider, calls = _provider(monkeypatch, [rejected, None])
+    await _run(provider, _req("gpt-5.5", sampling=SamplingConfig(reasoning_effort="max")))
+    assert len(calls) == 2 and "reasoning_effort" not in calls[1]
+    assert model_quirks_for(_OFFICIAL, "gpt-5.5").rejected_values == {("reasoning_effort", "max")}
+
+    await _run(provider, _req("gpt-5.5", sampling=SamplingConfig(reasoning_effort="high")))
+    assert len(calls) == 3 and calls[2]["reasoning_effort"] == "high"
+
+    await _run(provider, _req("gpt-5.5", sampling=SamplingConfig(reasoning_effort="max")))
+    assert len(calls) == 4 and "reasoning_effort" not in calls[3]
+
+
 async def test_tools_force_effort_none_then_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[notices.ProviderNotice] = []
     provider, calls = _provider(monkeypatch, [_err(message="tools need effort none"), None])
@@ -203,7 +219,8 @@ async def test_rejected_user_effort_is_not_restored_when_tools_are_dropped(
     assert [c.get("reasoning_effort") for c in calls] == ["xhigh", None, "none", None]
     assert calls[3]["tools"] is NOT_GIVEN
     quirks = model_quirks_for(_OFFICIAL, "gpt-6-astra")
-    assert quirks.tools_unsupported is True and quirks.dropped_params == {"reasoning_effort"}
+    assert quirks.tools_unsupported is True
+    assert quirks.rejected_values == {("reasoning_effort", "xhigh")}
 
 
 @pytest.mark.parametrize(

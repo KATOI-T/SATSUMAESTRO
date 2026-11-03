@@ -191,7 +191,7 @@ class _Shape:
     strict_dropped: bool = False
     forced_effort_none: bool = False
     tools_dropped: bool = False
-    dropped: frozenset[str] = frozenset()
+    rejected: frozenset[tuple[str, str]] = frozenset()
 
 
 def _cap_param(kwargs: dict[str, Any]) -> str | None:
@@ -368,7 +368,7 @@ def _without_tools(shape: _Shape, req: ApiRequest) -> _Shape:
     kwargs = dict(shape.kwargs)
     if shape.forced_effort_none:
         user = req.sampling.reasoning_effort if req.sampling is not None else None
-        if user is None or "reasoning_effort" in shape.dropped:
+        if user is None or any(name == "reasoning_effort" for name, _ in shape.rejected):
             kwargs.pop("reasoning_effort", None)
         else:
             kwargs["reasoning_effort"] = user
@@ -513,11 +513,15 @@ class OpenAICompatProvider:
             del kwargs[cap]
         elif cap is not None and quirks.token_cap is not None:
             kwargs[cap] = min(kwargs[cap], quirks.token_cap)
-        for name in quirks.dropped_params:
-            kwargs.pop(name, None)
-        shape = _Shape(
-            tools=tools, strict=strict, kwargs=kwargs, dropped=frozenset(quirks.dropped_params)
+        # 拒まれた記憶は (引数名, 値) の組。同じ値のときだけ外し、別の値は改めて試す
+        rejected = frozenset(
+            (name, value)
+            for name, value in quirks.rejected_values
+            if name in kwargs and str(kwargs[name]) == value
         )
+        for name, _ in rejected:
+            del kwargs[name]
+        shape = _Shape(tools=tools, strict=strict, kwargs=kwargs, rejected=rejected)
         if quirks.tools_unsupported and tools:
             return replace(shape, tools=[], tools_dropped=True)
         if quirks.tools_need_effort_none and tools:
@@ -566,9 +570,8 @@ class OpenAICompatProvider:
         if param == "reasoning_effort" and shape.forced_effort_none:
             return replace(_without_tools(shape, req), strict_dropped=False)
         if param in _SAMPLING_PARAMS and param in kwargs:
-            del kwargs[param]
-            dropped = shape.dropped | {param}
-            return replace(shape, kwargs=kwargs, dropped=dropped, strict_dropped=False)
+            rejected = shape.rejected | {(param, str(kwargs.pop(param)))}
+            return replace(shape, kwargs=kwargs, rejected=rejected, strict_dropped=False)
         return None
 
     def _commit(self, shape: _Shape, req: ApiRequest, quirks: ModelQuirks | None) -> None:
@@ -589,7 +592,7 @@ class OpenAICompatProvider:
             quirks.no_token_cap = True
         elif shape.kwargs[cap] < req.max_tokens:
             quirks.token_cap = shape.kwargs[cap]
-        quirks.dropped_params |= set(shape.dropped)
+        quirks.rejected_values |= set(shape.rejected)
         kind: notices.NoticeKind | None = None
         if shape.tools_dropped:
             quirks.tools_unsupported = True
