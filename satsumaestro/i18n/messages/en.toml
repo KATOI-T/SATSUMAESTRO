@@ -628,6 +628,8 @@ reply_failed_retry_count = "The model's reply failed, so trying again in {delay}
 reply_failed_retry = "The model's reply failed, so trying again in {delay} s"
 tools_dropped_for_model = "'{model}' cannot call tools over this API, so this session continues without tools"
 effort_forced_to_none = "'{model}' calls tools only with reasoning effort 'none', so it is sent that way"
+effort_replaced_for_model = "'{model}' does not accept reasoning effort '{requested}', so '{sent}' is sent instead"
+effort_unsupported_by_model = "'{model}' does not accept a reasoning effort, so '{requested}' is not sent"
 
 [providers.openai_provider]
 the_stream_closed_with_neither = "{marker}: the stream closed with neither finish_reason nor usage (thinking only). Ollama may have dropped a broken tool_call"

@@ -300,6 +300,22 @@ class ModelQuirks:
 _QUIRKS: dict[tuple[str, str], ModelQuirks] = {}
 
 
+@dataclass
+class AnthropicModelInfo:
+    """Anthropic のモデルごとの機能（Models API）と、400 から学んだこと（プロセス内）。"""
+
+    looked_up: bool = False
+    known: bool = False
+    thinking_types: frozenset[str] = frozenset()
+    effort_levels: frozenset[str] = frozenset()
+    max_tokens: int | None = None
+    drop_unbound_thinking: bool = False
+    notice_shown: bool = False
+
+
+_ANTHROPIC_MODELS: dict[tuple[str, str], AnthropicModelInfo] = {}
+
+
 def capabilities_for(base_url: str) -> ProviderCapabilities:
     """``base_url`` 単位のキャッシュを返す（無ければ作る）。"""
     return _CAPABILITIES.setdefault(base_url.rstrip("/"), ProviderCapabilities())
@@ -310,7 +326,13 @@ def model_quirks_for(base_url: str, model: str) -> ModelQuirks:
     return _QUIRKS.setdefault((base_url.rstrip("/"), model), ModelQuirks())
 
 
+def anthropic_model_info_for(base_url: str, model: str) -> AnthropicModelInfo:
+    """``(base_url, model)`` 単位の Anthropic のモデルの記録を返す（無ければ作る）。"""
+    return _ANTHROPIC_MODELS.setdefault((base_url.rstrip("/"), model), AnthropicModelInfo())
+
+
 def reset_capabilities() -> None:
     """記録を空にする（テストと、評価の 1 タスクごとの初期化）。"""
     _CAPABILITIES.clear()
     _QUIRKS.clear()
+    _ANTHROPIC_MODELS.clear()
