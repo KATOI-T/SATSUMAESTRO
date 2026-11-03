@@ -57,6 +57,7 @@ _STOP_REASONS = {
 }
 
 _KEEP_ALIVE_WAIT_S = 1.0
+_XAI_HOST = "api.x.ai"
 
 # 400 を見て形を変える再送の上限。拒まれた要求は課金されないので、コストは待ち時間だけ
 _MAX_NEGOTIATIONS = 6
@@ -432,8 +433,10 @@ class OpenAICompatProvider:
         tuning = openai if openai is not None else OpenAIConfig()
         host = urlparse(base_url if "://" in base_url else f"http://{base_url}").hostname or ""
         self._official = ollama_root is None and host in {h.lower() for h in tuning.hosts}
-        # xAI も 400 が名指しした引数から学ぶ。ツールに関わる手探りは OpenAI 公式だけ
-        self._learns = self._official or kind is ProviderKind.XAI
+        # xAI も 400 が名指しした引数から学ぶ（base_url での指定も含む）。ツールの手探りは公式だけ
+        self._learns = self._official or (
+            ollama_root is None and (kind is ProviderKind.XAI or host == _XAI_HOST)
+        )
         self._negotiate_400 = tuning.negotiate
         self._keep_alive = keep_alive if (ollama_root and keep_alive) else None
         self._bg: set[asyncio.Task[None]] = set()

@@ -51,8 +51,9 @@ def _provider(
     errors: list[APIStatusError | None],
     *,
     openai: OpenAIConfig | None = None,
+    kind: ProviderKind = ProviderKind.XAI,
 ) -> tuple[OpenAICompatProvider, list[dict[str, Any]]]:
-    provider = OpenAICompatProvider("k", _XAI, ProviderKind.XAI, openai=openai)
+    provider = OpenAICompatProvider("k", _XAI, kind, openai=openai)
     calls: list[dict[str, Any]] = []
 
     async def fake_create(**kwargs: Any) -> AsyncIterator[NS]:
@@ -117,6 +118,14 @@ async def test_a_rejected_effort_value_is_dropped_and_others_still_sent(
 
     await _run(provider, _req(effort="high"))
     assert calls[2]["reasoning_effort"] == "high"
+
+
+async def test_xai_set_as_the_base_url_also_learns(monkeypatch: pytest.MonkeyPatch) -> None:
+    rejected = _err("{'code': 'invalid-argument', 'error': 'Invalid reasoning effort.'}")
+    provider, calls = _provider(monkeypatch, [rejected, None], kind=ProviderKind.OPENAI)
+    await _run(provider, _req(effort="max"))
+    assert [c.get("reasoning_effort") for c in calls] == ["max", None]
+    assert calls[0]["max_tokens"] == 32000 and "max_completion_tokens" not in calls[0]
 
 
 async def test_the_multi_agent_model_raises_a_clear_error(
