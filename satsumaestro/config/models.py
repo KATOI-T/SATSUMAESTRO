@@ -75,7 +75,7 @@ class OllamaConfig(BaseModel):
 
 
 class OpenAIConfig(BaseModel):
-    """OpenAI 公式 API 向けの調整。Ollama と判定された接続先や ``hosts`` 外には適用しない。"""
+    """OpenAI 公式 API（``hosts``）向けの調整。``negotiate`` は xAI にも効く（Ollama は除く）。"""
 
     model_config = ConfigDict(extra="forbid")
 

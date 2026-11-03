@@ -48,7 +48,13 @@ def build_bare(
         if not api_key:
             raise ProviderError(ui("providers.factory.key_is_not_set", name="XAI_API_KEY"))
         base_url = config.provider.base_url or _XAI_BASE_URL
-        return OpenAICompatProvider(api_key, base_url, kind=ProviderKind.XAI, timeout=timeout)
+        return OpenAICompatProvider(
+            api_key,
+            base_url,
+            kind=ProviderKind.XAI,
+            timeout=timeout,
+            openai=config.provider.openai,
+        )
 
     endpoint = openai_endpoint(config, env)
     if not endpoint:
