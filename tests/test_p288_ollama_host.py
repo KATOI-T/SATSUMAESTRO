@@ -9,7 +9,7 @@ import pytest
 
 from satsumaestro.config.loader import ConfigLoader
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
-from satsumaestro.engine.context_fit import check_ollama_reachable
+from satsumaestro.engine.context_fit import check_reachable
 from satsumaestro.providers.detect import is_ollama_endpoint
 from satsumaestro.providers.factory import openai_endpoint
 from satsumaestro.util.urls import ollama_host_url
@@ -75,7 +75,7 @@ async def test_preflight_reaches_the_schemeless_host(
         return httpx.Response(200, json={"models": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        problem = await check_ollama_reachable(
+        problem = await check_reachable(
             cfg, "gpt-oss:120b", {"OLLAMA_HOST": "192.0.2.10:11434"}, client=client
         )
     assert problem is None

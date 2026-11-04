@@ -23,7 +23,7 @@ from rich.text import Text
 from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
-from satsumaestro.cli.load_watch import ollama_load_probe
+from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
 from satsumaestro.cli.trust_gate import (
@@ -41,8 +41,8 @@ from satsumaestro.engine.context_fit import (
     ContextFitResult,
     MissingModelNotice,
     apply_context_fit,
-    check_ollama_model,
-    check_ollama_reachable,
+    check_model,
+    check_reachable,
     missing_model_notice,
     source_label,
 )
@@ -212,15 +212,15 @@ def _orchestration_flags(cfg: RuntimeConfig, env: Mapping[str, str]) -> tuple[bo
     return orch, orch and cfg.orchestration.workers.enabled
 
 
-async def _require_ollama(cfg: RuntimeConfig, model: str) -> None:
-    """接続先の Ollama に届かなければ、再試行を待たずに ConfigError で止める。"""
-    problem = await check_ollama_reachable(cfg, model, os.environ)
+async def _require_server(cfg: RuntimeConfig, model: str) -> None:
+    """接続先のローカルのサーバに届かなければ、再試行を待たずに ConfigError で止める。"""
+    problem = await check_reachable(cfg, model, os.environ)
     if problem is not None:
         raise ConfigError(problem)
 
 
 class MissingModelError(ConfigError):
-    """接続先の Ollama に無いモデルで起動した。"""
+    """接続先のローカルのサーバに無いモデルで起動した。"""
 
     def __init__(self, notice: MissingModelNotice) -> None:
         super().__init__(notice.text())
@@ -249,8 +249,8 @@ def _print_error(e: SatsumaError) -> None:
 
 
 async def _require_model(cfg: RuntimeConfig, model: str) -> None:
-    """接続先の Ollama に無いモデルなら、最初の依頼で 404 になる前に止める。"""
-    check = await check_ollama_model(cfg, model, os.environ)
+    """接続先のローカルのサーバに無いモデルなら、最初の依頼で 404 になる前に止める。"""
+    check = await check_model(cfg, model, os.environ)
     if check is not None and check.missing:
         raise MissingModelError(missing_model_notice(model, check))
 
@@ -381,7 +381,7 @@ async def _assemble_runtime(
     use_screen_language(cfg.language.chosen_ui)
     resolved = expand_model_name(model or cfg.provider.default_model)
     provider = build_provider(cfg, resolved, os.environ)
-    await _require_ollama(cfg, resolved)
+    await _require_server(cfg, resolved)
     await _require_model(cfg, resolved)
     fit_base = (cfg.compact_token_threshold, cfg.compaction.context_window)
     fit = await apply_context_fit(cfg, resolved, os.environ)
@@ -412,7 +412,7 @@ async def _assemble_runtime(
         store.prune(cwd)
         session = store.load(resume_path) if resume_path else new_session(cwd, resolved)
         if resume_path and session.model != resolved:
-            saved = await check_ollama_model(cfg, session.model, os.environ)
+            saved = await check_model(cfg, session.model, os.environ)
             if saved is not None and saved.missing:
                 notice = ui(
                     "cli.app.the_saved_model_was_not", model=session.model, resolved=resolved
@@ -575,7 +575,7 @@ async def _print_window(
         console.print(Text(breakdown.describe(source_label(fit.info.source)), style="dim"))
     if breakdown.tight:
         console.print(Text(breakdown.advice(), style="yellow"))
-    if fit.info.source == "show.model_info":
+    if fit.info.unconfirmed:
         rt.window_unconfirmed = True
         if breakdown_line:
             console.print(Text(ui("cli.app.window_not_loaded_yet"), style="dim"))
@@ -834,7 +834,7 @@ async def _repl_session(
             observer=recorder,
             trace_log=trace_log,
             trusted=trusted,
-            load_probe=ollama_load_probe(rt, os.environ),
+            load_probe=load_probe(rt, os.environ),
         )
     finally:
         try:
@@ -1649,7 +1649,7 @@ async def _build_eval_agent(
         spec_model, decompose, plan = parse_satsuma_agent_spec(spec)
         resolved = expand_model_name(spec_model or model or cfg.provider.default_model)
         provider = build_provider(cfg, resolved, os.environ)
-        await _require_ollama(cfg, resolved)
+        await _require_server(cfg, resolved)
         await _require_model(cfg, resolved)
         await apply_context_fit(cfg, resolved, os.environ)
         return SatsumaAgent(
@@ -2031,7 +2031,7 @@ async def _run_repl_resume(model: str | None, cwd: Path, path: Path, *, trusted:
             render,
             _console,
             trusted=trusted,
-            load_probe=ollama_load_probe(rt, os.environ),
+            load_probe=load_probe(rt, os.environ),
         )
     finally:
         try:

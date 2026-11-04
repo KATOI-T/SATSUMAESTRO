@@ -335,8 +335,8 @@ class SlashDispatcher:
     async def _cmd_model(self, args: list[str]) -> None:
         from satsumaestro.cli.app import _print_window, missing_model_text
         from satsumaestro.engine.context_fit import (
-            check_ollama_model,
-            list_ollama_models,
+            check_model,
+            list_models,
             missing_model_notice,
         )
         from satsumaestro.providers.detect import same_model
@@ -345,13 +345,13 @@ class SlashDispatcher:
         current = self.rt.session.model
         if not args:
             self._print(f"model: {escape(current)}")
-            names = await list_ollama_models(self.rt.config, current, os.environ)
+            names = await list_models(self.rt.config, current, os.environ)
             for name in names or []:
                 mark = "*" if same_model(name, current) else " "
                 self._print(f"  {mark} {escape(name)}")
             return
         resolved = expand_model_name(args[0])
-        check = await check_ollama_model(self.rt.config, resolved, os.environ)
+        check = await check_model(self.rt.config, resolved, os.environ)
         if check is not None and check.missing:
             self._print(missing_model_text(missing_model_notice(resolved, check, startup=False)))
             kept = escape(current)

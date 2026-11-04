@@ -23,12 +23,12 @@ from satsumaestro.orchestration.plan import (
 from satsumaestro.orchestration.runner import Orchestrator
 from satsumaestro.providers.base import Provider
 from satsumaestro.providers.capacity import estimate_parallelism, probe_parallelism
-from satsumaestro.providers.detect import is_ollama_endpoint
 from satsumaestro.providers.factory import (
     openai_endpoint,
     resolve_role_model,
     resolve_role_sampling,
 )
+from satsumaestro.providers.local import server_for_endpoint
 from satsumaestro.session.models import Session, TodoItem
 from satsumaestro.util.errors import OrchestrationError
 
@@ -166,9 +166,12 @@ class DecompositionCoordinator:
             return self._capacity_value
         dcfg = self._config.decomposition
         base = openai_endpoint(self._config, self._env) or ""
-        is_ollama = bool(base) and is_ollama_endpoint(
-            base, self._env, self._config.provider.ollama.detect
+        server = (
+            server_for_endpoint(base, self._env, self._config.provider.ollama.detect)
+            if base
+            else None
         )
+        is_ollama = server is not None and server.kind == "ollama"
         calibrate = dcfg.calibrate_parallelism
         provider_side = await estimate_parallelism(
             configured=dcfg.provider_parallelism,

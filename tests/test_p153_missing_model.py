@@ -17,9 +17,9 @@ from satsumaestro.cli.commands import SlashDispatcher, parse_slash
 from satsumaestro.config.models import GuidanceConfig, ProviderConfig, RuntimeConfig
 from satsumaestro.engine.context_fit import (
     ModelCheck,
-    check_ollama_model,
+    check_model,
     describe_missing_model,
-    list_ollama_models,
+    list_models,
     missing_model_notice,
 )
 from satsumaestro.engine.events import MessageStop, TextDelta
@@ -63,20 +63,20 @@ def _cfg() -> RuntimeConfig:
 
 async def test_show_404_is_missing_with_the_tag_list() -> None:
     async with _client(_ollama()) as http:
-        check = await check_ollama_model(_cfg(), "gpt-oss:999b", _ENV, client=http)
+        check = await check_model(_cfg(), "gpt-oss:999b", _ENV, client=http)
     assert check == ModelCheck(_ROOT, missing=True, available=_TAGS)
 
 
 async def test_show_200_is_present_even_with_other_case() -> None:
     async with _client(_ollama()) as http:
-        check = await check_ollama_model(_cfg(), "GPT-OSS:120b", _ENV, client=http)
+        check = await check_model(_cfg(), "GPT-OSS:120b", _ENV, client=http)
     assert check is not None and not check.missing
 
 
 @pytest.mark.parametrize("status", [500, 400])
 async def test_other_statuses_are_undecided(status: int) -> None:
     async with _client(_ollama(show_status=status)) as http:
-        assert await check_ollama_model(_cfg(), "gpt-oss:999b", _ENV, client=http) is None
+        assert await check_model(_cfg(), "gpt-oss:999b", _ENV, client=http) is None
 
 
 async def test_unreachable_is_undecided() -> None:
@@ -84,15 +84,15 @@ async def test_unreachable_is_undecided() -> None:
         raise httpx.ConnectError("down")
 
     async with _client(down) as http:
-        assert await check_ollama_model(_cfg(), "gpt-oss:999b", _ENV, client=http) is None
-        assert await list_ollama_models(_cfg(), "gpt-oss:120b", _ENV, client=http) is None
+        assert await check_model(_cfg(), "gpt-oss:999b", _ENV, client=http) is None
+        assert await list_models(_cfg(), "gpt-oss:120b", _ENV, client=http) is None
 
 
 async def test_not_ollama_is_not_checked() -> None:
     cfg = RuntimeConfig(provider=ProviderConfig(base_url="https://api.example.com/v1"))
     async with _client(_ollama()) as http:
-        assert await check_ollama_model(cfg, "gpt-oss:999b", {}, client=http) is None
-        assert await list_ollama_models(cfg, "gpt-oss:999b", {}, client=http) is None
+        assert await check_model(cfg, "gpt-oss:999b", {}, client=http) is None
+        assert await list_models(cfg, "gpt-oss:999b", {}, client=http) is None
 
 
 def test_describe_missing_model() -> None:

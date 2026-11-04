@@ -1,4 +1,4 @@
-"""待ちが続いたら、モデルが Ollama に載っているかを 1 回だけ確かめる。"""
+"""待ちが続いたら、モデルがローカルのサーバに載っているかを 1 回だけ確かめる。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Protocol
 
-from satsumaestro.engine.context_fit import ollama_root_for
-from satsumaestro.providers.detect import model_loaded
+from satsumaestro.engine.context_fit import local_server_for
 
 if TYPE_CHECKING:
     from satsumaestro.engine.runtime import ConversationRuntime
@@ -29,15 +28,15 @@ class LoadWatchRenderer(Protocol):
     def on_model_loading(self, model: str, since: float) -> None: ...
 
 
-def ollama_load_probe(rt: ConversationRuntime, env: Mapping[str, str]) -> LoadProbe:
+def load_probe(rt: ConversationRuntime, env: Mapping[str, str]) -> LoadProbe:
     """``rt`` がいま使っているモデルを、照会のたびに引き直して確かめる照会を作る。"""
 
     async def probe() -> str | None:
         model = rt.session.model
-        root = ollama_root_for(rt.config, model, env)
-        if root is None:
+        server = local_server_for(rt.config, model, env)
+        if server is None:
             return None
-        return model if await model_loaded(root, model) is False else None
+        return model if await server.model_loaded(model) is False else None
 
     return probe
 

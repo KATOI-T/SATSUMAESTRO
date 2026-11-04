@@ -185,7 +185,7 @@ def exits(monkeypatch: pytest.MonkeyPatch) -> tuple[_Rt, list[RuntimeConfig]]:
     monkeypatch.setattr(cli_app, "run_repl", fake_run_repl)
     monkeypatch.setattr(cli_app, "_shutdown", fake_shutdown)
     monkeypatch.setattr(cli_app, "_build_telemetry", lambda rt: (None, None))
-    monkeypatch.setattr(cli_app, "ollama_load_probe", lambda rt, env: None)
+    monkeypatch.setattr(cli_app, "load_probe", lambda rt, env: None)
     monkeypatch.setattr(cli_app, "_unload_on_exit", fake_unload_on_exit)
     return rt, calls
 

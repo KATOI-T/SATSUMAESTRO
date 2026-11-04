@@ -12,8 +12,9 @@ from satsumaestro.config.models import RuntimeConfig, SamplingConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import Provider, ProviderKind
-from satsumaestro.providers.detect import choose_provider_kind, is_ollama_endpoint, ollama_root
+from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.fallback import FallbackProvider
+from satsumaestro.providers.local import server_for_endpoint
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.registry import expand_model_name
@@ -61,7 +62,8 @@ def build_bare(
         raise ProviderError(ui("providers.factory.openai_endpoint_unresolved"))
     api_key = env.get("OPENAI_API_KEY") or "ollama"
     ollama = config.provider.ollama
-    root = ollama_root(endpoint) if is_ollama_endpoint(endpoint, env, ollama.detect) else None
+    server = server_for_endpoint(endpoint, env, ollama.detect)
+    root = server.root if server is not None and server.kind == "ollama" else None
     return OpenAICompatProvider(
         api_key,
         endpoint,

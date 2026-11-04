@@ -12,13 +12,13 @@ import httpx
 import pytest
 from rich.console import Console
 
-from satsumaestro.cli import load_watch
 from satsumaestro.cli import repl as repl_mod
-from satsumaestro.cli.load_watch import ollama_load_probe, watch_model_load, watching_model_load
+from satsumaestro.cli.load_watch import load_probe, watch_model_load, watching_model_load
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.engine.events import TextDelta, ToolUse
 from satsumaestro.providers.detect import model_loaded
+from satsumaestro.providers.local import ollama as ollama_server
 from satsumaestro.session.models import ToolResultBlock
 from tests.test_repl_turn_failure import _FakeRuntime, _FakeSession, _NoSlash, _summary
 
@@ -76,9 +76,9 @@ async def test_probe_follows_the_current_model(monkeypatch: pytest.MonkeyPatch) 
         asked.append((root, model))
         return model == "llama3.1:8b"
 
-    monkeypatch.setattr(load_watch, "model_loaded", fake_loaded)
+    monkeypatch.setattr(ollama_server, "model_loaded", fake_loaded)
     rt = _rt(_MODEL)
-    probe = ollama_load_probe(rt, {"OLLAMA_HOST": _ROOT})
+    probe = load_probe(rt, {"OLLAMA_HOST": _ROOT})
 
     assert await probe() == _MODEL
     rt.session.model = "llama3.1:8b"
@@ -90,18 +90,18 @@ async def test_probe_does_not_ask_other_providers(monkeypatch: pytest.MonkeyPatc
     async def fake_loaded(root: str, model: str) -> bool | None:
         raise AssertionError("Ollama 以外へは照会しない")
 
-    monkeypatch.setattr(load_watch, "model_loaded", fake_loaded)
-    assert await ollama_load_probe(_rt("claude-opus-5-5"), {"ANTHROPIC_API_KEY": "k"})() is None
+    monkeypatch.setattr(ollama_server, "model_loaded", fake_loaded)
+    assert await load_probe(_rt("claude-opus-5-5"), {"ANTHROPIC_API_KEY": "k"})() is None
     remote = {"OPENAI_BASE_URL": "https://api.test/v1"}
-    assert await ollama_load_probe(_rt(_MODEL), remote)() is None
+    assert await load_probe(_rt(_MODEL), remote)() is None
 
 
 async def test_probe_treats_an_unknown_answer_as_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_loaded(root: str, model: str) -> bool | None:
         return None
 
-    monkeypatch.setattr(load_watch, "model_loaded", fake_loaded)
-    assert await ollama_load_probe(_rt(_MODEL), {"OLLAMA_HOST": _ROOT})() is None
+    monkeypatch.setattr(ollama_server, "model_loaded", fake_loaded)
+    assert await load_probe(_rt(_MODEL), {"OLLAMA_HOST": _ROOT})() is None
 
 
 def _renderer() -> RichRenderer:

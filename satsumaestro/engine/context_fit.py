@@ -12,14 +12,9 @@ import httpx
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.base import ProviderKind
-from satsumaestro.providers.detect import (
-    ModelContextInfo,
-    choose_provider_kind,
-    fetch_model_context,
-    is_ollama_endpoint,
-    ollama_root,
-)
+from satsumaestro.providers.detect import ModelContextInfo, choose_provider_kind
 from satsumaestro.providers.factory import openai_endpoint
+from satsumaestro.providers.local import LocalServer, server_for_endpoint
 
 _log = logging.getLogger(__name__)
 
@@ -82,14 +77,14 @@ def fit_compaction_threshold(
     return limit if threshold > limit else None
 
 
-def ollama_root_for(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str | None:
-    """実際に使う接続先が Ollama ならネイティブ API のルート、そうでなければ ``None``。"""
+def local_server_for(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> LocalServer | None:
+    """実際に使う接続先がローカルのサーバならそれを、そうでなければ ``None``。"""
     if choose_provider_kind(model, env, cfg.provider.base_url) is not ProviderKind.OPENAI:
         return None
     endpoint = openai_endpoint(cfg, env)
-    if not endpoint or not is_ollama_endpoint(endpoint, env, cfg.provider.ollama.detect):
+    if not endpoint:
         return None
-    return ollama_root(endpoint)
+    return server_for_endpoint(endpoint, env, cfg.provider.ollama.detect)
 
 
 async def refit_window(
@@ -99,13 +94,13 @@ async def refit_window(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> int | None:
-    """載っているモデルの実際の窓（``/api/ps``）が、いま使っている窓より小さければ合わせる。"""
-    root = ollama_root_for(cfg, model, env)
-    if root is None:
+    """載っているモデルの実際の窓が、いま使っている窓より小さければ合わせる。"""
+    server = local_server_for(cfg, model, env)
+    if server is None:
         return None
-    info = await fetch_model_context(root, model, client=client)
+    info = await server.context_info(model, client=client)
     window = info.context_length
-    if info.source != "ps" or window is None:
+    if not info.confirmed or window is None:
         return None
     current = cfg.compaction.context_window
     if current and window >= current:
@@ -120,7 +115,7 @@ async def refit_window(
     return window
 
 
-async def check_ollama_reachable(
+async def check_reachable(
     cfg: RuntimeConfig,
     model: str,
     env: Mapping[str, str],
@@ -128,46 +123,26 @@ async def check_ollama_reachable(
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 3.0,
 ) -> str | None:
-    """起動前に Ollama へ届くかを確かめる。"""
-    root = ollama_root_for(cfg, model, env)
-    if root is None:
+    """起動前にローカルのサーバへ届くかを確かめる。"""
+    server = local_server_for(cfg, model, env)
+    if server is None:
         return None
-    owned = client is None
-    http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
-    try:
-        resp = await http.get(f"{root}/api/tags")
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        cause = f"{type(exc).__name__}: {exc}"
-        return ui("engine.context_fit.cannot_reach_ollama_check_that", root=root, cause=cause)
-    finally:
-        if owned:
-            await http.aclose()
-    return None
+    cause = await server.reachable(client=client, timeout_s=timeout_s)
+    if cause is None:
+        return None
+    return ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
 
 
 @dataclass(frozen=True)
 class ModelCheck:
-    """接続先の Ollama にモデルがあるか。"""
+    """接続先のローカルのサーバにモデルがあるか。"""
 
     root: str
     missing: bool
     available: list[str]
 
 
-async def _tag_names(http: httpx.AsyncClient, root: str) -> list[str] | None:
-    try:
-        resp = await http.get(f"{root}/api/tags")
-        resp.raise_for_status()
-        models = resp.json().get("models") or []
-        names = (m.get("name") or m.get("model") for m in models)
-        return [str(n) for n in names if n]
-    except Exception as exc:
-        _log.debug("Ollama /api/tags query failed: %s", exc)
-        return None
-
-
-async def list_ollama_models(
+async def list_models(
     cfg: RuntimeConfig,
     model: str,
     env: Mapping[str, str],
@@ -175,20 +150,14 @@ async def list_ollama_models(
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 3.0,
 ) -> list[str] | None:
-    """接続先が Ollama なら ``/api/tags`` のモデル名。"""
-    root = ollama_root_for(cfg, model, env)
-    if root is None:
+    """接続先がローカルのサーバならモデルの名前。"""
+    server = local_server_for(cfg, model, env)
+    if server is None:
         return None
-    owned = client is None
-    http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
-    try:
-        return await _tag_names(http, root)
-    finally:
-        if owned:
-            await http.aclose()
+    return await server.list_models(client=client, timeout_s=timeout_s)
 
 
-async def check_ollama_model(
+async def check_model(
     cfg: RuntimeConfig,
     model: str,
     env: Mapping[str, str],
@@ -196,23 +165,20 @@ async def check_ollama_model(
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 3.0,
 ) -> ModelCheck | None:
-    """``/api/show`` でモデルの有無を確かめる。"""
-    root = ollama_root_for(cfg, model, env)
-    if root is None:
+    """接続先のローカルのサーバでモデルの有無を確かめる。"""
+    server = local_server_for(cfg, model, env)
+    if server is None:
         return None
     owned = client is None
     http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
     try:
-        try:
-            resp = await http.post(f"{root}/api/show", json={"model": model})
-        except httpx.HTTPError as exc:
-            _log.debug("Ollama /api/show query failed: %s", exc)
+        found = await server.has_model(model, client=http)
+        if found is None:
             return None
-        if resp.status_code == 404:
-            return ModelCheck(root, missing=True, available=await _tag_names(http, root) or [])
-        if resp.is_success:
-            return ModelCheck(root, missing=False, available=[])
-        return None
+        if found:
+            return ModelCheck(server.root, missing=False, available=[])
+        available = await server.list_models(client=http) or []
+        return ModelCheck(server.root, missing=True, available=available)
     finally:
         if owned:
             await http.aclose()
@@ -297,13 +263,13 @@ async def apply_context_fit(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> ContextFitResult | None:
-    """Ollama 判定 → 検出 → クランプを起動時に一度だけ行う（対象外なら ``None``）。"""
+    """ローカルのサーバの判定 → 検出 → クランプを起動時に一度だけ行う（対象外なら ``None``）。"""
     if not cfg.compaction.auto_context_fit or cfg.compact_token_threshold <= 0:
         return None
-    root = ollama_root_for(cfg, model, env)
-    if root is None:
+    server = local_server_for(cfg, model, env)
+    if server is None:
         return None
-    info = await fetch_model_context(root, model, client=client)
+    info = await server.context_info(model, client=client)
     if cfg.compaction.context_window <= 0 and info.context_length:
         cfg.compaction.context_window = info.context_length
     original = cfg.compact_token_threshold
@@ -325,7 +291,7 @@ async def apply_context_fit(
         original,
         result.effective_threshold,
     )
-    if info.source == "show.model_info":
+    if info.unconfirmed:
         _log.warning(
             "could not detect Ollama's effective num_ctx (the model is not loaded). If it is "
             "the server default OLLAMA_CONTEXT_LENGTH (4096 when unset), the context may overflow "
