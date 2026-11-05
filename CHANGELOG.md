@@ -109,6 +109,36 @@ generate images and video.
   and filelock 4.2.8. A new install from PyPI already gets fixed versions. The Homebrew formula
   follows with the next release.
 
+### LM Studio
+
+#### Added
+
+- LM Studio is recognised at startup. A server on a local-looking host (`localhost`, a private
+  address or `*.local`) is asked once through `/api/v1/models` (`/api/v0/models` on older
+  versions). `provider.local.server` (`auto`, `ollama`, `lmstudio` or `generic`) sets the kind
+  without asking; a value that conflicts with `provider.ollama.detect` stops when the settings load.
+- The window of the loaded model is read and compaction is fitted to it, as for Ollama. Before the
+  model is loaded, the model's largest window is assumed and checked again after the first reply.
+  When the window is small, the REPL suggests `lms load <model> --context-length <size>`.
+- When the REPL closes, it unloads the models it caused LM Studio to load; models you loaded yourself
+  stay. `provider.local.unload_on_exit: false` keeps them, and `provider.local.ttl` sets how long a
+  model loaded this way stays loaded while idle.
+- The loading notice, the missing-model notice (`lms get`) and `satsumaestro doctor --probe` (rows
+  `lmstudio`, `lmstudio ctx`, `lmstudio loaded` and `lmstudio role`) cover LM Studio.
+- `LM_API_TOKEN` is sent to LM Studio when it requires authentication. Like the API keys, it is
+  removed from the environment of child processes and redacted in session records.
+  `OPENAI_API_KEY` is not sent to LM Studio when it looks like a cloud key.
+
+#### Changed
+
+- `satsumaestro doctor` shows a `local server` row for an OpenAI-compatible server that is neither
+  Ollama nor LM Studio.
+
+#### Fixed
+
+- When LM Studio rejects a request as longer than the model's window, the window is read again, the
+  history is compacted and the request is resent once. A second rejection stops the turn as before.
+
 ## [0.5.0] - 2026-11-01
 
 First public release.
