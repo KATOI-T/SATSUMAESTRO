@@ -24,6 +24,7 @@ from satsumaestro.security.sandbox import (
     isolation_for,
 )
 from satsumaestro.security.secret_env import PROVIDER_KEY_VARS, strip_secret_env
+from satsumaestro.session.redact import secret_values
 from satsumaestro.tools import ToolContext
 from satsumaestro.tools.base import ToolResult
 from satsumaestro.tools.builtins.bash import Bash
@@ -38,6 +39,7 @@ _BASE = {
     "OPENAI_API_KEY": "sk-o",
     "XAI_API_KEY": "xai-1",
     "SATSUMA_EMBED_API_KEY": "e",
+    "LM_API_TOKEN": "t",
     "FOO_API_KEY": "f",
     "GH_TOKEN": "g",
     "api_key": "lower",
@@ -63,7 +65,7 @@ def test_strip_extra_and_keep() -> None:
 
 
 def test_keep_glob_restores_all() -> None:
-    out = strip_secret_env(_BASE, keep=["*_API_KEY"])
+    out = strip_secret_env(_BASE, keep=["*_API_KEY", "LM_API_TOKEN"])
     assert all(name in out for name in PROVIDER_KEY_VARS)
     assert out["FOO_API_KEY"] == "f"
 
@@ -90,10 +92,16 @@ def test_child_environment_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kept["ANTHROPIC_API_KEY"] == "sk-ant-test"
 
 
+def test_the_lmstudio_token_is_kept_from_children_and_records() -> None:
+    env = {"LM_API_TOKEN": "lm-token-value", "PATH": "/usr/bin"}
+    assert strip_secret_env(env) == {"PATH": "/usr/bin"}
+    assert secret_values(env) == ("lm-token-value",)
+
+
 def test_provider_key_vars_cover_source() -> None:
-    """ソースが読む `*_API_KEY` の名前が一覧から漏れていない（読む場所を足したら一覧にも足す）。"""
+    """ソースが読む `*_API_KEY`・`*_API_TOKEN` の名前が一覧から漏れていない。"""
     root = Path(__file__).resolve().parents[1] / "satsumaestro"
-    pattern = re.compile(r"\b([A-Z][A-Z0-9_]*_API_KEY)\b")
+    pattern = re.compile(r"\b([A-Z][A-Z0-9_]*_API_(?:KEY|TOKEN))\b")
     found: set[str] = set()
     for path in root.rglob("*.py"):
         found.update(pattern.findall(path.read_text(encoding="utf-8")))
