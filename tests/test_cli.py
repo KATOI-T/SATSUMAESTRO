@@ -181,7 +181,7 @@ def test_doctor_ollama_rows_offline(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_doctor_probe_non_ollama_is_noop(monkeypatch, tmp_path: Path) -> None:
-    """--probe でも Ollama 判定されなければ照会しない（非 Ollama の OpenAI 互換先）。"""
+    """--probe でも Ollama・LM Studio と判定されなければ照会しない（汎用の OpenAI 互換先）。"""
     for k in ("ANTHROPIC_API_KEY", "XAI_API_KEY", "OLLAMA_HOST"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:8080/v1")
@@ -189,7 +189,9 @@ def test_doctor_probe_non_ollama_is_noop(monkeypatch, tmp_path: Path) -> None:
     _mock_web_search_http(monkeypatch, lambda req: httpx.Response(200, text="<html></html>"))
     result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--probe", "--trust"])
     assert result.exit_code == 0, result.output
-    assert "Ollama ではない" in result.output
+    assert "local server" in result.output
+    assert "provider.local.server で固定可" in result.output
+    assert "--probe で確かめる" not in result.output
 
 
 def _mock_web_search_http(monkeypatch, handler) -> None:

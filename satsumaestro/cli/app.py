@@ -43,6 +43,8 @@ from satsumaestro.engine.context_fit import (
     apply_context_fit,
     check_model,
     check_reachable,
+    detect_local_server,
+    local_server_for,
     missing_model_notice,
     source_label,
 )
@@ -94,10 +96,10 @@ from satsumaestro.prompt.builder import (
 from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers.base import Provider, ProviderKind
 from satsumaestro.providers.detect import (
+    LocalKind,
     ModelContextInfo,
     choose_provider_kind,
     fetch_model_context,
-    is_ollama_endpoint,
     ollama_root,
     unload_model,
     used_models,
@@ -108,6 +110,15 @@ from satsumaestro.providers.factory import (
     resolve_role_model,
     resolve_role_sampling,
 )
+from satsumaestro.providers.local import (
+    LMStudioServer,
+    LocalServer,
+    OllamaServer,
+    looks_local,
+    resolve_server,
+    server_for_endpoint,
+)
+from satsumaestro.providers.local.lmstudio import unload_models_loaded_here
 from satsumaestro.providers.registry import MODEL_SHORTHANDS, expand_model_name
 from satsumaestro.rag.embed import DEFAULT_EMBED_ENDPOINT as DEFAULT_EMBED_BASE_URL
 from satsumaestro.rag.models import IngestReport
@@ -380,6 +391,7 @@ async def _assemble_runtime(
     cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
     resolved = expand_model_name(model or cfg.provider.default_model)
+    await detect_local_server(cfg, resolved, os.environ)
     provider = build_provider(cfg, resolved, os.environ)
     await _require_server(cfg, resolved)
     await _require_model(cfg, resolved)
@@ -521,6 +533,7 @@ async def _assemble_runtime(
             show_thinking=cfg.show_thinking,
             stream_tool_args=cfg.stream_tool_args,
             loading_model=_unloaded_model(fit),
+            local_server=_local_kind(cfg, rt.session.model),
             cwd=cwd,
             context_limit=lambda: cfg.compact_token_threshold,
         ),
@@ -574,11 +587,19 @@ async def _print_window(
     if breakdown_line:
         console.print(Text(breakdown.describe(source_label(fit.info.source)), style="dim"))
     if breakdown.tight:
-        console.print(Text(breakdown.advice(), style="yellow"))
+        console.print(Text(breakdown.advice(fit.info.server, fit.model), style="yellow"))
     if fit.info.unconfirmed:
         rt.window_unconfirmed = True
-        if breakdown_line:
+        if breakdown_line and fit.info.server == "lmstudio":
+            console.print(Text(ui("cli.app.window_not_loaded_yet_lmstudio"), style="dim"))
+        elif breakdown_line:
             console.print(Text(ui("cli.app.window_not_loaded_yet"), style="dim"))
+
+
+def _local_kind(cfg: RuntimeConfig, model: str) -> LocalKind:
+    """表示の文を選ぶためのローカルのサーバの種類（ローカルでなければ Ollama の文）。"""
+    server = local_server_for(cfg, model, os.environ)
+    return server.kind if server is not None else "ollama"
 
 
 def _unloaded_model(fit: ContextFitResult | None) -> str | None:
@@ -656,22 +677,29 @@ async def _shutdown(
 
 
 async def _unload_on_exit(cfg: RuntimeConfig) -> None:
-    """REPL を閉じるとき、このプロセスが Ollama で使ったモデルを降ろす（``unload_on_exit``）。"""
-    if not cfg.provider.ollama.unload_on_exit:
-        return
-    used = used_models()
-    if not used:
-        return
-    done = await asyncio.gather(*(unload_model(root, model) for root, model in used))
-    names = [model for (_, model), ok in zip(used, done, strict=True) if ok]
-    if names:
-        unloaded = ", ".join(names)
-        _console.print(
-            Text(
-                ui("cli.app.unloaded_from_ollama_set_provider", unloaded=unloaded),
-                style="dim",
+    """REPL を閉じるとき、このプロセスがローカルのサーバで使ったモデルを降ろす。"""
+    if cfg.provider.ollama.unload_on_exit:
+        used = used_models()
+        done = await asyncio.gather(*(unload_model(root, model) for root, model in used))
+        names = [model for (_, model), ok in zip(used, done, strict=True) if ok]
+        if names:
+            unloaded = ", ".join(names)
+            _console.print(
+                Text(
+                    ui("cli.app.unloaded_from_ollama_set_provider", unloaded=unloaded),
+                    style="dim",
+                )
             )
-        )
+    if cfg.provider.local.unload_on_exit:
+        loaded_here = await unload_models_loaded_here()
+        if loaded_here:
+            unloaded = ", ".join(loaded_here)
+            _console.print(
+                Text(
+                    ui("cli.app.unloaded_from_lmstudio_set_provider", unloaded=unloaded),
+                    style="dim",
+                )
+            )
 
 
 async def _drain_background(rt: ConversationRuntime) -> list[dict[str, str]]:
@@ -1648,6 +1676,7 @@ async def _build_eval_agent(
         cfg = _load_config(cwd, trusted=trusted)
         spec_model, decompose, plan = parse_satsuma_agent_spec(spec)
         resolved = expand_model_name(spec_model or model or cfg.provider.default_model)
+        await detect_local_server(cfg, resolved, os.environ)
         provider = build_provider(cfg, resolved, os.environ)
         await _require_server(cfg, resolved)
         await _require_model(cfg, resolved)
@@ -2149,7 +2178,7 @@ def _doctor(cwd: Path, *, probe: bool = False, trust: bool = False) -> None:
     table.add_row(*_web_fetch_row(cfg))
     for row in _lsp_rows(cfg):
         table.add_row(*row)
-    for row in _ollama_rows(cfg, model, kind, probe=probe, cwd=cwd, trusted=decision.trusted):
+    for row in _local_rows(cfg, model, kind, probe=probe, cwd=cwd, trusted=decision.trusted):
         table.add_row(*row)
     _console.print(table)
 
@@ -2282,6 +2311,34 @@ async def _probe_web_search(provider: str | None, timeout_s: float, url: str) ->
     return "ok", ui("cli.app.reached_and_stopped_engines", reached=reached, stopped=stopped)
 
 
+def _local_rows(
+    cfg: RuntimeConfig,
+    model: str,
+    kind: ProviderKind,
+    *,
+    probe: bool,
+    cwd: Path | None = None,
+    trusted: bool = False,
+) -> list[tuple[str, str, str]]:
+    """ローカルのサーバの種類ごとの doctor 行（--probe のときだけ LM Studio かを問い合わせる）。"""
+    if kind is not ProviderKind.OPENAI:
+        return []
+    endpoint = openai_endpoint(cfg, os.environ)
+    server: LocalServer | None = None
+    if endpoint and probe:
+        server = asyncio.run(resolve_server(endpoint, os.environ, cfg.provider))
+    elif endpoint:
+        server = server_for_endpoint(endpoint, os.environ, cfg.provider)
+    if isinstance(server, LMStudioServer):
+        return _lmstudio_rows(cfg, model, server, probe=probe, cwd=cwd, trusted=trusted)
+    if server is not None:
+        return _ollama_rows(cfg, model, kind, probe=probe, cwd=cwd, trusted=trusted)
+    undecided = cfg.provider.local.server == "auto" and cfg.provider.ollama.detect == "auto"
+    if endpoint and not probe and undecided and looks_local(endpoint):
+        return [("local server", "-", ui("cli.app.not_ollama_probe_checks_for"))]
+    return [("local server", "-", ui("cli.app.not_a_local_server_can_be"))]
+
+
 def _ollama_rows(
     cfg: RuntimeConfig,
     model: str,
@@ -2295,7 +2352,8 @@ def _ollama_rows(
     if kind is not ProviderKind.OPENAI:
         return []
     endpoint = openai_endpoint(cfg, os.environ)
-    if not endpoint or not is_ollama_endpoint(endpoint, os.environ, cfg.provider.ollama.detect):
+    server = server_for_endpoint(endpoint, os.environ, cfg.provider) if endpoint else None
+    if not endpoint or not isinstance(server, OllamaServer):
         not_ollama = ui("cli.app.not_ollama_can_be_fixed")
         return [("ollama", "-", not_ollama)]
     keep = cfg.provider.ollama.keep_alive or ui("cli.app.off")
@@ -2328,29 +2386,94 @@ def _ollama_rows(
         status = "warn"
         detail += ui("cli.app.effective_num_ctx_unknown_not")
     rows.append(("ollama ctx", status, escape(detail)))
-    if cwd is not None and fit.context_length:
-        breakdown = asyncio.run(_doctor_breakdown(cfg, model, cwd, trusted, fit))
-        if breakdown is not None:
-            text = breakdown.describe(source_label(info.source)) + ui(
-                "cli.app.mcp_tools_not_counted"
-            )
-            if breakdown.tight:
-                text += "\n" + breakdown.advice()
-            rows.append(("context window", "warn" if breakdown.tight else "ok", escape(text)))
+    rows.extend(_window_rows(cfg, model, fit, cwd, trusted))
     loaded = _loaded_label(info.expires_at) if info.loaded else ui("cli.app.not_loaded")
     rows.append(("ollama keep_alive", "ok", f"config={keep} / {loaded}"))
     rows.extend(_role_residency_rows(cfg, model, ollama_root(endpoint)))
     return rows
 
 
+def _window_rows(
+    cfg: RuntimeConfig, model: str, fit: ContextFitResult, cwd: Path | None, trusted: bool
+) -> list[tuple[str, str, str]]:
+    """doctor の窓の内訳の行（作業場所が分かるときだけ）。"""
+    if cwd is None or not fit.context_length:
+        return []
+    breakdown = asyncio.run(_doctor_breakdown(cfg, model, cwd, trusted, fit))
+    if breakdown is None:
+        return []
+    text = breakdown.describe(source_label(fit.info.source)) + ui("cli.app.mcp_tools_not_counted")
+    if breakdown.tight:
+        text += "\n" + breakdown.advice(fit.info.server, model)
+    return [("context window", "warn" if breakdown.tight else "ok", escape(text))]
+
+
+def _lmstudio_rows(
+    cfg: RuntimeConfig,
+    model: str,
+    server: LMStudioServer,
+    *,
+    probe: bool,
+    cwd: Path | None,
+    trusted: bool,
+) -> list[tuple[str, str, str]]:
+    """LM Studio の窓・内訳・常駐状態の doctor 行。"""
+    local = cfg.provider.local
+    ttl = local.ttl or "-"
+    if not probe:
+        fit_flag = "on" if cfg.compaction.auto_context_fit else "off"
+        unload_flag = "on" if local.unload_on_exit else "off"
+        flags = (
+            f"{server.root} / ttl={ttl} / auto_context_fit={fit_flag}"
+            f" / unload_on_exit={unload_flag}"
+        )
+        return [("lmstudio", "ok", ui("cli.app.probe_to_query_the_context", flags=flags))]
+    if not model:
+        return [("lmstudio", "warn", ui("cli.app.cannot_query_because_no_model"))]
+    fit = asyncio.run(_probe_local(cfg, model, server))
+    info = fit.info
+    if not info.ps_ok:
+        return [("lmstudio ctx", "warn", ui("cli.app.cannot_reach_lmstudio", root=server.root))]
+    if info.source == "none":
+        missing = ui(
+            "engine.context_fit.model_was_not_found_on_lmstudio", model=model, root=server.root
+        )
+        return [("lmstudio ctx", "warn", escape(missing))]
+    status = "ok"
+    detail = fit.describe()
+    if not cfg.compaction.auto_context_fit and fit.clamped:
+        status = "warn"
+        detail += ui("cli.app.not_applied_because_auto_context")
+    if not info.loaded:
+        status = "warn"
+        detail += ui("cli.app.lmstudio_window_unknown_not")
+    rows = [("lmstudio ctx", status, escape(detail))]
+    rows.extend(_window_rows(cfg, model, fit, cwd, trusted))
+    loaded = _loaded_label(info.expires_at) if info.loaded else ui("cli.app.not_loaded")
+    rows.append(("lmstudio loaded", "ok", f"ttl={ttl} / {loaded}"))
+    for name in _role_models(cfg, model):
+        role = asyncio.run(server.context_info(name))
+        if role.loaded:
+            rows.append(("lmstudio role", "ok", f"{name}: {_loaded_label(role.expires_at)}"))
+        else:
+            unloaded = ui("cli.app.lmstudio_role_not_loaded", name=name)
+            rows.append(("lmstudio role", "warn", unloaded))
+    return rows
+
+
+def _role_models(cfg: RuntimeConfig, main_model: str) -> list[str]:
+    """メインと別のモデルを使う役割のモデル。"""
+    return sorted(
+        {expand_model_name(m) for m in (getattr(cfg.provider.roles, r) for r in ROLE_NAMES) if m}
+        - {main_model}
+    )
+
+
 def _role_residency_rows(
     cfg: RuntimeConfig, main_model: str, root: str
 ) -> list[tuple[str, str, str]]:
     """役割モデルの常駐状況（VRAM 競合チェック。--probe 時のみ）。"""
-    role_models = sorted(
-        {expand_model_name(m) for m in (getattr(cfg.provider.roles, r) for r in ROLE_NAMES) if m}
-        - {main_model}
-    )
+    role_models = _role_models(cfg, main_model)
     if not role_models:
         return []
     infos = asyncio.run(_fetch_role_contexts(root, role_models))
@@ -2397,6 +2520,20 @@ async def _doctor_breakdown(
         system.joined(),
         json.dumps(schemas, sort_keys=True, ensure_ascii=False),
         turn.instructions,
+    )
+
+
+async def _probe_local(cfg: RuntimeConfig, model: str, server: LocalServer) -> ContextFitResult:
+    """doctor 用: cfg を書き換えずに、ローカルのサーバの窓で整合結果だけ計算する。"""
+    from satsumaestro.engine.context_fit import fit_compaction_threshold
+
+    info = await server.context_info(model)
+    fitted = fit_compaction_threshold(cfg.compact_token_threshold, info.context_length)
+    return ContextFitResult(
+        model=model,
+        info=info,
+        original_threshold=cfg.compact_token_threshold,
+        effective_threshold=fitted if fitted is not None else cfg.compact_token_threshold,
     )
 
 

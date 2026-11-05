@@ -166,11 +166,7 @@ class DecompositionCoordinator:
             return self._capacity_value
         dcfg = self._config.decomposition
         base = openai_endpoint(self._config, self._env) or ""
-        server = (
-            server_for_endpoint(base, self._env, self._config.provider.ollama.detect)
-            if base
-            else None
-        )
+        server = server_for_endpoint(base, self._env, self._config.provider) if base else None
         is_ollama = server is not None and server.kind == "ollama"
         calibrate = dcfg.calibrate_parallelism
         provider_side = await estimate_parallelism(

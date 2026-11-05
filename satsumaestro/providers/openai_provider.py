@@ -7,7 +7,7 @@ import inspect
 import json
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -425,11 +425,15 @@ class OpenAICompatProvider:
         timeout: float | httpx.Timeout | None = None,
         ollama_root: str | None = None,
         keep_alive: str | None = None,
+        extra_body: Mapping[str, Any] | None = None,
+        on_used: Callable[[str], None] | None = None,
         openai: OpenAIConfig | None = None,
     ) -> None:
         self.kind = kind
         self._base_url = base_url
         self._ollama_root = ollama_root
+        self._extra_body = dict(extra_body) if extra_body else None
+        self._on_used = on_used
         tuning = openai if openai is not None else OpenAIConfig()
         host = urlparse(base_url if "://" in base_url else f"http://{base_url}").hostname or ""
         self._official = ollama_root is None and host in {h.lower() for h in tuning.hosts}
@@ -468,6 +472,8 @@ class OpenAICompatProvider:
             stream = await self._open(req, tools, strict=want_strict)
             if self._ollama_root is not None:
                 note_model_used(self._ollama_root, req.model)
+            if self._on_used is not None:
+                self._on_used(req.model)
             silence = (
                 self._timeout.read
                 if self._timeout is not None and self._first_byte_timeout(req) is not None
@@ -644,6 +650,8 @@ class OpenAICompatProvider:
             "stream": True,
             **shape.kwargs,
         }
+        if self._extra_body is not None:
+            call["extra_body"] = self._extra_body
         first_byte = self._first_byte_timeout(req)
         if first_byte is not None and self._timeout is not None:
             t = self._timeout

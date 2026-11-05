@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from satsumaestro.i18n.text import ui
+from satsumaestro.providers.detect import LocalKind
 
 TIGHT_FACTOR = 2
 _MIN_RECOMMENDED = 4096
@@ -69,9 +70,16 @@ class WindowBreakdown:
             threshold=threshold,
         )
 
-    def advice(self) -> str:
-        """窓が小さいときの案内（広げ方と参考の URL）。"""
+    def advice(self, server: LocalKind = "ollama", model: str = "") -> str:
+        """窓が小さいときの案内（サーバごとの広げ方）。"""
         size = self.recommended()
+        if server == "lmstudio":
+            return ui(
+                "engine.window_breakdown.window_is_tight_lmstudio",
+                factor=TIGHT_FACTOR,
+                size=size,
+                model=model,
+            )
         return ui(
             "engine.window_breakdown.window_is_tight",
             factor=TIGHT_FACTOR,

@@ -9,12 +9,13 @@ from urllib.parse import urlparse
 import httpx
 
 from satsumaestro.config.models import RuntimeConfig, SamplingConfig
+from satsumaestro.engine.prefill import keep_alive_seconds
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import Provider, ProviderKind
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.fallback import FallbackProvider
-from satsumaestro.providers.local import server_for_endpoint
+from satsumaestro.providers.local import LMStudioServer, server_for_endpoint
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.registry import expand_model_name
@@ -60,9 +61,20 @@ def build_bare(
     endpoint = openai_endpoint(config, env)
     if not endpoint:
         raise ProviderError(ui("providers.factory.openai_endpoint_unresolved"))
+    server = server_for_endpoint(endpoint, env, config.provider)
+    if isinstance(server, LMStudioServer):
+        ttl = keep_alive_seconds(config.provider.local.ttl)
+        return OpenAICompatProvider(
+            server.token or _local_key(env) or "lm-studio",
+            endpoint,
+            kind=ProviderKind.OPENAI,
+            timeout=timeout,
+            extra_body={"ttl": int(ttl)} if ttl else None,
+            on_used=server.note_used,
+            openai=config.provider.openai,
+        )
     api_key = env.get("OPENAI_API_KEY") or "ollama"
     ollama = config.provider.ollama
-    server = server_for_endpoint(endpoint, env, ollama.detect)
     root = server.root if server is not None and server.kind == "ollama" else None
     return OpenAICompatProvider(
         api_key,
@@ -73,6 +85,15 @@ def build_bare(
         keep_alive=ollama.keep_alive or None,
         openai=config.provider.openai,
     )
+
+
+_CLOUD_KEY_PREFIXES = ("sk-proj-", "sk-svcacct-", "sk-admin-", "sk-ant-", "xai-")
+
+
+def _local_key(env: Mapping[str, str]) -> str | None:
+    """ローカルのサーバに送ってよい ``OPENAI_API_KEY``（クラウドの形の鍵は送らない）。"""
+    key = env.get("OPENAI_API_KEY")
+    return key if key and not key.startswith(_CLOUD_KEY_PREFIXES) else None
 
 
 def build_provider(

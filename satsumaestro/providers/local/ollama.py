@@ -7,8 +7,12 @@ from dataclasses import dataclass
 
 import httpx
 
-from satsumaestro.providers.detect import ModelContextInfo, fetch_model_context, model_loaded
-from satsumaestro.providers.local.base import LocalKind
+from satsumaestro.providers.detect import (
+    LocalKind,
+    ModelContextInfo,
+    fetch_model_context,
+    model_loaded,
+)
 
 _log = logging.getLogger(__name__)
 

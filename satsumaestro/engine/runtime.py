@@ -157,7 +157,11 @@ from satsumaestro.prompt.builder import SystemPromptBuilder, TurnContext, git_ch
 from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers import notices, timing
 from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
-from satsumaestro.providers.retry import is_read_timeout, is_tool_call_parse_error
+from satsumaestro.providers.retry import (
+    is_context_overflow,
+    is_read_timeout,
+    is_tool_call_parse_error,
+)
 from satsumaestro.security import output_guard, state_write_guard
 from satsumaestro.security.allowlist import PermissionResolver
 from satsumaestro.security.auto_allow import SecretMatcher, evaluate_auto_allow, secret_path_hit
@@ -1228,6 +1232,25 @@ class ConversationRuntime:
             try:
                 assistant = await self._request_reply(req, render, repair, counters)
             except ProviderError as e:
+                window = (
+                    await self._refit_window()
+                    if is_context_overflow(e)
+                    and not truncation_retried
+                    and self._has_budget(iteration)
+                    else None
+                )
+                if window is not None:
+                    truncation_retried = True
+                    self._sent = None
+                    _log.warning("the server rejected the request as over its window: %s", e)
+                    context_notice(
+                        render,
+                        ui(
+                            "engine.runtime.the_server_rejected_the_request",
+                            window_text=f"{window:,}",
+                        ),
+                    )
+                    continue
                 if (
                     is_tool_call_parse_error(e)
                     and step_rewrites < 1
@@ -1817,7 +1840,7 @@ class ConversationRuntime:
 
     async def _recheck_window(self) -> None:
         """起動時に分からなかった窓を、読み込んだ後の値で測り直す。"""
-        from satsumaestro.engine.context_fit import source_label
+        from satsumaestro.engine.context_fit import loaded_source, local_server_for, source_label
 
         before = self.config.compaction.context_window
         window = await self._refit_window()
@@ -1826,9 +1849,11 @@ class ConversationRuntime:
         notes = [ui("engine.runtime.window_rechecked", window=f"{window:,}", before=f"{before:,}")]
         breakdown = await self.window_breakdown()
         if breakdown is not None:
-            notes.append(breakdown.describe(source_label("ps")))
+            server = local_server_for(self.config, self.session.model, os.environ)
+            kind = server.kind if server is not None else "ollama"
+            notes.append(breakdown.describe(source_label(loaded_source(kind))))
             if breakdown.tight:
-                notes.append(breakdown.advice())
+                notes.append(breakdown.advice(kind, self.session.model))
         self._window_notes = notes
 
     async def refit_for_model(self) -> ContextFitResult | None:
