@@ -100,7 +100,7 @@ reasoning effort `none`, `low` and `max`.
 Not supported: `grok-4.20-multi-agent-0309` needs the Responses API. The `grok-imagine` models
 generate images and video.
 
-### Dependencies
+### Dependencies ([#11](https://github.com/KATOI-T/SATSUMAESTRO/pull/11))
 
 #### Security
 
