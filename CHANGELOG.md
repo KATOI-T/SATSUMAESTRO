@@ -100,6 +100,15 @@ reasoning effort `none`, `low` and `max`.
 Not supported: `grok-4.20-multi-agent-0309` needs the Responses API. The `grok-imagine` models
 generate images and video.
 
+### Dependencies
+
+#### Security
+
+- `uv.lock` moves to versions that fix the advisories Dependabot reported: mcp 1.30.0, PyJWT
+  2.15.1, cryptography 50.0.2 and certifi 2026.10.23, and for development only, virtualenv 21.15.5
+  and filelock 4.2.8. A new install from PyPI already gets fixed versions. The Homebrew formula
+  follows with the next release.
+
 ## [0.5.0] - 2026-11-01
 
 First public release.
