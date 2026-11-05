@@ -72,9 +72,11 @@ class ReplDriver:
         answer: str | Sequence[str] = "y",
         trusted: bool = True,
         locale: str = "ja_JP.UTF-8",
+        base_url_env: str = "OLLAMA_HOST",
     ) -> None:
         self.workspace = workspace
         self.base_url = base_url
+        self.base_url_env = base_url_env
         self.config_home = config_home
         self.python = python
         self.model = model
@@ -98,7 +100,7 @@ class ReplDriver:
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": str(home),
             "SATSUMA_CONFIG_HOME": str(self.config_home),
-            "OLLAMA_HOST": self.base_url,
+            self.base_url_env: self.base_url,
             "SATSUMA_LOG_FILE": "off",
             "PROMPT_TOOLKIT_NO_CPR": "1",
             "TERM": "xterm-256color",
@@ -298,6 +300,7 @@ class ScenarioResult:
     elapsed: float
     workspace: Path
     turns: list[str] = field(default_factory=list)
+    unloads: list[str] = field(default_factory=list)
 
 
 def run_scenario(
@@ -321,6 +324,7 @@ def run_scenario(
     screen_answer: str = "auto",
     window: int = 131072,
     loaded_window: int | None = None,
+    flavor: str = "ollama",
 ) -> ScenarioResult:
     """擬似サーバと REPL を起動し、plan → 依頼（→ 削除）を流して転写と検査結果を返す。"""
     workspace.mkdir(parents=True, exist_ok=True)
@@ -330,12 +334,18 @@ def run_scenario(
         (state / "settings.local.json").write_text(json.dumps(settings), encoding="utf-8")
     started = time.monotonic()
     fake = FakeOllama(
-        script, model=model, workspace=workspace, window=window, loaded_window=loaded_window
+        script,
+        model=model,
+        workspace=workspace,
+        window=window,
+        loaded_window=loaded_window,
+        flavor=flavor,
     )
     fake.bind()
     driver = ReplDriver(
         workspace=workspace,
         base_url=fake.base_url,
+        base_url_env=fake.base_url_env,
         config_home=home / ".satsuma",
         python=python,
         model=model,
@@ -379,6 +389,7 @@ def run_scenario(
         elapsed=time.monotonic() - started,
         workspace=workspace,
         turns=list(turns),
+        unloads=fake.unloads,
     )
 
 

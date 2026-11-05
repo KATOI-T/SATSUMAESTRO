@@ -31,7 +31,8 @@ def test_every_script_loads_and_each_rule_replies() -> None:
         rules = load_script(path)
         assert rules, path.name
         for rule in rules:
-            replies = (rule.reply.get(k) for k in ("text", "tool_calls", "http_error"))
+            kinds = ("text", "tool_calls", "http_error", "stream_error")
+            replies = (rule.reply.get(k) for k in kinds)
             assert any(replies), (path.name, rule.index)
 
 

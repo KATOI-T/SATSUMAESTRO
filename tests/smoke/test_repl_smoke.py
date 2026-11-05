@@ -52,6 +52,7 @@ def scenario(tmp_path: Path) -> Runner:
         screen_answer: str = "auto",
         window: int = 131072,
         loaded_window: int | None = None,
+        flavor: str = "ollama",
     ) -> ScenarioResult:
         try:
             result = run_scenario(
@@ -71,6 +72,7 @@ def scenario(tmp_path: Path) -> Runner:
                 screen_answer=screen_answer,
                 window=window,
                 loaded_window=loaded_window,
+                flavor=flavor,
             )
         except DriverError as e:
             _dump(e.transcript, e.requests)
@@ -506,7 +508,10 @@ def test_a_call_still_broken_after_the_hint_is_rewritten(scenario: Runner, tmp_p
     assert tr.turn_ends(result.transcript.plain) == 1
 
 
-def test_reloading_model_is_shown_in_a_later_turn(scenario: Runner) -> None:
+@pytest.mark.parametrize(("flavor", "server"), [("ollama", "Ollama"), ("lmstudio", "LM Studio")])
+def test_reloading_model_is_shown_in_a_later_turn(
+    scenario: Runner, flavor: str, server: str
+) -> None:
     """2 ターン目の前にモデルが降りていたら、そのターンの待ちでもロード中を出す。"""
     seen: dict[str, bool] = {}
 
@@ -521,12 +526,55 @@ def test_reloading_model_is_shown_in_a_later_turn(scenario: Runner) -> None:
         seen["before_reply"] = later.find("をロード中…") < later.find("二つ目です。")
 
     result = scenario(
-        "model_reload.jsonl", turns=("一つ目を答えて", "二つ目を答えて"), plan=False, during=during
+        "model_reload.jsonl",
+        turns=("一つ目を答えて", "二つ目を答えて"),
+        plan=False,
+        during=during,
+        flavor=flavor,
     )
     assert result.report.failures == [], result.report.failures
     assert seen == {"loading": True, "before_reply": True}
     assert tr.turn_ends(result.transcript.plain) == 2
-    assert f"Ollama から {FAKE_MODEL} を降ろしました" in result.transcript.text
+    assert f"{server} から {FAKE_MODEL} を降ろしました" in result.transcript.text
+
+
+def test_lmstudio_window_is_read_and_the_model_is_unloaded(scenario: Runner) -> None:
+    """LM Studio は起動時に判定し、読み込んだ窓に合わせ、終了時に読み込ませたモデルを降ろす。"""
+    result = scenario(
+        "token_summary.jsonl",
+        turns=("こんにちは",),
+        plan=False,
+        loaded_window=8192,
+        cols=400,
+        flavor="lmstudio",
+    )
+    text = result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert "読み込んだモデルの窓は 8,192 トークンでした（起動時の見込みは 131,072）" in text
+    assert "文脈の窓 8,192 トークン（ロード済みのモデルの窓（LM Studio））" in text
+    assert f"`lms load {FAKE_MODEL} --context-length 16384`" in text
+    assert "OLLAMA_CONTEXT_LENGTH" not in text
+    assert re.search(r"文脈 [\d.]+K?/6\.55K", text), text
+    assert f"LM Studio から {FAKE_MODEL} を降ろしました" in text
+    assert result.unloads == [FAKE_MODEL]
+
+
+def test_lmstudio_overflow_is_resent_once_with_the_loaded_window(scenario: Runner) -> None:
+    """窓あふれの ``event: error`` を受けたら、読み込んだ窓に合わせて 1 回だけ送り直す。"""
+    result = scenario(
+        "lmstudio_overflow.jsonl",
+        turns=("窓あふれを起こして",),
+        plan=False,
+        loaded_window=8192,
+        cols=400,
+        flavor="lmstudio",
+    )
+    text = result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert "モデルの窓より長い要求として断りました。窓 8,192 に合わせて送り直します" in text
+    assert "送り直しを受けました。" in text
+    assert [r["note"] for r in result.requests] == ["窓あふれ", "catch-all"]
+    assert tr.turn_ends(result.transcript.plain) == 1
 
 
 @pytest.mark.parametrize("answer", ["y", "n"])
