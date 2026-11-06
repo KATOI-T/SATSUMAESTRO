@@ -109,7 +109,7 @@ generate images and video.
   and filelock 4.2.8. A new install from PyPI already gets fixed versions. The Homebrew formula
   follows with the next release.
 
-### LM Studio
+### LM Studio ([#14](https://github.com/KATOI-T/SATSUMAESTRO/pull/14))
 
 #### Added
 
