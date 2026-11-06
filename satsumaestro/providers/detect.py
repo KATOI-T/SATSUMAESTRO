@@ -1,4 +1,4 @@
-"""リクエストを送るプロバイダの判定と、Ollama の検出。"""
+"""リクエストを送るプロバイダの判定と、ローカルのサーバの検出。"""
 
 from __future__ import annotations
 
@@ -75,12 +75,16 @@ def is_ollama_endpoint(
     return False
 
 
-ContextSource = Literal["ps", "show.parameters", "show.model_info", "none"]
+LocalKind = Literal["ollama", "lmstudio"]
+
+ContextSource = Literal[
+    "ps", "show.parameters", "show.model_info", "lmstudio.loaded", "lmstudio.max", "none"
+]
 
 
 @dataclass(frozen=True)
 class ModelContextInfo:
-    """Ollama から得たモデルのコンテキスト長情報。"""
+    """ローカルのサーバから得たモデルのコンテキスト長情報。"""
 
     effective: int | None = None
     native: int | None = None
@@ -88,6 +92,7 @@ class ModelContextInfo:
     loaded: bool = False
     expires_at: str | None = None
     ps_ok: bool = False
+    server: LocalKind = "ollama"
 
     @property
     def context_length(self) -> int | None:
@@ -97,12 +102,12 @@ class ModelContextInfo:
     @property
     def confirmed(self) -> bool:
         """載っているモデルの実効の窓を読めたか。"""
-        return self.source == "ps"
+        return self.source in ("ps", "lmstudio.loaded")
 
     @property
     def unconfirmed(self) -> bool:
         """載っておらず本来の窓しか読めなかったか（載ると小さくなりうる）。"""
-        return self.source == "show.model_info"
+        return self.source in ("show.model_info", "lmstudio.max")
 
 
 def same_model(a: str, b: str) -> bool:

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Protocol
 
 import httpx
 
-from satsumaestro.providers.detect import ModelContextInfo
-
-LocalKind = Literal["ollama"]
+from satsumaestro.providers.detect import LocalKind, ModelContextInfo
 
 
 class LocalServer(Protocol):

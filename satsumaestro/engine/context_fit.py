@@ -12,9 +12,14 @@ import httpx
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.base import ProviderKind
-from satsumaestro.providers.detect import ModelContextInfo, choose_provider_kind
+from satsumaestro.providers.detect import (
+    ContextSource,
+    LocalKind,
+    ModelContextInfo,
+    choose_provider_kind,
+)
 from satsumaestro.providers.factory import openai_endpoint
-from satsumaestro.providers.local import LocalServer, server_for_endpoint
+from satsumaestro.providers.local import LocalServer, resolve_server, server_for_endpoint
 
 _log = logging.getLogger(__name__)
 
@@ -60,7 +65,16 @@ def source_label(source: str) -> str:
         return ui("engine.context_fit.num_ctx_in_the_modelfile")
     if source == "show.model_info":
         return ui("engine.context_fit.the_model_s_native_window")
+    if source == "lmstudio.loaded":
+        return ui("engine.context_fit.lmstudio_loaded_window")
+    if source == "lmstudio.max":
+        return ui("engine.context_fit.lmstudio_largest_window")
     return ui("engine.context_fit.unknown")
+
+
+def loaded_source(server: LocalKind) -> ContextSource:
+    """載っているモデルの窓を読んだときの出どころ。"""
+    return "lmstudio.loaded" if server == "lmstudio" else "ps"
 
 
 def fit_compaction_threshold(
@@ -79,12 +93,28 @@ def fit_compaction_threshold(
 
 def local_server_for(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> LocalServer | None:
     """実際に使う接続先がローカルのサーバならそれを、そうでなければ ``None``。"""
-    if choose_provider_kind(model, env, cfg.provider.base_url) is not ProviderKind.OPENAI:
-        return None
-    endpoint = openai_endpoint(cfg, env)
+    endpoint = _local_endpoint(cfg, model, env)
+    return server_for_endpoint(endpoint, env, cfg.provider) if endpoint else None
+
+
+async def detect_local_server(
+    cfg: RuntimeConfig,
+    model: str,
+    env: Mapping[str, str],
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> LocalServer | None:
+    """起動時に 1 回だけ、ローカルに見える接続先へ問い合わせてサーバの種類を決める。"""
+    endpoint = _local_endpoint(cfg, model, env)
     if not endpoint:
         return None
-    return server_for_endpoint(endpoint, env, cfg.provider.ollama.detect)
+    return await resolve_server(endpoint, env, cfg.provider, client=client)
+
+
+def _local_endpoint(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str | None:
+    if choose_provider_kind(model, env, cfg.provider.base_url) is not ProviderKind.OPENAI:
+        return None
+    return openai_endpoint(cfg, env)
 
 
 async def refit_window(
@@ -130,6 +160,10 @@ async def check_reachable(
     cause = await server.reachable(client=client, timeout_s=timeout_s)
     if cause is None:
         return None
+    if server.kind == "lmstudio":
+        return ui(
+            "engine.context_fit.cannot_reach_lmstudio_check_that", root=server.root, cause=cause
+        )
     return ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
 
 
@@ -140,6 +174,7 @@ class ModelCheck:
     root: str
     missing: bool
     available: list[str]
+    server: LocalKind = "ollama"
 
 
 async def list_models(
@@ -176,9 +211,9 @@ async def check_model(
         if found is None:
             return None
         if found:
-            return ModelCheck(server.root, missing=False, available=[])
+            return ModelCheck(server.root, missing=False, available=[], server=server.kind)
         available = await server.list_models(client=http) or []
-        return ModelCheck(server.root, missing=True, available=available)
+        return ModelCheck(server.root, missing=True, available=available, server=server.kind)
     finally:
         if owned:
             await http.aclose()
@@ -197,9 +232,16 @@ class MissingModelNotice:
     shown: list[str]
     rest: int
     startup: bool
+    server: LocalKind = "ollama"
 
     @property
     def headline(self) -> str:
+        if self.server == "lmstudio":
+            return ui(
+                "engine.context_fit.model_was_not_found_on_lmstudio",
+                model=self.model,
+                root=self.root,
+            )
         return ui("engine.context_fit.model_was_not_found_on", model=self.model, root=self.root)
 
     @property
@@ -219,6 +261,8 @@ class MissingModelNotice:
 
     @property
     def pull_command(self) -> str:
+        if self.server == "lmstudio":
+            return f"lms get {self.model}"
         return f"ollama pull {self.model}"
 
     def pull_hint(self, command: str) -> str:
@@ -248,6 +292,7 @@ def missing_model_notice(
         shown=check.available[:_LISTED_MODELS],
         rest=max(len(check.available) - _LISTED_MODELS, 0),
         startup=startup,
+        server=check.server,
     )
 
 
@@ -291,7 +336,13 @@ async def apply_context_fit(
         original,
         result.effective_threshold,
     )
-    if info.unconfirmed:
+    if info.unconfirmed and info.server == "lmstudio":
+        _log.info(
+            "LM Studio has not loaded %s yet; it loads with the context length set for the model, "
+            "so the window is checked again after the first reply",
+            model,
+        )
+    elif info.unconfirmed:
         _log.warning(
             "could not detect Ollama's effective num_ctx (the model is not loaded). If it is "
             "the server default OLLAMA_CONTEXT_LENGTH (4096 when unset), the context may overflow "

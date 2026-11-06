@@ -1,0 +1,5 @@
+# LM Studio の窓あふれ。擬似サーバは最初の要求に、本物と同じく 200 の SSE で `event: error` を返し、
+# その時点でモデルを窓 8192 で読み込んだことにする。REPL は窓を読み直して 1 回だけ送り直す。
+# code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "あふれ"}, "times": 1, "reply": {"stream_error": "The number of tokens to keep from the initial prompt is greater than the context length. Try to load the model with a larger context length, or provide a shorter input"}, "note": "窓あふれ"}
+{"reply": {"text": "送り直しを受けました。"}, "note": "catch-all"}

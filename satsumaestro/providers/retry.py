@@ -192,6 +192,18 @@ def is_tool_call_parse_error(exc: BaseException) -> bool:
     return False
 
 
+_CONTEXT_OVERFLOW_SIGNATURES = ("greater than the context length",)
+
+
+def is_context_overflow(exc: BaseException) -> bool:
+    """サーバが、モデルの窓より長い要求として断ったか（LM Studio）。"""
+    for e in _causes(exc):
+        text = str(e).casefold()
+        if any(sig in text for sig in _CONTEXT_OVERFLOW_SIGNATURES):
+            return True
+    return False
+
+
 def backoff_delay(attempt: int, policy: RetryPolicy) -> float:
     """``attempt`` 回目の失敗の後に待つ秒。"""
     doublings = min(max(attempt - 1, 0), 32)

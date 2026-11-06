@@ -1,4 +1,4 @@
-"""OpenAI 互換の SSE を返す擬似 Ollama。"""
+"""OpenAI 互換の SSE を返す擬似 Ollama（``flavor="lmstudio"`` で LM Studio のネイティブ API）。"""
 
 from __future__ import annotations
 
@@ -284,13 +284,23 @@ def sse_chunks(reply: dict[str, Any], model: str, prompt_tokens: int = 10) -> It
 class _Server(ThreadingHTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, script: Script, model: str, window: int, loaded_window: int) -> None:
+    def __init__(
+        self,
+        script: Script,
+        model: str,
+        window: int,
+        loaded_window: int,
+        flavor: str,
+        unloads: list[str],
+    ) -> None:
         super().__init__(("127.0.0.1", 0), _Handler)
         self.script = script
         self.model = model
         self.window = window
         self.loaded_window = loaded_window
+        self.flavor = flavor
         self.loaded = False
+        self.unloads = unloads
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -309,9 +319,29 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _lmstudio_models(self) -> dict[str, Any]:
+        srv = self._srv
+        instance = {
+            "id": srv.model,
+            "config": {"context_length": srv.loaded_window, "parallel": 4},
+            "remaining_ttl_seconds": 3600,
+        }
+        entry = {
+            "type": "llm",
+            "key": srv.model,
+            "max_context_length": srv.window,
+            "loaded_instances": [instance] if srv.loaded else [],
+        }
+        return {"models": [entry]}
+
     def do_GET(self) -> None:  # noqa: N802
         model = self._srv.model
-        if self.path.startswith("/api/tags"):
+        if self._srv.flavor == "lmstudio" and self.path.startswith("/api/"):
+            if self.path.startswith("/api/v1/models"):
+                self._json(self._lmstudio_models())
+            else:
+                self._json({"error": "not found"}, 404)
+        elif self.path.startswith("/api/tags"):
             self._json({"models": [{"name": model, "model": model}]})
         elif self.path.startswith("/api/ps"):
             entry = {"name": model, "model": model, "context_length": self._srv.loaded_window}
@@ -324,6 +354,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b""
+        if self._srv.flavor == "lmstudio" and self.path.startswith("/api/"):
+            self._lmstudio_post(raw)
+            return
         if self.path.startswith("/api/show"):
             asked = str(json.loads(raw or b"{}").get("model", ""))
             if asked.casefold() != self._srv.model.casefold():
@@ -354,6 +387,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": message, "type": "api_error"}}, int(error["status"]))
             self._srv.script.mark_done(seq)
             return
+        if "stream_error" in reply:
+            self._srv.loaded = True
+            self._stream_error(str(reply["stream_error"]))
+            self._srv.script.mark_done(seq)
+            return
         load = float(reply.get("load_ms", 0)) / 1000
         if load:
             self._srv.loaded = False
@@ -371,6 +409,27 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         self._srv.script.mark_done(seq)
 
+    def _lmstudio_post(self, raw: bytes) -> None:
+        if not self.path.startswith("/api/v1/models/unload"):
+            self._json({"error": "not found"}, 404)
+            return
+        instance = str(json.loads(raw or b"{}").get("instance_id", ""))
+        if not self._srv.loaded or instance != self._srv.model:
+            self._json({"error": {"code": "model_not_found"}}, 404)
+            return
+        self._srv.loaded = False
+        self._srv.unloads.append(instance)
+        self._json({"instance_id": instance})
+
+    def _stream_error(self, message: str) -> None:
+        """LM Studio と同じく、200 の SSE で ``event: error`` を返す。"""
+        data = json.dumps({"error": {"message": message}, "message": message})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write(f"event: error\ndata: {data}\n\n".encode())
+        self.wfile.flush()
+
 
 class FakeOllama:
     """台本で応答する擬似 Ollama。"""
@@ -383,18 +442,28 @@ class FakeOllama:
         workspace: Path | None = None,
         window: int = 131072,
         loaded_window: int | None = None,
+        flavor: str = "ollama",
     ) -> None:
         self.script = Script(load_script(script), workspace=workspace)
         self.model = model
         self.window = window
         self.loaded_window = loaded_window or window
+        self.flavor = flavor
+        self._unloads: list[str] = []
         self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
     def bind(self) -> int:
         """port を決める（listen まで。接続は backlog に溜まり、``serve()`` で応答が始まる）。"""
         if self._server is None:
-            self._server = _Server(self.script, self.model, self.window, self.loaded_window)
+            self._server = _Server(
+                self.script,
+                self.model,
+                self.window,
+                self.loaded_window,
+                self.flavor,
+                self._unloads,
+            )
         return self.port
 
     def serve(self) -> None:
@@ -425,7 +494,17 @@ class FakeOllama:
 
     @property
     def base_url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        root = f"http://127.0.0.1:{self.port}"
+        return f"{root}/v1" if self.flavor == "lmstudio" else root
+
+    @property
+    def base_url_env(self) -> str:
+        return "OPENAI_BASE_URL" if self.flavor == "lmstudio" else "OLLAMA_HOST"
+
+    @property
+    def unloads(self) -> list[str]:
+        """``/api/v1/models/unload`` で降ろされたインスタンス。"""
+        return list(self._unloads)
 
     @property
     def requests(self) -> list[dict[str, Any]]:

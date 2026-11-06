@@ -33,6 +33,7 @@ OpenAI 互換のサーバやクラウドの API も使えます。
 - [Web 検索と Web 取得](#web-検索と-web-取得)
 - [任意の機能](#任意の機能)
 - [別のマシンの Ollama を使う](#別のマシンの-ollama-を使う)
+- [LM Studio で使う](#lm-studio-で使う)
 - [貢献・セキュリティ・ライセンス](#貢献セキュリティライセンス)
 
 ## 動作環境
@@ -233,7 +234,8 @@ satsumaestro doctor                   # 設定・プロバイダ・鍵・ポリ�
 
 REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。REPL を
 閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
-`provider.ollama.unload_on_exit: false`）。
+`provider.ollama.unload_on_exit: false`）。LM Studio からは、その REPL が読み込ませたモデルだけを降ろします
+（残すなら `provider.local.unload_on_exit: false`）。
 
 **モード**: メインモードは `plan` か `code`（既定 `code`）で、プロンプトの接頭辞 `[plan] satsuma>`（緑）/
 `[code] satsuma>`（青）に出ます。
@@ -268,7 +270,7 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 1. `provider.base_url` か `OLLAMA_HOST` がある → その接続先（OpenAI 互換）。このとき、モデル名だけでは有料の
    クラウドの API へ送りません
 2. モデル ID でプロバイダが分かる（`claude-…`・`gpt-…`・`grok-…` など）→ そのプロバイダ
-3. `OPENAI_BASE_URL` がある → その OpenAI 互換のサーバ（mlx-lm・vLLM・OpenRouter など）
+3. `OPENAI_BASE_URL` がある → その OpenAI 互換のサーバ（LM Studio・mlx-lm・vLLM・OpenRouter など）
 4. 最初に見つかった API の鍵: `OPENAI_API_KEY`・`ANTHROPIC_API_KEY`・`XAI_API_KEY`
 5. どれも無ければ OpenAI 互換。接続先の設定の仕方（`provider.base_url`・`OPENAI_BASE_URL`・`OLLAMA_HOST`）を案内します
 
@@ -368,7 +370,7 @@ bash のコマンドと削除は確認が必要です。`repl`（対話）は確
 権限ポリシーです。
 
 **鍵と記録**: SATSUMAESTRO が読むプロバイダの鍵（`ANTHROPIC_API_KEY`・`OPENAI_API_KEY`・`XAI_API_KEY`・
-`SATSUMA_EMBED_API_KEY`）と `*_API_KEY` に合う名前は、子プロセス（bash・フック・LSP サーバ）の環境から
+`SATSUMA_EMBED_API_KEY`・`LM_API_TOKEN`）と `*_API_KEY` に合う名前は、子プロセス（bash・フック・LSP サーバ）の環境から
 外します（`sandbox.env_strip` / `sandbox.env_keep` で調整）。`config show` は `mcp_servers.*.env` の値を
 伏せます。セッションの記録（`.satsuma/sessions/`）は、上の鍵の値・秘密らしい名前に渡した値
 （`API_KEY=…`・`password: …` など）・`Authorization:` のヘッダ・URL のクエリの鍵・鍵の形のトークン
@@ -476,6 +478,38 @@ SATSUMA_WEB_SEARCH_BASE_URL=http://192.168.x.x:8080  # SearXNG（使う場合の
 > **セキュリティ**: Ollama にも SearXNG にも認証はありません。`0.0.0.0` で公開すると、同じネットワークの
 > 誰でも使える状態になります。信頼できる LAN の中に限るか、SSH トンネルか VPN 越しに使い、インターネットへ
 > 直接は公開しないでください。
+
+## LM Studio で使う
+
+LM Studio でサーバを起動し（Developer のタブか `lms server start`）、SATSUMAESTRO をそこへ向けます。
+
+```bash
+OPENAI_BASE_URL=http://localhost:1234/v1 satsumaestro repl -m openai/gpt-oss-20b
+```
+
+`OLLAMA_HOST` があるとそちらが優先されるので、そのときは設定の `provider.base_url` で指定します。モデル名は
+`lms ls` に出る名前です。
+
+**先に窓を大きくする**: LM Studio の既定の窓（4K〜8K のことが多い）では足りません。始める前に、My Models で
+モデルの Context Length を 32768 以上にするか、自分で読み込みます。
+
+```bash
+lms load openai/gpt-oss-20b --context-length 32768
+```
+
+SATSUMAESTRO は読み込まれたモデルの窓に合わせて履歴を畳み、窓が小さいときは上のコマンドを案内します。REPL を
+閉じると、SATSUMAESTRO が読み込ませたモデルだけを降ろします（自分で読み込んだモデルは残ります）。
+
+設定（`provider.local`）:
+
+- `server`: `lmstudio` で種類を固定（ローカルに見えないホスト名のとき）、`generic` で汎用の OpenAI 互換として扱う
+- `unload_on_exit`: `false` で終了時に降ろさない
+- `ttl`: 読み込ませたモデルを置いておく時間（例 `"30m"`）
+
+LM Studio で認証を有効にしたときは、API トークンを `LM_API_TOKEN` に入れます。
+
+RAG の埋め込みに LM Studio を使うなら、`SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1` と
+`SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5` を設定します。
 
 ## 貢献・セキュリティ・ライセンス
 

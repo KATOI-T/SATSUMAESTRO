@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.util.paths import AGENT_DIRNAME
@@ -74,6 +74,25 @@ class OllamaConfig(BaseModel):
     detect: Literal["auto", "on", "off"] = "auto"
 
 
+class LocalConfig(BaseModel):
+    """ローカルの LLM サーバの種類と、Ollama 以外のサーバの扱い。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    server: Literal["auto", "ollama", "lmstudio", "generic"] = "auto"
+    unload_on_exit: bool = True
+    ttl: str | None = None
+
+    @field_validator("ttl")
+    @classmethod
+    def _duration(cls, v: str | None) -> str | None:
+        from satsumaestro.engine.prefill import keep_alive_seconds
+
+        if v is not None and not keep_alive_seconds(v):
+            raise ValueError(f"ttl must be a positive duration such as 30m, 1h or 600: {v!r}")
+        return v
+
+
 class OpenAIConfig(BaseModel):
     """OpenAI 公式 API（``hosts``）向けの調整。``negotiate`` は xAI にも効く（Ollama は除く）。"""
 
@@ -92,8 +111,20 @@ class ProviderConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    local: LocalConfig = Field(default_factory=LocalConfig)
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     roles: ModelRoles = Field(default_factory=ModelRoles)
+
+    @model_validator(mode="after")
+    def _one_server(self) -> ProviderConfig:
+        detect, server = self.ollama.detect, self.local.server
+        if (detect == "on" and server not in ("auto", "ollama")) or (
+            detect == "off" and server == "ollama"
+        ):
+            raise ValueError(
+                f"provider.ollama.detect: {detect} conflicts with provider.local.server: {server}"
+            )
+        return self
 
 
 class PermissionConfig(BaseModel):

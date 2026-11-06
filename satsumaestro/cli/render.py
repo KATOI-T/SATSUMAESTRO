@@ -40,6 +40,7 @@ from satsumaestro.engine.events import (
 )
 from satsumaestro.engine.repetition import RepetitionVerdict
 from satsumaestro.i18n.text import ui
+from satsumaestro.providers.detect import LocalKind
 from satsumaestro.providers.notices import ProviderNotice
 from satsumaestro.providers.notices import describe as describe_notice
 from satsumaestro.session.models import PlanStepRecord, TokenUsage, ToolResultBlock
@@ -75,7 +76,9 @@ _ELAPSED_AFTER_S = 2.0
 _LOAD_STALL_S = 180.0
 
 
-def _load_stall_label() -> str:
+def _load_stall_label(server: LocalKind) -> str:
+    if server == "lmstudio":
+        return ui("cli.render.the_model_has_not_finished_lmstudio")
     return ui("cli.render.the_model_has_not_finished")
 
 
@@ -162,6 +165,7 @@ class RichRenderer:
         show_thinking: bool = False,
         stream_tool_args: bool = True,
         loading_model: str | None = None,
+        local_server: LocalKind = "ollama",
         cwd: Path | None = None,
         context_limit: int | Callable[[], int] = 0,
     ) -> None:
@@ -169,6 +173,7 @@ class RichRenderer:
         self._cwd = cwd
         self._context_limit = context_limit
         self._loading_model = loading_model
+        self._local_server: LocalKind = local_server
         self._tty = self.console.is_terminal
         self._show_thinking = show_thinking
         self._live: LiveRegion | None = None
@@ -663,7 +668,7 @@ class RichRenderer:
         return self._phase_since
 
     def on_model_loading(self, model: str, since: float) -> None:
-        """待ちの途中で、モデルが Ollama に載っていないと分かった（ロードから始まっている）。"""
+        """待ちの途中で、モデルがサーバに載っていないと分かった（ロードから始まっている）。"""
         if self.waiting_since() != since:
             return
         self._loading_model = model
@@ -681,7 +686,7 @@ class RichRenderer:
                 ui("cli.render.loading", model=model),
                 self._phase_since,
                 _no_tokens,
-                stalled=(_LOAD_STALL_S, _load_stall_label()),
+                stalled=(_LOAD_STALL_S, _load_stall_label(self._local_server)),
                 pulse_bar=True,
             )
         label = self._phase_label or _state_label(self._state)
