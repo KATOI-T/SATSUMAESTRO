@@ -487,42 +487,29 @@ LM Studio でサーバを起動し（Developer のタブか `lms server start`�
 OPENAI_BASE_URL=http://localhost:1234/v1 satsumaestro repl -m openai/gpt-oss-20b
 ```
 
-設定なら `{"provider": {"base_url": "http://localhost:1234/v1", "default_model": "openai/gpt-oss-20b"}}` です。
+`OLLAMA_HOST` があるとそちらが優先されるので、そのときは設定の `provider.base_url` で指定します。モデル名は
+`lms ls` に出る名前です。
 
-- `OLLAMA_HOST` は `OPENAI_BASE_URL` より優先されます。`.env` やシェルに `OLLAMA_HOST` があるときは、
-  `provider.base_url` で指定してください
-- 起動時に、ローカルに見えるホスト（`localhost`・プライベートアドレス・`*.local`）のサーバへ、LM Studio かを
-  1 回だけ問い合わせます。ローカルに見えない名前のホストなら `provider.local.server: "lmstudio"`、汎用の
-  OpenAI 互換として扱うなら `"generic"` にします
-- モデル名は `lms ls` に出る key（例 `openai/gpt-oss-20b`）です。最後の `/` の後ろだけでも通ります
-- LM Studio で認証を有効にしたときは、API トークンを `LM_API_TOKEN` に入れます
-
-**文脈の窓**: LM Studio は最初の要求でモデルを読み込み、そのときの窓はモデルに設定したコンテキスト長です
-（4K〜8K のことが多い）。SATSUMAESTRO は読み込まれたモデルの窓を読み、履歴を畳む量をそれに合わせます。
-LM Studio の設定は変えません。読み込まれる前はモデルの最大の窓を見込み、最初の返事の後に確かめ直します。
-窓が小さいときは、大きな窓での読み込みを案内します。
+**先に窓を大きくする**: LM Studio の既定の窓（4K〜8K のことが多い）では足りません。始める前に、My Models で
+モデルの Context Length を 32768 以上にするか、自分で読み込みます。
 
 ```bash
-lms load openai/gpt-oss-20b --context-length 16384
+lms load openai/gpt-oss-20b --context-length 32768
 ```
 
-それでも要求が窓より長いと、LM Studio は中ほどを切り詰めるか、要求を断ります。どちらのときも、窓を読み直し、
-履歴を畳んで 1 回だけ送り直します。
+SATSUMAESTRO は読み込まれたモデルの窓に合わせて履歴を畳み、窓が小さいときは上のコマンドを案内します。REPL を
+閉じると、SATSUMAESTRO が読み込ませたモデルだけを降ろします（自分で読み込んだモデルは残ります）。
 
-**降ろす**: REPL を閉じると、その REPL が LM Studio に読み込ませたモデルだけを降ろします。自分で読み込んだ
-モデル（アプリや `lms load`）は残ります。すべて残すなら `provider.local.unload_on_exit: false`、こうして
-読み込んだモデルを使わずに置いておく時間は `provider.local.ttl`（例 `"30m"`）で決めます。
+設定（`provider.local`）:
 
-**役割ごとのモデル**: オーケストレータなどの役割に別のモデルを使うと、LM Studio の Auto-Evict が片方を降ろして
-もう片方を読み込むので、入れ替わりが続きます。役割のモデルが載っているかは `satsumaestro doctor --probe` で
-見られます。
+- `server`: `lmstudio` で種類を固定（ローカルに見えないホスト名のとき）、`generic` で汎用の OpenAI 互換として扱う
+- `unload_on_exit`: `false` で終了時に降ろさない
+- `ttl`: 読み込ませたモデルを置いておく時間（例 `"30m"`）
 
-**RAG の埋め込み**: 既定は Ollama です。LM Studio の埋め込みのモデルを使うなら次のようにします。
+LM Studio で認証を有効にしたときは、API トークンを `LM_API_TOKEN` に入れます。
 
-```bash
-SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1
-SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
-```
+RAG の埋め込みに LM Studio を使うなら、`SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1` と
+`SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5` を設定します。
 
 ## 貢献・セキュリティ・ライセンス
 

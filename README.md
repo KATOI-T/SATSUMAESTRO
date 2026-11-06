@@ -513,50 +513,38 @@ restart it with `OLLAMA_HOST=0.0.0.0:11434` set on the server side.
 
 ## Using LM Studio
 
-Start the server in LM Studio (the Developer tab, or `lms server start`) and point SATSUMAESTRO at it:
+Start the server in LM Studio (the Developer tab, or `lms server start`) and point SATSUMAESTRO at
+it:
 
 ```bash
 OPENAI_BASE_URL=http://localhost:1234/v1 satsumaestro repl -m openai/gpt-oss-20b
 ```
 
-Or in the settings: `{"provider": {"base_url": "http://localhost:1234/v1", "default_model": "openai/gpt-oss-20b"}}`.
+`OLLAMA_HOST` wins over `OPENAI_BASE_URL`, so if it is set, use `provider.base_url` in the settings.
+Model names are the ones `lms ls` shows.
 
-- `OLLAMA_HOST` wins over `OPENAI_BASE_URL`. If `.env` or the shell sets `OLLAMA_HOST`, use
-  `provider.base_url` instead.
-- At startup SATSUMAESTRO asks a server on a local-looking host (`localhost`, a private address or
-  `*.local`) once whether it is LM Studio. Set `provider.local.server: "lmstudio"` for a host name
-  that does not look local, or `"generic"` to treat the server as plain OpenAI-compatible.
-- The model name is the key shown by `lms ls` (for example `openai/gpt-oss-20b`). The part after the
-  last `/` also works.
-- If you turned on authentication in LM Studio, set the API token in `LM_API_TOKEN`.
-
-**Context window**: LM Studio loads a model on the first request with the context length set for the
-model (often 4K–8K). SATSUMAESTRO reads the window of the loaded model and fits compaction to it; it
-does not change LM Studio's setting. Before the model is loaded, it assumes the model's largest
-window and checks again after the first reply. When the window is small, it suggests a larger one:
+**Make the window larger first**: LM Studio's default window (often 4K–8K) is too small. Before
+you start, set Context Length to 32768 or more for the model in My Models, or load it yourself:
 
 ```bash
-lms load openai/gpt-oss-20b --context-length 16384
+lms load openai/gpt-oss-20b --context-length 32768
 ```
 
-If a request is still longer than the window, LM Studio either cuts its middle or rejects it.
-Either way, SATSUMAESTRO reads the window again, compacts the history and resends once.
+SATSUMAESTRO fits compaction to the window of the loaded model and suggests the command above when
+the window is small. When the REPL closes, it unloads only the models it caused LM Studio to load;
+models you loaded yourself stay.
 
-**Unloading**: when the REPL closes, it unloads only the models it caused LM Studio to load. A model
-you loaded yourself (in the app or with `lms load`) stays loaded. `provider.local.unload_on_exit:
-false` keeps every model, and `provider.local.ttl` (for example `"30m"`) sets how long a model
-loaded this way stays loaded while idle.
+Settings (`provider.local`):
 
-**Models for roles**: if roles such as the orchestrator use another model, LM Studio's Auto-Evict
-unloads one model to load the other, and the models keep swapping. `satsumaestro doctor --probe`
-shows which role models are loaded.
+- `server`: `lmstudio` fixes the kind (for a host name that does not look local); `generic` treats
+  the server as plain OpenAI-compatible
+- `unload_on_exit`: `false` keeps models loaded when the REPL closes
+- `ttl`: how long a model it loaded stays loaded, for example `"30m"`
 
-**Embeddings for RAG**: the default is Ollama. To use an embedding model in LM Studio:
+If LM Studio requires authentication, set the API token in `LM_API_TOKEN`.
 
-```bash
-SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1
-SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
-```
+For RAG embeddings in LM Studio, set `SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1` and
+`SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5`.
 
 ## Contributing, security and license
 
