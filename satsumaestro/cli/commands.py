@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -16,17 +17,28 @@ from rich.text import Text
 
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
-from satsumaestro.config.loader import save_screen_language
-from satsumaestro.config.models import ReasoningEffort
+from satsumaestro.config.loader import save_model, save_screen_language
+from satsumaestro.config.models import ROLE_NAMES, ReasoningEffort
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
+from satsumaestro.providers.choice import (
+    CHOICE_LABELS,
+    PROVIDER_CHOICES,
+    ProviderStatus,
+    current_choice,
+    is_choice,
+    provider_statuses,
+    resolve_endpoint,
+)
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ModeState
 from satsumaestro.telemetry.log import TraceLog
 from satsumaestro.telemetry.recorder import insights_from
-from satsumaestro.util.errors import ConfigError
+from satsumaestro.util.errors import ConfigError, SatsumaError
+from satsumaestro.util.paths import default_config_home
 
 if TYPE_CHECKING:
+    from satsumaestro.cli.render import RichRenderer
     from satsumaestro.engine.runtime import ConversationRuntime
 
 _EFFORT_VALUES = (*get_args(ReasoningEffort), "default")
@@ -86,6 +98,11 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
         "model",
         lambda: ui("cli.commands.show_switch_the_current_model"),
         usage="[model]",
+    ),
+    ReplCommand(
+        "provider",
+        lambda: ui("cli.commands.show_switch_the_provider"),
+        usage="[name|number] [URL] [model]",
     ),
     ReplCommand(
         "session",
@@ -164,6 +181,50 @@ def _reads_as_path(head: str) -> bool:
         return False
 
 
+_URL_HOST = re.compile(
+    r"^(\[[0-9A-Fa-f:]+\]|\d{1,3}(\.\d{1,3}){3}|localhost|([A-Za-z0-9-]+\.)+local)(:\d+)?(/.*)?$"
+)
+
+
+def _looks_like_url(arg: str) -> bool:
+    """``://`` を含むか、IP・``localhost``・``*.local`` のホスト（ポートは任意）か。"""
+    return "://" in arg or _URL_HOST.match(arg) is not None
+
+
+def provider_args(args: list[str]) -> tuple[str, str | None, str | None] | None:
+    """``/provider`` の引数を種類・URL・モデルに分ける（読めなければ ``None``）。"""
+    head = args[0].lower()
+    if head.isdigit() and 1 <= int(head) <= len(PROVIDER_CHOICES):
+        head = PROVIDER_CHOICES[int(head) - 1]
+    url: str | None = None
+    model: str | None = None
+    for arg in args[1:]:
+        if _looks_like_url(arg) and url is None:
+            url = arg
+        elif not _looks_like_url(arg) and model is None:
+            model = arg
+        else:
+            return None
+    return head, url, model
+
+
+def _status_text(status: ProviderStatus) -> str:
+    """``/provider`` の一覧の 1 行の、接続先か鍵の有無。"""
+    if status.key_env and status.key_set:
+        text = ui("cli.commands.provider_key_set", name=status.key_env)
+    elif status.key_env:
+        text = ui("cli.commands.provider_no_key", name=status.key_env)
+    elif status.endpoint is None:
+        text = ui("cli.commands.provider_not_set")
+    else:
+        source = status.endpoint.source
+        label = ui("cli.commands.provider_last_used") if source == "profile" else source
+        text = ui("cli.commands.provider_endpoint", url=status.endpoint.url, source=label)
+    if status.model and not status.current:
+        text += f" · {status.model}"
+    return text
+
+
 class SlashDispatcher:
     """spec 照合 → ハンドラ実行。"""
 
@@ -174,11 +235,13 @@ class SlashDispatcher:
         trace_log: TraceLog | None = None,
         *,
         trusted: bool = False,
+        render: RichRenderer | None = None,
     ) -> None:
         self.rt = rt
         self.console = console
         self.trace_log = trace_log
         self.trusted = trusted
+        self.render = render
         self._fast_prev: ReasoningEffort | None = None
         self._fast_on = False
 
@@ -358,11 +421,133 @@ class SlashDispatcher:
             self._print(f"[dim]{ui('cli.commands.model_stays', kept=kept)}[/dim]")
             return
         self.rt.session.model = resolved
-        name = escape(resolved)
-        switched = ui("cli.commands.model_only_models_on_the", name=name)
-        self._print(f"[dim]{switched}[/dim]")
+        self._print(self._save_model(resolved))
         fit = await self.rt.refit_for_model()
         await _print_window(self.rt, fit, console=self.console, breakdown_line=True)
+
+    async def _cmd_provider(self, args: list[str]) -> None:
+        from satsumaestro.cli.app import _print_window, _unloaded_model, missing_model_text
+        from satsumaestro.config.loader import ConfigLoader, save_provider
+        from satsumaestro.engine.context_fit import local_server_for
+        from satsumaestro.engine.provider_switch import (
+            MissingModelError,
+            ModelNeededError,
+            switch_provider,
+            unloaded_text,
+        )
+
+        loader = ConfigLoader(self.rt.cwd, trusted=self.trusted)
+        loader.load_env()
+        if not args:
+            self._show_providers()
+            return
+        parsed = provider_args(args)
+        if parsed is None:
+            self._print(Text(ui("cli.commands.provider_usage_bad"), style="yellow"))
+            return
+        choice, url, model = parsed
+        stays = Text(ui("cli.commands.provider_stays", name=self._provider_name()), style="dim")
+        try:
+            result = await switch_provider(self.rt, choice, env=os.environ, url=url, model=model)
+        except MissingModelError as exc:
+            self._print(missing_model_text(exc.notice))
+            self._print(stays)
+            return
+        except ModelNeededError as exc:
+            self._print(Text(str(exc), style="yellow"))
+            for name in exc.models:
+                self._print(Text(f"  {name}"))
+            self._print(stays)
+            return
+        except SatsumaError as exc:
+            self._print(Text(str(exc), style="yellow"))
+            self._print(stays)
+            return
+        url_shown = result.endpoint.url if result.endpoint else ""
+        detail = " · ".join(part for part in (url_shown, result.model) if part)
+        try:
+            path = save_provider(
+                result.choice, result.model, result.base_url, remember=result.remember
+            )
+        except (ConfigError, OSError) as exc:
+            not_saved = ui(
+                "cli.commands.provider_switched_not_saved",
+                name=result.choice,
+                detail=detail,
+                error=str(exc),
+            )
+            self._print(Text(not_saved, style="yellow"))
+        else:
+            switched = ui(
+                "cli.commands.provider_switched", name=result.choice, detail=detail, path=path
+            )
+            self._print(Text(switched, style="dim"))
+        for note in result.notes:
+            self._print(Text(note, style="yellow"))
+        for unloaded in result.unloaded:
+            self._print(Text(unloaded_text(unloaded), style="dim"))
+        kept = self._role_models()
+        if kept:
+            name = CHOICE_LABELS[result.choice]
+            note = ui("cli.commands.provider_roles_kept", items=kept, name=name)
+            self._print(Text(note, style="yellow"))
+        if self.render is not None:
+            server = local_server_for(self.rt.config, result.model, os.environ)
+            kind = server.kind if server is not None else "ollama"
+            self.render.use_local_server(kind, _unloaded_model(result.fit))
+        await _print_window(self.rt, result.fit, console=self.console, breakdown_line=True)
+
+    def _save_model(self, model: str) -> Text:
+        """選んだモデルを今の設定とユーザーの設定に書き、知らせる文を返す。"""
+        provider = self.rt.config.provider
+        choice = provider.kind if provider.kind != "auto" else None
+        profiles = dict(provider.profiles)
+        profile = profiles.get(choice) if choice is not None else None
+        if choice is not None and profile is not None:
+            profiles[choice] = profile.model_copy(update={"model": model})
+        update = {"default_model": model, "profiles": profiles}
+        self.rt.config.provider = provider.model_copy(update=update)
+        try:
+            path = save_model(model, choice=choice)
+        except (ConfigError, OSError) as exc:
+            text = ui("cli.commands.model_switched_not_saved", name=model, error=str(exc))
+            return Text(text, style="yellow")
+        return Text(ui("cli.commands.model_switched", name=model, path=path), style="dim")
+
+    def _show_providers(self) -> None:
+        """今のプロバイダと、選べるプロバイダごとの接続先か鍵の有無を出す。"""
+        provider, model = self.rt.config.provider, self.rt.session.model
+        actual = current_choice(provider, model, os.environ)
+        endpoint = (
+            resolve_endpoint(provider, os.environ) if actual not in ("anthropic", "xai") else None
+        )
+        detail = " · ".join(part for part in (endpoint.url if endpoint else "", model) if part)
+        name = self._provider_name()
+        self._print(Text(ui("cli.commands.provider_header", name=name, detail=detail)))
+        statuses = provider_statuses(provider, model, os.environ)
+        width = max(len(status.choice) for status in statuses) + 2
+        for n, status in enumerate(statuses, 1):
+            label = f"{status.choice} ✓" if status.current else status.choice
+            self._print(Text(f"  {n}) {label:<{width}}  {_status_text(status)}"))
+        path = default_config_home() / "settings.json"
+        self._print(Text(ui("cli.commands.provider_usage", path=path), style="dim"))
+
+    def _provider_name(self) -> str:
+        """明示の種類か、``auto`` なら推測した種類。"""
+        provider = self.rt.config.provider
+        if provider.kind != "auto":
+            return provider.kind
+        actual = current_choice(provider, self.rt.session.model, os.environ)
+        return f"auto → {actual}" if actual is not None and is_choice(actual) else "auto"
+
+    def _role_models(self) -> str:
+        """切り替えても替わらないモデルの設定の名前。"""
+        cfg = self.rt.config
+        items = ["provider.fallback_model"] if cfg.provider.fallback_model else []
+        items += [f"provider.roles.{r}" for r in ROLE_NAMES if getattr(cfg.provider.roles, r, None)]
+        if cfg.subagent.default_model:
+            items.append("subagent.default_model")
+        return ", ".join(items)
 
     async def _cmd_session(self, args: list[str]) -> None:
         from satsumaestro.cli.app import _session_list

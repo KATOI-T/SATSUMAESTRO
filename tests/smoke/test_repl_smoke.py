@@ -53,6 +53,8 @@ def scenario(tmp_path: Path) -> Runner:
         window: int = 131072,
         loaded_window: int | None = None,
         flavor: str = "ollama",
+        before: Callable[[int, ReplDriver], None] | None = None,
+        env: dict[str, str] | None = None,
     ) -> ScenarioResult:
         try:
             result = run_scenario(
@@ -73,6 +75,8 @@ def scenario(tmp_path: Path) -> Runner:
                 window=window,
                 loaded_window=loaded_window,
                 flavor=flavor,
+                before=before,
+                env=env,
             )
         except DriverError as e:
             _dump(e.transcript, e.requests)
@@ -701,3 +705,42 @@ def test_the_first_screens_follow_the_environment_language(scenario: Runner) -> 
     assert tr.flat("Working directory:") in text
     assert "このディレクトリを初めて開きます" not in text and "作業場所" not in text
     assert result.report.failures == [], result.report.failures
+
+
+def test_provider_switches_between_llamacpp_and_ollama(scenario: Runner, tmp_path: Path) -> None:
+    """/provider で llama.cpp → Ollama → llama.cpp と替え、要求の行き先と保存した設定を確かめる。"""
+    llama = FakeOllama(SCRIPTS_DIR / "provider_switch.jsonl", flavor="llamacpp")
+    llama.start()
+    url = llama.base_url
+    lines = {
+        0: (f"/provider llamacpp {url}", r"provider → llamacpp"),
+        1: ("/provider ollama", r"provider → ollama"),
+        2: ("/provider llamacpp", r"provider → llamacpp"),
+    }
+
+    def before(index: int, driver: ReplDriver) -> None:
+        driver.run_command(*lines[index])
+
+    try:
+        result = scenario(
+            "provider_switch.jsonl",
+            turns=("一つ目を答えて", "二つ目を答えて", "三つ目を答えて"),
+            plan=False,
+            before=before,
+            cols=400,
+        )
+    finally:
+        llama.stop()
+    text = result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert [r["note"] for r in llama.requests] == ["一つ目", "三つ目"]
+    assert [r["note"] for r in result.requests] == ["二つ目"]
+    assert text.count("を降ろしました") == 1
+    assert f"Ollama から {FAKE_MODEL} を降ろしました" in text
+    assert result.unloads == [FAKE_MODEL] and llama.unloads == []
+    saved = json.loads((tmp_path / "home" / ".satsuma" / "settings.json").read_text("utf-8"))
+    provider = saved["provider"]
+    assert (provider["kind"], provider["base_url"]) == ("llamacpp", url)
+    assert provider["default_model"] == FAKE_MODEL
+    assert set(provider["profiles"]) == {"ollama", "llamacpp"}
+    assert tr.turn_ends(text) == 3

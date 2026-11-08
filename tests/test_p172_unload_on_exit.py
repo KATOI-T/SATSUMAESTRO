@@ -17,6 +17,7 @@ from rich.console import Console
 from satsumaestro.cli import app as cli_app
 from satsumaestro.cli.repl import InteractivePrompter
 from satsumaestro.config.models import RuntimeConfig
+from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.base import ApiRequest
 from satsumaestro.providers.detect import note_model_used, unload_model, used_models
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
@@ -106,7 +107,7 @@ def unloads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
         calls.append((root, model))
         return model != "broken:1b"
 
-    monkeypatch.setattr(cli_app, "unload_model", fake_unload)
+    monkeypatch.setattr(local_servers, "unload_model", fake_unload)
     return calls
 
 

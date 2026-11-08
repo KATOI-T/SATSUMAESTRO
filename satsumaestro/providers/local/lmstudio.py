@@ -221,14 +221,16 @@ def _expiry(ttl_s: int | None) -> str | None:
 
 
 async def unload_models_loaded_here(
-    *, client: httpx.AsyncClient | None = None, timeout_s: float = 3.0
+    *, root: str | None = None, client: httpx.AsyncClient | None = None, timeout_s: float = 3.0
 ) -> list[str]:
     """このプロセスが使い、最初に見たときには載っていなかったモデルを降ろし、その key を返す。"""
     owned = client is None
     http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
     done: list[str] = []
     try:
-        for (_, model), server in list(_USED.items()):
+        for (used_root, model), server in list(_USED.items()):
+            if root is not None and used_root != root:
+                continue
             models = await server._fetch(http, timeout_s)
             entry = None if models is None else next((m for m in models if m.matches(model)), None)
             if entry is None or _FIRST_SEEN.get((server.root, entry.key)) is not False:
@@ -236,6 +238,7 @@ async def unload_models_loaded_here(
             results = [await server.unload(i.id, client=http) for i in entry.instances]
             if results and all(results):
                 done.append(entry.key)
+                _USED.pop((used_root, model), None)
     finally:
         if owned:
             await http.aclose()

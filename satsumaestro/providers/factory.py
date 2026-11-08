@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from urllib.parse import urlparse
 
 import httpx
 
@@ -13,6 +12,12 @@ from satsumaestro.engine.prefill import keep_alive_seconds
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import Provider, ProviderKind
+from satsumaestro.providers.choice import (
+    CHOICE_LABELS,
+    HOST_ENV,
+    OPENAI_API_BASE_URL,
+    resolve_endpoint,
+)
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.local import LlamaCppServer, LMStudioServer, server_for_endpoint
@@ -21,7 +26,6 @@ from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.registry import expand_model_name
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
 from satsumaestro.util.errors import ProviderError
-from satsumaestro.util.urls import ollama_host_url
 
 _XAI_BASE_URL = "https://api.x.ai/v1"
 
@@ -36,20 +40,23 @@ def build_bare(
     """モデル ID・設定・環境から**素の** :class:`Provider` を生成する。"""
     env = env if env is not None else os.environ
     resolved = expand_model_name(model)
-    kind = choose_provider_kind(resolved, env, config.provider.base_url)
+    choice = config.provider.kind
+    kind = choose_provider_kind(resolved, env, config.provider.base_url, choice=choice)
     timeout = _timeouts_for(config)
+    explicit = choice != "auto"
 
     if kind is ProviderKind.ANTHROPIC:
         api_key = env.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise ProviderError(ui("providers.factory.key_is_not_set", name="ANTHROPIC_API_KEY"))
-        return AnthropicProvider(api_key, config.provider.base_url, timeout=timeout)
+        base_url = None if explicit else config.provider.base_url
+        return AnthropicProvider(api_key, base_url, timeout=timeout)
 
     if kind is ProviderKind.XAI:
         api_key = env.get("XAI_API_KEY")
         if not api_key:
             raise ProviderError(ui("providers.factory.key_is_not_set", name="XAI_API_KEY"))
-        base_url = config.provider.base_url or _XAI_BASE_URL
+        base_url = _XAI_BASE_URL if explicit else config.provider.base_url or _XAI_BASE_URL
         return OpenAICompatProvider(
             api_key,
             base_url,
@@ -58,8 +65,28 @@ def build_bare(
             openai=config.provider.openai,
         )
 
+    if choice == "openai":
+        api_key = env.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ProviderError(ui("providers.factory.key_is_not_set", name="OPENAI_API_KEY"))
+        return OpenAICompatProvider(
+            api_key,
+            OPENAI_API_BASE_URL,
+            kind=ProviderKind.OPENAI,
+            timeout=timeout,
+            openai=config.provider.openai,
+        )
+
     endpoint = openai_endpoint(config, env)
     if not endpoint:
+        if choice in HOST_ENV:
+            raise ProviderError(
+                ui(
+                    "providers.factory.no_endpoint_for",
+                    name=CHOICE_LABELS[choice],
+                    var=HOST_ENV[choice],
+                )
+            )
         raise ProviderError(ui("providers.factory.openai_endpoint_unresolved"))
     server = server_for_endpoint(endpoint, env, config.provider)
     if isinstance(server, LMStudioServer):
@@ -123,9 +150,12 @@ def build_provider(
     if fallback_model.casefold() == resolved.casefold():
         return primary
 
+    built_with, env_then = config.model_copy(), dict(env)
     return FallbackProvider(
         primary,
-        build_fallback=lambda: _with_retry(build_bare(config, fallback_model, env), config, policy),
+        build_fallback=lambda: _with_retry(
+            build_bare(built_with, fallback_model, env_then), built_with, policy
+        ),
         fallback_model=fallback_model,
     )
 
@@ -170,21 +200,6 @@ def _with_retry(bare: Provider, config: RuntimeConfig, policy: RetryPolicy) -> R
 
 
 def openai_endpoint(config: RuntimeConfig, env: Mapping[str, str]) -> str | None:
-    """OpenAI 互換エンドポイントを設定 → OPENAI_BASE_URL → OLLAMA_HOST の順で解決する。"""
-    host = env.get("OLLAMA_HOST")
-    raw = (
-        config.provider.base_url
-        or env.get("OPENAI_BASE_URL")
-        or (ollama_host_url(host) if host else None)
-    )
-    return _normalize_openai_base(raw) if raw else None
-
-
-def _normalize_openai_base(url: str) -> str:
-    """裸ホストには ``/v1`` を補い、明示パスはそのまま返す。"""
-    trimmed = url.strip().rstrip("/")
-    if "://" not in trimmed:
-        trimmed = f"http://{trimmed}"
-    if not urlparse(trimmed).path:
-        return trimmed + "/v1"
-    return trimmed
+    """今の設定で使う OpenAI 互換の接続先（種類ごとの順は :func:`resolve_endpoint`）。"""
+    endpoint = resolve_endpoint(config.provider, env)
+    return endpoint.url if endpoint is not None else None

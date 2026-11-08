@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack
 from typing import Any
@@ -48,6 +49,7 @@ _MIN_THINKING_BUDGET = 1024
 _BINDING_BETA = "thinking-binding-controls-2026-08-01"
 _UNBOUND_THINKING = "bound to a different conversation"
 _THINKING_TYPES = frozenset({"thinking", "redacted_thinking"})
+_TOOL_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _block_to_wire(block: Any) -> dict[str, Any] | None:
@@ -89,7 +91,29 @@ def _to_wire(messages: list[ConversationMessage]) -> list[dict[str, Any]]:
             wire[-1]["content"].extend(content)
         else:
             wire.append({"role": role, "content": content})
+    _fix_tool_ids(wire)
     return wire
+
+
+def _fix_tool_ids(wire: list[dict[str, Any]]) -> None:
+    """繰り返す ID と形の合わない ID（OpenAI 互換のサーバで作った履歴）を一意の ID に付け直す。"""
+    blocks = [b for m in wire for b in m["content"]]
+    taken = {b["id"] for b in blocks if b["type"] == "tool_use"}
+    seen: set[str] = set()
+    latest: dict[str, str] = {}
+    counter = 0
+    for block in blocks:
+        if block["type"] == "tool_use":
+            original = block["id"]
+            if not _TOOL_ID.match(original) or original in seen:
+                while f"toolu_{counter}" in taken:
+                    counter += 1
+                block["id"] = f"toolu_{counter}"
+                taken.add(block["id"])
+            seen.add(block["id"])
+            latest[original] = block["id"]
+        elif block["type"] == "tool_result":
+            block["tool_use_id"] = latest.get(block["tool_use_id"], block["tool_use_id"])
 
 
 def _map_anthropic_event(ev: Any) -> AssistantEvent | None:

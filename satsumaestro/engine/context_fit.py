@@ -105,7 +105,7 @@ def fit_compaction_threshold(
 
 def local_server_for(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> LocalServer | None:
     """実際に使う接続先がローカルのサーバならそれを、そうでなければ ``None``。"""
-    endpoint = _local_endpoint(cfg, model, env)
+    endpoint = model_endpoint(cfg, model, env)
     return server_for_endpoint(endpoint, env, cfg.provider) if endpoint else None
 
 
@@ -117,14 +117,19 @@ async def detect_local_server(
     client: httpx.AsyncClient | None = None,
 ) -> LocalServer | None:
     """起動時に 1 回だけ、ローカルに見える接続先へ問い合わせてサーバの種類を決める。"""
-    endpoint = _local_endpoint(cfg, model, env)
+    endpoint = model_endpoint(cfg, model, env)
     if not endpoint:
         return None
     return await resolve_server(endpoint, env, cfg.provider, client=client)
 
 
-def _local_endpoint(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str | None:
-    if choose_provider_kind(model, env, cfg.provider.base_url) is not ProviderKind.OPENAI:
+def model_endpoint(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str | None:
+    """``model`` の要求が行く OpenAI 互換の接続先（Anthropic と xAI へ行くなら ``None``）。"""
+    provider = cfg.provider
+    if (
+        choose_provider_kind(model, env, provider.base_url, choice=provider.kind)
+        is not ProviderKind.OPENAI
+    ):
         return None
     return openai_endpoint(cfg, env)
 
@@ -197,7 +202,7 @@ async def _check_unreached(
     timeout_s: float,
 ) -> str | None:
     """問い合わせでつながらなかったローカルの接続先に、もう一度つないで確かめる。"""
-    endpoint = _local_endpoint(cfg, model, env)
+    endpoint = model_endpoint(cfg, model, env)
     if not endpoint or unreached_cause(endpoint) is None:
         return None
     root = ollama_root(endpoint)

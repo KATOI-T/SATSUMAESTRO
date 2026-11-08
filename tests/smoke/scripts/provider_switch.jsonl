@@ -1,0 +1,6 @@
+# /provider でターンごとに行き先を替える。擬似の llama-server と Ollama が同じ台本で応答する。
+# code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "一つ目"}, "reply": {"text": "一つ目です。"}, "note": "一つ目"}
+{"when": {"role": "user", "contains": "二つ目"}, "reply": {"text": "二つ目です。"}, "note": "二つ目"}
+{"when": {"role": "user", "contains": "三つ目"}, "reply": {"text": "三つ目です。"}, "note": "三つ目"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

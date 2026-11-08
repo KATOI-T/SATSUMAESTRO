@@ -135,6 +135,11 @@ class RuntimeFactory:
             language if language is not None else LanguageState.from_config(config.language)
         )
 
+    def use_provider(self, provider: Provider, model: str) -> None:
+        """切り替えたプロバイダとモデルを、これから作る子に使う。"""
+        self.provider = provider
+        self.model = model
+
     def build_child(
         self, *, preset: SubagentPreset, depth: int, model: str = ""
     ) -> ConversationRuntime:

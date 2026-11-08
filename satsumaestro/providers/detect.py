@@ -28,9 +28,15 @@ _KEY_ORDER: tuple[tuple[str, ProviderKind], ...] = (
 
 
 def choose_provider_kind(
-    model: str, env: Mapping[str, str], base_url: str | None = None
+    model: str, env: Mapping[str, str], base_url: str | None = None, *, choice: str = "auto"
 ) -> ProviderKind:
-    """接続先の設定・モデル ID（略称は広げたもの）・環境変数から、プロバイダの種類を決める。"""
+    """設定の種類、または接続先の設定・モデル ID・環境変数から、プロバイダの種類を決める。"""
+    if choice == "anthropic":
+        return ProviderKind.ANTHROPIC
+    if choice == "xai":
+        return ProviderKind.XAI
+    if choice != "auto":
+        return ProviderKind.OPENAI
     if base_url or env.get("OLLAMA_HOST"):
         return ProviderKind.OPENAI
     vendor = vendor_for_model(model)
@@ -287,6 +293,11 @@ def note_model_used(root: str, model: str) -> None:
 def used_models() -> list[tuple[str, str]]:
     """記録した (ルート, モデル名) を使った順に返す。"""
     return list(_USED_MODELS)
+
+
+def forget_used_model(root: str, model: str) -> None:
+    """降ろしたモデルを記録から外す（終了時に二度降ろさない）。"""
+    _USED_MODELS.pop((root.rstrip("/"), model), None)
 
 
 def reset_used_models() -> None:

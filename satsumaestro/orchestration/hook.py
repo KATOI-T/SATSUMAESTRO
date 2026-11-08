@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from satsumaestro.config.models import RuntimeConfig
+from satsumaestro.engine.context_fit import local_server_for, model_endpoint
 from satsumaestro.engine.tool_call_repair import ToolCallRepairPolicy
 from satsumaestro.orchestration.decompose import Decomposer, static_gate
 from satsumaestro.orchestration.dispatch import Dispatcher
@@ -23,12 +24,8 @@ from satsumaestro.orchestration.plan import (
 from satsumaestro.orchestration.runner import Orchestrator
 from satsumaestro.providers.base import Provider
 from satsumaestro.providers.capacity import estimate_parallelism, probe_parallelism
-from satsumaestro.providers.factory import (
-    openai_endpoint,
-    resolve_role_model,
-    resolve_role_sampling,
-)
-from satsumaestro.providers.local import LlamaCppServer, server_for_endpoint
+from satsumaestro.providers.factory import resolve_role_model, resolve_role_sampling
+from satsumaestro.providers.local import LlamaCppServer
 from satsumaestro.session.models import Session, TodoItem
 from satsumaestro.util.errors import OrchestrationError
 
@@ -142,6 +139,13 @@ class DecompositionCoordinator:
         record, self._record = self._record, None
         return record
 
+    def use_provider(self, provider: Provider, model: str) -> None:
+        """切り替えたプロバイダとモデルを使い、測った並列度と遮断の記録を捨てる。"""
+        self._provider = provider
+        self._model = model
+        self._capacity_value = None
+        self._breaker = _CircuitBreaker(self._config.decomposition.circuit_breaker_losses)
+
     def _single(self, reason: str, *, capacity: int = 1, plan: TaskPlan | None = None) -> None:
         self._record = DecompositionRecord(
             decision=DispatchDecision(mode=DispatchMode.SINGLE, reason=reason, capacity=capacity),
@@ -165,8 +169,8 @@ class DecompositionCoordinator:
         if self._capacity_value is not None:
             return self._capacity_value
         dcfg = self._config.decomposition
-        base = openai_endpoint(self._config, self._env) or ""
-        server = server_for_endpoint(base, self._env, self._config.provider) if base else None
+        base = model_endpoint(self._config, self._model, self._env) or ""
+        server = local_server_for(self._config, self._model, self._env)
         is_ollama = server is not None and server.kind == "ollama"
         slots = (
             await server.slots()

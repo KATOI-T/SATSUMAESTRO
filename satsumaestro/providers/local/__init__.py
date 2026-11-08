@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
 
 from satsumaestro.config.models import ProviderConfig
-from satsumaestro.providers.detect import LocalKind, is_ollama_endpoint, ollama_root
+from satsumaestro.providers.detect import (
+    LocalKind,
+    forget_used_model,
+    is_ollama_endpoint,
+    ollama_root,
+    unload_model,
+    used_models,
+)
+from satsumaestro.providers.local import llamacpp, lmstudio
 from satsumaestro.providers.local.base import LocalServer
 from satsumaestro.providers.local.llamacpp import LlamaCppServer
 from satsumaestro.providers.local.lmstudio import LMStudioServer
@@ -22,10 +32,12 @@ __all__ = [
     "LocalKind",
     "LocalServer",
     "OllamaServer",
+    "Unloaded",
     "looks_local",
     "reset_probed",
     "resolve_server",
     "server_for_endpoint",
+    "unload_used",
     "unreached_cause",
 ]
 
@@ -70,7 +82,9 @@ def server_for_endpoint(
     """設定・Ollama の規則・問い合わせの記録から、ローカルのサーバを決める（通信はしない）。"""
     chosen = provider.local.server
     root = ollama_root(endpoint)
-    if chosen == "generic":
+    if provider.kind in ("ollama", "lmstudio", "llamacpp"):
+        return _server(provider.kind, root, env)
+    if provider.kind != "auto" or chosen == "generic":
         return None
     if chosen in ("lmstudio", "llamacpp"):
         return _server(chosen, root, env)
@@ -79,6 +93,38 @@ def server_for_endpoint(
     if provider.ollama.detect == "on":
         return None
     return _server(_PROBED.get(root), root, env)
+
+
+@dataclass(frozen=True)
+class Unloaded:
+    """降ろしたモデルと、そのサーバの種類。"""
+
+    server: LocalKind
+    models: tuple[str, ...]
+
+
+async def unload_used(provider: ProviderConfig, *, root: str | None = None) -> list[Unloaded]:
+    """このプロセスがローカルのサーバで使ったモデルを降ろす（``root`` ならそのサーバだけ）。"""
+    done: list[Unloaded] = []
+    if provider.ollama.unload_on_exit:
+        used = [(r, m) for r, m in used_models() if root is None or r == root]
+        results = await asyncio.gather(*(unload_model(r, m) for r, m in used))
+        names: list[str] = []
+        for (used_root, model), ok in zip(used, results, strict=True):
+            if ok:
+                forget_used_model(used_root, model)
+                names.append(model)
+        if names:
+            done.append(Unloaded("ollama", tuple(names)))
+    if not provider.local.unload_on_exit:
+        return done
+    names = await lmstudio.unload_models_loaded_here(root=root)
+    if names:
+        done.append(Unloaded("lmstudio", tuple(names)))
+    names = await llamacpp.unload_models_loaded_here(root=root)
+    if names:
+        done.append(Unloaded("llamacpp", tuple(names)))
+    return done
 
 
 def looks_local(endpoint: str) -> bool:
@@ -105,6 +151,7 @@ async def resolve_server(
     root = ollama_root(endpoint)
     if (
         known is not None
+        or provider.kind != "auto"
         or provider.local.server != "auto"
         or provider.ollama.detect != "auto"
         or root in _PROBED

@@ -403,6 +403,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(shown)
             return
         if self.path.startswith("/api/generate"):
+            asked = json.loads(raw or b"{}")
+            if asked.get("keep_alive") == 0:
+                self._srv.unloads.append(str(asked.get("model", "")))
             self._json({})
             return
         if not self.path.startswith("/v1/chat/completions"):
@@ -539,7 +542,7 @@ class FakeOllama:
 
     @property
     def unloads(self) -> list[str]:
-        """``/api/v1/models/unload`` で降ろされたインスタンス。"""
+        """降ろされたモデル（LM Studio の unload と Ollama の ``keep_alive: 0``）。"""
         return list(self._unloads)
 
     @property

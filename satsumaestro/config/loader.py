@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from dotenv import dotenv_values, load_dotenv
 from pydantic import ValidationError
 
-from satsumaestro.config.models import LanguageConfig, RuntimeConfig
+from satsumaestro.config.models import (
+    ChosenProvider,
+    LanguageConfig,
+    ProviderConfig,
+    ProviderProfile,
+    RuntimeConfig,
+)
 from satsumaestro.i18n.text import ui
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.jsonl import write_text_atomic
@@ -85,6 +92,103 @@ def save_screen_language(code: str, config_home: Path | None = None) -> Path:
     return path
 
 
+_SELECTION = ("kind", "base_url", "default_model")
+
+
+def provider_update(
+    data: Mapping[str, Any],
+    choice: str,
+    model: str,
+    base_url: str | None,
+    *,
+    remember: Mapping[ChosenProvider, ProviderProfile] | None = None,
+) -> dict[str, Any]:
+    """設定の dict に、プロバイダの切り替え（種類・モデル・接続先・覚える分）を足した dict。"""
+    provider, profiles = _provider_items(data)
+    for kind, profile in (remember or {}).items():
+        if kind not in profiles:
+            profiles[kind] = profile.model_dump(exclude_none=True)
+    profiles[choice] = ProviderProfile(base_url=base_url, model=model).model_dump(exclude_none=True)
+    provider["kind"] = choice
+    provider["default_model"] = model
+    if base_url:
+        provider["base_url"] = base_url
+    provider["profiles"] = profiles
+    return _with_provider(data, provider)
+
+
+def model_update(
+    data: Mapping[str, Any], model: str, *, choice: ChosenProvider | None = None
+) -> dict[str, Any]:
+    """設定の dict に、選んだモデルを足した dict（``choice`` の記録があればそのモデルも替える）。"""
+    provider, profiles = _provider_items(data)
+    provider["default_model"] = model
+    profile = profiles.get(choice) if choice is not None else None
+    if choice is not None and isinstance(profile, dict):
+        profiles[choice] = {**profile, "model": model}
+        provider["profiles"] = profiles
+    return _with_provider(data, provider)
+
+
+def save_provider(
+    choice: str,
+    model: str,
+    base_url: str | None,
+    *,
+    remember: Mapping[ChosenProvider, ProviderProfile] | None = None,
+    config_home: Path | None = None,
+) -> Path:
+    """ユーザーの設定（①）にプロバイダの切り替えを書き、書いたファイルを返す。"""
+    path = _user_settings(config_home)
+    data = provider_update(_load_json(path), choice, model, base_url, remember=remember)
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return path
+
+
+def save_model(
+    model: str, *, choice: ChosenProvider | None = None, config_home: Path | None = None
+) -> Path:
+    """ユーザーの設定（①）に選んだモデルを書き、書いたファイルを返す。"""
+    path = _user_settings(config_home)
+    data = model_update(_load_json(path), model, choice=choice)
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return path
+
+
+def _user_settings(config_home: Path | None) -> Path:
+    home = config_home if config_home is not None else default_config_home()
+    return home / "settings.json"
+
+
+def _provider_items(data: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``provider`` と ``provider.profiles`` の写し（オブジェクトでなければ ConfigError）。"""
+    provider = data.get("provider", {})
+    profiles = provider.get("profiles", {}) if isinstance(provider, dict) else None
+    if not isinstance(provider, dict) or not isinstance(profiles, dict):
+        raise ConfigError(ui("config.loader.the_provider_item_must_be"))
+    return dict(provider), dict(profiles)
+
+
+def _with_provider(data: Mapping[str, Any], provider: dict[str, Any]) -> dict[str, Any]:
+    try:
+        ProviderConfig.model_validate(provider)
+    except ValidationError as exc:
+        raise ConfigError(_invalid(exc)) from exc
+    out = dict(data)
+    out["provider"] = provider
+    return out
+
+
+def _keep_selection(merged: dict[str, Any], user: Mapping[str, Any]) -> dict[str, Any]:
+    """ユーザーの設定の最後の選択（種類・接続先・モデル）を、作業場所の層より優先する。"""
+    chosen = user.get("provider")
+    picked = {k: chosen[k] for k in _SELECTION if k in chosen} if isinstance(chosen, dict) else {}
+    provider = merged.get("provider")
+    if not picked or not isinstance(provider, dict):
+        return merged
+    return {**merged, "provider": {**provider, **picked}}
+
+
 def prefer_dotenv_ollama(path: Path) -> None:
     """``.env`` の ``OLLAMA_*`` を、シェルの環境変数より優先する（空の値は除く）。"""
     if not path.is_file():
@@ -118,18 +222,33 @@ class ConfigLoader:
         except ValidationError as exc:
             raise ConfigError(_invalid(exc)) from exc
 
-    def _merge_layers(self) -> dict[str, Any]:
-        merged = _load_json(self.config_home / "settings.json")
+    def load_env(self) -> None:
+        """信頼した作業場所の ``.env`` を環境変数に読む（``OLLAMA_*`` 以外はシェルの値が勝つ）。"""
         if not self.trusted:
-            return merged
+            return
+        dotenv = find_project_file(self.cwd, ".env")
+        if dotenv is not None:
+            load_dotenv(dotenv)
+            prefer_dotenv_ollama(dotenv)
+
+    def _merge_layers(self) -> dict[str, Any]:
+        user = _load_json(self.config_home / "settings.json")
+        if not self.trusted:
+            return user
+        merged = user
+        for path in self._project_files():
+            merged = deep_merge(merged, _load_json(path))
+        return _keep_selection(merged, user)
+
+    def _project_files(self) -> list[Path]:
+        files: list[Path] = []
         shared = find_project_file(self.cwd, f"{AGENT_DIRNAME}.json")
         if shared is not None:
-            merged = deep_merge(merged, _load_json(shared))
+            files.append(shared)
         state_dir = self._project_state_dir()
         if state_dir is not None:
-            merged = deep_merge(merged, _load_json(state_dir / "settings.json"))
-            merged = deep_merge(merged, _load_json(state_dir / "settings.local.json"))
-        return merged
+            files += [state_dir / "settings.json", state_dir / "settings.local.json"]
+        return files
 
     def _project_state_dir(self) -> Path | None:
         home = self.config_home.resolve()
@@ -145,20 +264,17 @@ class ConfigLoader:
 
     def _overlay_env(self, merged: dict[str, Any]) -> dict[str, Any]:
         """.env を読み、明示値が無い項目のみ環境依存値で補完する。"""
-        if self.trusted:
-            dotenv = find_project_file(self.cwd, ".env")
-            if dotenv is not None:
-                load_dotenv(dotenv)
-                prefer_dotenv_ollama(dotenv)
+        self.load_env()
         provider = dict(merged.get("provider") or {})
         rag = dict(merged.get("rag") or {})
+        kind = provider.get("kind", "auto")
 
         host = os.environ.get("OLLAMA_HOST")
-        if host and not provider.get("base_url"):
+        if host and kind == "auto" and not provider.get("base_url"):
             provider["base_url"] = ollama_host_url(host)
 
         model = os.environ.get("OLLAMA_MODEL")
-        if model and not provider.get("default_model"):
+        if model and kind in ("auto", "ollama") and not provider.get("default_model"):
             provider["default_model"] = model
 
         embed_base = os.environ.get("SATSUMA_EMBED_BASE_URL")

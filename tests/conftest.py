@@ -51,7 +51,7 @@ def tool_ctx(tmp_path: Path):  # type: ignore[no-untyped-def]
 @pytest.fixture(autouse=True)
 def _hermetic_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """テストを開発環境の LLM エンドポイントから切り離す。"""
-    for key in ("OLLAMA_HOST", "OLLAMA_MODEL", "OPENAI_BASE_URL"):
+    for key in ("OLLAMA_HOST", "OLLAMA_MODEL", "OPENAI_BASE_URL", "LMSTUDIO_HOST", "LLAMACPP_HOST"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("SATSUMA_LOG_FILE", "off")
 
