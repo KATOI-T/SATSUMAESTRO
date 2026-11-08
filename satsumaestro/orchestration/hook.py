@@ -139,6 +139,13 @@ class DecompositionCoordinator:
         record, self._record = self._record, None
         return record
 
+    def use_provider(self, provider: Provider, model: str) -> None:
+        """切り替えたプロバイダとモデルを使い、測った並列度と遮断の記録を捨てる。"""
+        self._provider = provider
+        self._model = model
+        self._capacity_value = None
+        self._breaker = _CircuitBreaker(self._config.decomposition.circuit_breaker_losses)
+
     def _single(self, reason: str, *, capacity: int = 1, plan: TaskPlan | None = None) -> None:
         self._record = DecompositionRecord(
             decision=DispatchDecision(mode=DispatchMode.SINGLE, reason=reason, capacity=capacity),

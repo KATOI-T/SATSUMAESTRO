@@ -258,14 +258,16 @@ class LlamaCppServer:
 
 
 async def unload_models_loaded_here(
-    *, client: httpx.AsyncClient | None = None, timeout_s: float = 3.0
+    *, root: str | None = None, client: httpx.AsyncClient | None = None, timeout_s: float = 3.0
 ) -> list[str]:
     """router mode で、このプロセスが使い、最初に見たときには載っていなかったモデルを降ろす。"""
     owned = client is None
     http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
     done: list[str] = []
     try:
-        for (_, model), server in list(_USED.items()):
+        for (used_root, model), server in list(_USED.items()):
+            if root is not None and used_root != root:
+                continue
             read = await server._read(http, timeout_s)
             if read is None or not read[0].router:
                 continue
@@ -276,6 +278,7 @@ async def unload_models_loaded_here(
                 continue
             if await server.unload(entry.id, client=http):
                 done.append(entry.id)
+                _USED.pop((used_root, model), None)
     finally:
         if owned:
             await http.aclose()

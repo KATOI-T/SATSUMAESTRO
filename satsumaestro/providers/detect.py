@@ -295,6 +295,11 @@ def used_models() -> list[tuple[str, str]]:
     return list(_USED_MODELS)
 
 
+def forget_used_model(root: str, model: str) -> None:
+    """降ろしたモデルを記録から外す（終了時に二度降ろさない）。"""
+    _USED_MODELS.pop((root.rstrip("/"), model), None)
+
+
 def reset_used_models() -> None:
     """記録を空にする（テスト用）。"""
     _USED_MODELS.clear()

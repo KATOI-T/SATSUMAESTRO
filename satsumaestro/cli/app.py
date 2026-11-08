@@ -36,17 +36,19 @@ from satsumaestro.cli.trust_gate import (
 )
 from satsumaestro.config.loader import ConfigLoader, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, RuntimeConfig
-from satsumaestro.engine.compaction import Compactor
 from satsumaestro.engine.context_fit import (
     ContextFitResult,
     MissingModelNotice,
     apply_context_fit,
     check_model,
-    check_reachable,
-    detect_local_server,
     local_server_for,
-    missing_model_notice,
     source_label,
+)
+from satsumaestro.engine.provider_switch import (
+    MissingModelError,
+    build_compactor,
+    connect,
+    unloaded_text,
 )
 from satsumaestro.engine.recovery import SessionAbortError
 from satsumaestro.engine.runtime import ConversationRuntime
@@ -94,7 +96,7 @@ from satsumaestro.prompt.builder import (
     format_tool_catalog,
 )
 from satsumaestro.prompt.instructions import instruction_tokens
-from satsumaestro.providers.base import Provider, ProviderKind
+from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
     HOST_ENV,
@@ -109,14 +111,10 @@ from satsumaestro.providers.detect import (
     choose_provider_kind,
     fetch_model_context,
     ollama_root,
-    unload_model,
-    used_models,
 )
 from satsumaestro.providers.factory import (
     build_provider,
     openai_endpoint,
-    resolve_role_model,
-    resolve_role_sampling,
 )
 from satsumaestro.providers.local import (
     LlamaCppServer,
@@ -126,12 +124,9 @@ from satsumaestro.providers.local import (
     looks_local,
     resolve_server,
     server_for_endpoint,
+    unload_used,
     unreached_cause,
 )
-from satsumaestro.providers.local.llamacpp import (
-    unload_models_loaded_here as unload_llamacpp_models_loaded_here,
-)
-from satsumaestro.providers.local.lmstudio import unload_models_loaded_here
 from satsumaestro.providers.registry import MODEL_SHORTHANDS, expand_model_name
 from satsumaestro.rag.embed import DEFAULT_EMBED_ENDPOINT as DEFAULT_EMBED_BASE_URL
 from satsumaestro.rag.models import IngestReport
@@ -236,21 +231,6 @@ def _orchestration_flags(cfg: RuntimeConfig, env: Mapping[str, str]) -> tuple[bo
     return orch, orch and cfg.orchestration.workers.enabled
 
 
-async def _require_server(cfg: RuntimeConfig, model: str) -> None:
-    """接続先のローカルのサーバに届かなければ、再試行を待たずに ConfigError で止める。"""
-    problem = await check_reachable(cfg, model, os.environ)
-    if problem is not None:
-        raise ConfigError(problem)
-
-
-class MissingModelError(ConfigError):
-    """接続先のローカルのサーバに無いモデルで起動した。"""
-
-    def __init__(self, notice: MissingModelNotice) -> None:
-        super().__init__(notice.text())
-        self.notice = notice
-
-
 def missing_model_text(notice: MissingModelNotice, *, prefix: str = "") -> Text:
     """存在しないモデルの案内を色分けする（見出しだけ赤、補足は見出し語と取得コマンドを黄色）。"""
     out = Text().append(prefix + notice.headline, style="red")
@@ -270,21 +250,6 @@ def _print_error(e: SatsumaError) -> None:
         _console.print(missing_model_text(e.notice, prefix="error: "))
     else:
         _console.print(f"[red]error: {e}[/red]")
-
-
-async def _require_model(cfg: RuntimeConfig, model: str) -> None:
-    """接続先のローカルのサーバに無いモデルなら、最初の依頼で 404 になる前に止める。"""
-    check = await check_model(cfg, model, os.environ)
-    if check is not None and check.missing:
-        raise MissingModelError(missing_model_notice(model, check))
-
-
-async def _warn_without_tools(cfg: RuntimeConfig, model: str) -> None:
-    """llama-server のチャットテンプレートがツールを受け付けなければ知らせる。"""
-    server = local_server_for(cfg, model, os.environ)
-    if isinstance(server, LlamaCppServer) and await server.tools_supported() is False:
-        text = ui("cli.app.llamacpp_template_has_no_tools", model=model)
-        _err_console.print(Text(text, style="yellow"))
 
 
 _TRUST_HELP = ui("cli.app.trust_this_directory_s_settings")
@@ -412,11 +377,10 @@ async def _assemble_runtime(
     cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
     resolved = expand_model_name(model or cfg.provider.default_model)
-    await detect_local_server(cfg, resolved, os.environ)
-    provider = build_provider(cfg, resolved, os.environ)
-    await _require_server(cfg, resolved)
-    await _require_model(cfg, resolved)
-    await _warn_without_tools(cfg, resolved)
+    connection = await connect(cfg, resolved, os.environ, build=build_provider)
+    provider = connection.provider
+    for note in connection.notes:
+        _err_console.print(Text(note, style="yellow"))
     fit_base = (cfg.compact_token_threshold, cfg.compaction.context_window)
     fit = await apply_context_fit(cfg, resolved, os.environ)
     orch_enabled, workers_enabled = _orchestration_flags(cfg, os.environ)
@@ -526,7 +490,7 @@ async def _assemble_runtime(
             store=store,
             hooks=hooks,
             config=cfg,
-            compactor=_build_compactor(cfg, provider, resolved),
+            compactor=build_compactor(cfg, provider, resolved, os.environ, build=build_provider),
             mcp=mcp_manager,
             rag=rag,
             runtime_factory=factory,
@@ -647,18 +611,6 @@ def _build_telemetry(rt: ConversationRuntime) -> tuple[TraceRecorder | None, Tra
     return TraceRecorder(rt.session.session_id, log), log
 
 
-def _build_compactor(cfg: RuntimeConfig, provider: Provider, resolved: str) -> Compactor:
-    """summarize ロールを解決してコンパクタを組む。"""
-    sum_model = resolve_role_model(cfg, "summarize", default=resolved)
-    sum_provider = provider if sum_model == resolved else build_provider(cfg, sum_model, os.environ)
-    return Compactor.from_config(
-        cfg,
-        provider=sum_provider,
-        model=sum_model,
-        sampling=resolve_role_sampling(cfg, "summarize"),
-    )
-
-
 def _rag_db_path(cfg: RuntimeConfig, cwd: Path) -> Path:
     """設定の ``rag.db_path`` をワークスペース基準の絶対パスへ解決する。"""
     db_path = Path(cfg.rag.db_path)
@@ -703,32 +655,8 @@ async def _shutdown(
 
 async def _unload_on_exit(cfg: RuntimeConfig) -> None:
     """REPL を閉じるとき、このプロセスがローカルのサーバで使ったモデルを降ろす。"""
-    if cfg.provider.ollama.unload_on_exit:
-        used = used_models()
-        done = await asyncio.gather(*(unload_model(root, model) for root, model in used))
-        names = [model for (_, model), ok in zip(used, done, strict=True) if ok]
-        if names:
-            unloaded = ", ".join(names)
-            _console.print(
-                Text(
-                    ui("cli.app.unloaded_from_ollama_set_provider", unloaded=unloaded),
-                    style="dim",
-                )
-            )
-    if not cfg.provider.local.unload_on_exit:
-        return
-    loaded_here = await unload_models_loaded_here()
-    if loaded_here:
-        unloaded = ", ".join(loaded_here)
-        _console.print(
-            Text(ui("cli.app.unloaded_from_lmstudio_set_provider", unloaded=unloaded), style="dim")
-        )
-    loaded_here = await unload_llamacpp_models_loaded_here()
-    if loaded_here:
-        unloaded = ", ".join(loaded_here)
-        _console.print(
-            Text(ui("cli.app.unloaded_from_llamacpp_set_provider", unloaded=unloaded), style="dim")
-        )
+    for unloaded in await unload_used(cfg.provider):
+        _console.print(Text(unloaded_text(unloaded), style="dim"))
 
 
 async def _drain_background(rt: ConversationRuntime) -> list[dict[str, str]]:
@@ -1705,10 +1633,7 @@ async def _build_eval_agent(
         cfg = _load_config(cwd, trusted=trusted)
         spec_model, decompose, plan = parse_satsuma_agent_spec(spec)
         resolved = expand_model_name(spec_model or model or cfg.provider.default_model)
-        await detect_local_server(cfg, resolved, os.environ)
-        provider = build_provider(cfg, resolved, os.environ)
-        await _require_server(cfg, resolved)
-        await _require_model(cfg, resolved)
+        provider = (await connect(cfg, resolved, os.environ, build=build_provider)).provider
         await apply_context_fit(cfg, resolved, os.environ)
         return SatsumaAgent(
             provider,
@@ -2525,7 +2450,7 @@ def _llamacpp_rows(
         rows = [("llamacpp", "ok", escape(shape))]
         if props.tools is False:
             name = props.model or model or "-"
-            no_tools = ui("cli.app.llamacpp_template_has_no_tools", model=name)
+            no_tools = ui("engine.provider_switch.llamacpp_template_has_no_tools", model=name)
             rows.append(("llamacpp tools", "warn", escape(no_tools)))
     if not model:
         return [*rows, ("llamacpp ctx", "warn", ui("cli.app.cannot_query_because_no_model"))]

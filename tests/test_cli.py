@@ -299,9 +299,8 @@ def test_doctor_probe_says_a_local_server_is_down(monkeypatch, tmp_path: Path) -
 async def test_startup_warns_when_the_llamacpp_template_takes_no_tools(monkeypatch) -> None:
     """llama-server のテンプレートがツールを受け付けなければ、起動時に知らせる。"""
     from satsumaestro.config.models import LocalConfig, ProviderConfig, RuntimeConfig
+    from satsumaestro.engine.provider_switch import tools_note
 
-    printed: list[str] = []
-    monkeypatch.setattr(cli_app._err_console, "print", lambda text: printed.append(str(text)))
     caps = {"supports_tools": False}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -317,11 +316,10 @@ async def test_startup_warns_when_the_llamacpp_template_takes_no_tools(monkeypat
             base_url="http://127.0.0.1:9931/v1", local=LocalConfig(server="llamacpp")
         )
     )
-    await cli_app._warn_without_tools(cfg, "gpt-oss-20b")
-    assert len(printed) == 1 and "--chat-template-file" in printed[0]
+    note = await tools_note(cfg, "gpt-oss-20b", {})
+    assert note is not None and "--chat-template-file" in note
     caps["supports_tools"] = True
-    await cli_app._warn_without_tools(cfg, "gpt-oss-20b")
-    assert len(printed) == 1
+    assert await tools_note(cfg, "gpt-oss-20b", {}) is None
 
 
 def _mock_web_search_http(monkeypatch, handler) -> None:

@@ -224,6 +224,11 @@ class RichRenderer:
         self._set_state("waiting")
         self._refresh_live()
 
+    def use_local_server(self, kind: LocalKind, loading_model: str | None) -> None:
+        """切り替えたサーバの種類と、まだ載っていないと分かったモデルを表示に使う。"""
+        self._local_server = kind
+        self._loading_model = loading_model
+
     def end_turn(self, *, delegated: TokenUsage | None = None) -> None:
         """ターンを閉じ、TTY ならトークンの内訳を 1 行残す。"""
         self._phase_label = None

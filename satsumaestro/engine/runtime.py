@@ -268,6 +268,8 @@ class DecompositionHook(Protocol):
 
     def take_record(self) -> DecompositionRecord | None: ...
 
+    def use_provider(self, provider: Provider, model: str) -> None: ...
+
 
 _UNKNOWN_REQUIRED_MODE = PermissionMode.DANGER_FULL_ACCESS
 
@@ -1875,6 +1877,22 @@ class ConversationRuntime:
             if breakdown.tight:
                 notes.append(breakdown.advice(kind, self.session.model))
         self._window_notes = notes
+
+    def use_provider(self, provider: Provider, model: str, *, compactor: Compactor) -> None:
+        """プロバイダとモデルを差し替え、前のモデルで測った値を捨てる。"""
+        self.provider = provider
+        self.session.model = model
+        self.compactor = compactor
+        self._sent = None
+        self._estimate_ratio = 1.0
+        self._rate_samples.clear()
+        self._prefill = PrefillClock()
+        self.window_unconfirmed = False
+        if self._runtime_factory is not None:
+            self._runtime_factory.use_provider(provider, model)
+        if self.decomposition is not None:
+            self.decomposition.use_provider(provider, model)
+        self.store.save(self.session)
 
     async def refit_for_model(self) -> ContextFitResult | None:
         """モデルを替えた後に、窓・圧縮の閾値・指示ファイルの量を新しいモデルで決め直す。"""

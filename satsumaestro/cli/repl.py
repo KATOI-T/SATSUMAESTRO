@@ -265,7 +265,7 @@ async def run_repl(
         event.app.invalidate()
 
     session: PromptSession[str] = PromptSession(key_bindings=bindings)
-    dispatcher = SlashDispatcher(rt, console, trace_log=trace_log, trusted=trusted)
+    dispatcher = SlashDispatcher(rt, console, trace_log=trace_log, trusted=trusted, render=render)
     banner = ui("cli.repl.satsumaestro_repl_help_for")
     console.print(f"[dim]{banner}[/dim]")
     workdir = escape(str(rt.cwd))

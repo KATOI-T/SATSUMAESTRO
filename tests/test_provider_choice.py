@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from satsumaestro.config.loader import ConfigLoader
-from satsumaestro.config.models import ProviderConfig, RuntimeConfig
+from satsumaestro.config.loader import ConfigLoader, provider_update, save_provider
+from satsumaestro.config.models import ProviderConfig, ProviderProfile, RuntimeConfig
 from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.choice import (
@@ -24,7 +26,7 @@ from satsumaestro.providers.choice import (
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.factory import build_bare
 from satsumaestro.providers.local import LlamaCppServer, LMStudioServer, OllamaServer
-from satsumaestro.util.errors import ProviderError
+from satsumaestro.util.errors import ConfigError, ProviderError
 
 
 @pytest.mark.parametrize(
@@ -149,6 +151,83 @@ def test_ollama_host_still_fills_auto(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert cfg.provider.base_url == "http://10.0.0.9:11434"
 
 
+def test_the_update_keeps_other_items_and_writes_no_key() -> None:
+    data = {
+        "language": {"ui": "ja"},
+        "provider": {
+            "base_url": "http://127.0.0.1:9931/v1",
+            "ollama": {"keep_alive": "30m"},
+            "local": {"server": "llamacpp"},
+        },
+    }
+    remember = {
+        "llamacpp": ProviderProfile(base_url="http://127.0.0.1:9931/v1", model="gpt-oss-20b")
+    }
+    out = provider_update(data, "anthropic", "claude-sonnet-5-5", None, remember=remember)
+    provider = out["provider"]
+    assert out["language"] == {"ui": "ja"}
+    assert provider["base_url"] == "http://127.0.0.1:9931/v1"
+    assert provider["ollama"] == {"keep_alive": "30m"} and provider["local"] == {
+        "server": "llamacpp"
+    }
+    assert provider["kind"] == "anthropic" and provider["default_model"] == "claude-sonnet-5-5"
+    assert provider["profiles"] == {
+        "llamacpp": {"base_url": "http://127.0.0.1:9931/v1", "model": "gpt-oss-20b"},
+        "anthropic": {"model": "claude-sonnet-5-5"},
+    }
+    assert "KEY" not in json.dumps(out).upper().replace("KEEP_ALIVE", "")
+    assert data["provider"].get("kind") is None
+
+
+def test_the_update_pins_a_local_url_and_keeps_an_existing_profile() -> None:
+    data = {"provider": {"profiles": {"ollama": {"base_url": "http://a:11434", "model": "m1"}}}}
+    remember = {"ollama": ProviderProfile(base_url="http://b:11434", model="m2")}
+    out = provider_update(
+        data, "llamacpp", "gpt-oss-20b", "http://10.0.0.5:9931/v1", remember=remember
+    )
+    assert out["provider"]["base_url"] == "http://10.0.0.5:9931/v1"
+    assert out["provider"]["profiles"]["ollama"] == {"base_url": "http://a:11434", "model": "m1"}
+
+
+@pytest.mark.parametrize("bad", [{"provider": []}, {"provider": {"profiles": []}}])
+def test_the_update_refuses_a_broken_provider_item(bad: dict[str, object]) -> None:
+    with pytest.raises(ConfigError):
+        provider_update(bad, "ollama", "m", "http://h:11434/v1")
+
+
+def test_an_unreadable_settings_file_is_not_written(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{broken", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        save_provider("ollama", "m", "http://h:11434/v1", config_home=tmp_path)
+    assert path.read_text(encoding="utf-8") == "{broken"
+
+
+def test_save_writes_the_user_settings(tmp_path: Path) -> None:
+    path = save_provider("xai", "grok-4", None, config_home=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "provider": {
+            "kind": "xai",
+            "default_model": "grok-4",
+            "profiles": {"xai": {"model": "grok-4"}},
+        }
+    }
+
+
+def test_the_project_override_is_found(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _home(tmp_path, monkeypatch, {})
+    state = tmp_path / ".satsuma"
+    state.mkdir()
+    (state / "settings.json").write_text(
+        json.dumps({"provider": {"base_url": "http://other:11434/v1", "kind": "ollama"}}),
+        encoding="utf-8",
+    )
+    loader = ConfigLoader(tmp_path, trusted=True)
+    wanted = {"kind": "ollama", "base_url": "http://10.0.0.5:11434/v1", "default_model": "m"}
+    assert loader.provider_overrides(wanted) == {"base_url": "http://other:11434/v1"}
+    assert ConfigLoader(tmp_path, trusted=False).provider_overrides(wanted) == {}
+
+
 def test_the_switch_endpoint_prefers_the_active_then_the_profile_then_the_variable() -> None:
     provider = _provider(
         kind="llamacpp",
@@ -192,3 +271,20 @@ def test_the_missing_texts_tell_what_to_set() -> None:
     assert "LMSTUDIO_HOST" in missing_text("lmstudio") and ":1234/v1" in missing_text("lmstudio")
     assert "OLLAMA_HOST" in missing_text("ollama") and ":11434" in missing_text("ollama")
     assert missing_text("anthropic") == "ANTHROPIC_API_KEY が設定されていません"
+
+
+def test_the_switch_layer_loads_no_cli_and_no_rich() -> None:
+    code = (
+        "import sys, inspect\n"
+        "import satsumaestro.engine.provider_switch, satsumaestro.providers.choice\n"
+        "mods = [m for n, m in sys.modules.items() if n.startswith('satsumaestro')]\n"
+        "print([m.__name__ for m in mods if m.__name__.startswith('satsumaestro.cli')])\n"
+        "src = [m.__name__ for m in mods if getattr(m, '__file__', None)\n"
+        "       and ('import rich' in open(m.__file__, encoding='utf-8').read()\n"
+        "            or 'from rich' in open(m.__file__, encoding='utf-8').read())]\n"
+        "print(src)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout.split("\n")
+    assert out[0] == "[]" and out[1] == "[]"
