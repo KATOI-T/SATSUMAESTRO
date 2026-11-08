@@ -150,9 +150,12 @@ def build_provider(
     if fallback_model.casefold() == resolved.casefold():
         return primary
 
+    built_with, env_then = config.model_copy(), dict(env)
     return FallbackProvider(
         primary,
-        build_fallback=lambda: _with_retry(build_bare(config, fallback_model, env), config, policy),
+        build_fallback=lambda: _with_retry(
+            build_bare(built_with, fallback_model, env_then), built_with, policy
+        ),
         fallback_model=fallback_model,
     )
 

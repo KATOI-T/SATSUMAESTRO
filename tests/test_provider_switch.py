@@ -24,8 +24,10 @@ from satsumaestro.engine.subagent import RuntimeFactory
 from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.anthropic_provider import _to_wire
-from satsumaestro.providers.base import Provider
+from satsumaestro.providers.base import Provider, ProviderKind
 from satsumaestro.providers.detect import note_model_used, used_models
+from satsumaestro.providers.factory import build_provider
+from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.local import Unloaded, unload_used
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import default_policy
@@ -313,6 +315,21 @@ async def test_the_command_lists_switches_and_saves(
 
     kept = await _dispatch(rt, "/provider lmstudio")
     assert "LM Studio の接続先がありません" in kept and "プロバイダは ollama のままです" in kept
+
+
+def test_a_provider_built_before_a_switch_keeps_its_fallback_endpoint() -> None:
+    cfg = RuntimeConfig(
+        provider=ProviderConfig(base_url=f"{_OLLAMA}/v1", fallback_model="qwen3:8b")
+    )
+    env = {"ANTHROPIC_API_KEY": "k"}
+    provider = build_provider(cfg, "gpt-oss:120b", env)
+    assert isinstance(provider, FallbackProvider)
+    cfg.provider = ProviderConfig(kind="anthropic", default_model="claude-haiku-5-5")
+    env["ANTHROPIC_API_KEY"] = "changed"
+
+    fallback = provider._build_fallback()._inner  # type: ignore[attr-defined]
+    assert fallback.kind is ProviderKind.OPENAI
+    assert str(fallback._client.base_url).rstrip("/") == f"{_OLLAMA}/v1"
 
 
 def test_anthropic_gets_unique_tool_ids() -> None:
