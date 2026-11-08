@@ -16,7 +16,7 @@ import sys
 import tempfile
 import termios
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -73,8 +73,10 @@ class ReplDriver:
         trusted: bool = True,
         locale: str = "ja_JP.UTF-8",
         base_url_env: str = "OLLAMA_HOST",
+        extra_env: Mapping[str, str] | None = None,
     ) -> None:
         self.workspace = workspace
+        self.extra_env = dict(extra_env or {})
         self.base_url = base_url
         self.base_url_env = base_url_env
         self.config_home = config_home
@@ -111,6 +113,7 @@ class ReplDriver:
             "PYTHONUTF8": "1",
             "PYTHONIOENCODING": "utf-8",
             "PYTHONUNBUFFERED": "1",
+            **self.extra_env,
         }
 
     def start(self) -> None:
@@ -325,6 +328,8 @@ def run_scenario(
     window: int = 131072,
     loaded_window: int | None = None,
     flavor: str = "ollama",
+    before: Callable[[int, ReplDriver], None] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> ScenarioResult:
     """擬似サーバと REPL を起動し、plan → 依頼（→ 削除）を流して転写と検査結果を返す。"""
     workspace.mkdir(parents=True, exist_ok=True)
@@ -355,6 +360,7 @@ def run_scenario(
         cols=cols,
         trusted=trust_answer is None,
         locale=locale,
+        extra_env=env,
     )
     try:
         driver.start()
@@ -372,6 +378,8 @@ def run_scenario(
         for line, expect in commands:
             driver.run_command(line, expect)
         for index, text in enumerate(turns):
+            if before is not None:
+                before(index, driver)
             base = driver.begin_turn(text)
             if during is not None:
                 during(index, driver, fake)
