@@ -139,7 +139,7 @@ generate images and video.
 - When LM Studio rejects a request as longer than the model's window, the window is read again, the
   history is compacted and the request is resent once. A second rejection stops the turn as before.
 
-### llama.cpp
+### llama.cpp ([#17](https://github.com/KATOI-T/SATSUMAESTRO/pull/17))
 
 #### Added
 
