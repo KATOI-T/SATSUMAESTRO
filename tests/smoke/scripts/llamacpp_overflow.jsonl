@@ -1,0 +1,7 @@
+# llama.cpp の窓あふれ。大きなファイルを読んだ後の要求に、擬似サーバは本物と同じく 400 の
+# `exceed_context_size_error`（窓 `n_ctx` と要求のトークン数 `n_prompt_tokens` つき）を返す。
+# REPL は数えた量を見積もりの起点にし、ツールの結果を切って 1 回だけ送り直す。
+# 作業ディレクトリに big.txt を置いて回す。code のまま流す（plan には入らない）。
+{"when": {"role": "user", "contains": "あふれ"}, "reply": {"tool_calls": [{"name": "read_file", "args": {"path": "big.txt"}}]}, "note": "大きなファイルを読む"}
+{"when": {"role": "tool", "tool": "read_file"}, "times": 1, "reply": {"overflow": {"n_prompt_tokens": 17000}}, "note": "窓あふれ"}
+{"reply": {"text": "送り直しを受けました。"}, "note": "catch-all"}
