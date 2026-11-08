@@ -19,6 +19,7 @@ from satsumaestro.engine.context_fit import (
     missing_model_notice,
 )
 from satsumaestro.i18n.text import ui
+from satsumaestro.orchestration.worker import WorkerState
 from satsumaestro.providers.base import Provider
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
     from satsumaestro.engine.runtime import ConversationRuntime
 
 ProviderBuilder = Callable[[RuntimeConfig, str, Mapping[str, str]], Provider]
+
+_BUSY_WORKERS = frozenset({WorkerState.STARTING, WorkerState.RUNNING})
 
 
 class MissingModelError(ConfigError):
@@ -309,9 +312,12 @@ def _remembered(
 
 
 def _background_running(rt: ConversationRuntime) -> bool:
-    """背景のタスクが前のモデルを使っているかもしれないか。"""
+    """背景のタスクかワーカーが、前のモデルを使っているかもしれないか。"""
     running = getattr(rt.orchestrator, "running_count", None)
-    return callable(running) and bool(running())
+    if callable(running) and running():
+        return True
+    ledger = getattr(getattr(rt.orchestrator, "workers", None), "ledger", None)
+    return ledger is not None and any(w.state in _BUSY_WORKERS for w in ledger.list())
 
 
 __all__ = [

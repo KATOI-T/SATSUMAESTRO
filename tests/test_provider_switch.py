@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -22,6 +23,7 @@ from satsumaestro.engine.provider_switch import (
 from satsumaestro.engine.runtime import ConversationRuntime
 from satsumaestro.engine.subagent import RuntimeFactory
 from satsumaestro.hooks.runner import HookRunner
+from satsumaestro.orchestration.worker import WorkerState
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.anthropic_provider import _to_wire
 from satsumaestro.providers.base import Provider, ProviderKind
@@ -228,6 +230,31 @@ async def test_a_cloud_keeps_the_local_url_in_the_settings(
     assert rt.config.provider.kind == "anthropic"
     assert rt.config.provider.base_url == f"{_LLAMA}/v1"
     assert rt.config.provider.profiles["llamacpp"].model == "gpt-oss-20b"
+
+
+@pytest.mark.parametrize(
+    ("state", "unloaded"),
+    [
+        (WorkerState.STARTING, []),
+        (WorkerState.RUNNING, []),
+        (WorkerState.FINISHED, ["gpt-oss:120b"]),
+    ],
+)
+async def test_a_busy_worker_keeps_the_previous_model_loaded(
+    servers: _Servers, tmp_path: Path, state: WorkerState, unloaded: list[str]
+) -> None:
+    provider = ProviderConfig(kind="ollama", base_url=f"{_OLLAMA}/v1")
+    rt = _runtime(tmp_path, RuntimeConfig(provider=provider), "gpt-oss:120b")
+    ledger = SimpleNamespace(list=lambda: [SimpleNamespace(state=state)])
+    rt.orchestrator = SimpleNamespace(
+        running_count=lambda: 0, workers=SimpleNamespace(ledger=ledger)
+    )
+    note_model_used(_OLLAMA, "gpt-oss:120b")
+
+    await switch_provider(
+        rt, "llamacpp", env=_ENV, url=_LLAMA, model="gpt-oss-20b", build=_builder([])
+    )
+    assert servers.unloaded == unloaded
 
 
 async def test_unloading_is_limited_to_one_server() -> None:
