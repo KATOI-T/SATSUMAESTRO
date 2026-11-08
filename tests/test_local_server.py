@@ -37,6 +37,7 @@ from satsumaestro.providers.local import (
     looks_local,
     resolve_server,
     server_for_endpoint,
+    unreached_cause,
 )
 from satsumaestro.providers.local import _probe as real_probe
 from satsumaestro.providers.local.llamacpp import (
@@ -246,6 +247,45 @@ async def test_a_server_that_is_down_is_asked_again_later(monkeypatch: pytest.Mo
         assert await resolve_server(f"{_ROOT}/v1", {}, _provider_cfg(), client=client) is None
         up = True
         assert await resolve_server(f"{_ROOT}/v1", {}, _provider_cfg(), client=client) is not None
+    assert unreached_cause(f"{_ROOT}/v1") is None
+
+
+@pytest.mark.parametrize(
+    ("error", "recorded"),
+    [(httpx.ConnectError, True), (httpx.ConnectTimeout, True), (httpx.ReadTimeout, False)],
+)
+async def test_only_a_failed_connection_is_recorded_as_unreached(
+    monkeypatch: pytest.MonkeyPatch, error: type[httpx.TransportError], recorded: bool
+) -> None:
+    monkeypatch.setattr(local_servers, "_probe", real_probe)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise error("no answer", request=req)
+
+    async with _client(handler) as client:
+        await resolve_server(f"{_ROOT}/v1", {}, _provider_cfg(), client=client)
+    assert (unreached_cause(f"{_ROOT}/v1") is not None) is recorded
+
+
+async def test_a_local_server_that_is_down_stops_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local_servers, "_probe", real_probe)
+    up = False
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if not up:
+            raise httpx.ConnectError("refused", request=req)
+        return httpx.Response(404, text="not found")
+
+    cfg = RuntimeConfig()
+    cfg.provider.base_url = f"{_LLAMA}/v1"
+    async with _client(handler) as client:
+        await context_fit.detect_local_server(cfg, "m", {}, client=client)
+        problem = await context_fit.check_reachable(cfg, "m", {}, client=client)
+        assert problem is not None and _LLAMA in problem and "llama-server" in problem
+        up = True
+        assert await context_fit.check_reachable(cfg, "m", {}, client=client) is None
 
 
 @pytest.mark.parametrize(

@@ -26,6 +26,7 @@ __all__ = [
     "reset_probed",
     "resolve_server",
     "server_for_endpoint",
+    "unreached_cause",
 ]
 
 _log = logging.getLogger(__name__)
@@ -33,11 +34,18 @@ _log = logging.getLogger(__name__)
 PROBE_TIMEOUT_S = 1.5
 
 _PROBED: dict[str, LocalKind | None] = {}
+_UNREACHED: dict[str, str] = {}
 
 
 def reset_probed() -> None:
     """問い合わせの記録を空にする（テスト用）。"""
     _PROBED.clear()
+    _UNREACHED.clear()
+
+
+def unreached_cause(endpoint: str) -> str | None:
+    """起動時の問い合わせでつながらなかった接続先なら、その理由。"""
+    return _UNREACHED.get(ollama_root(endpoint))
 
 
 def _lmstudio(root: str, env: Mapping[str, str]) -> LMStudioServer:
@@ -105,8 +113,11 @@ async def resolve_server(
         return known
     try:
         _PROBED[root] = await _probe(_lmstudio(root, env), _llamacpp(root, env), client)
+        _UNREACHED.pop(root, None)
     except httpx.HTTPError as exc:
         _log.debug("local server probe failed for %s: %s", root, exc)
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            _UNREACHED[root] = f"{type(exc).__name__}: {exc}"
     return server_for_endpoint(endpoint, env, provider)
 
 

@@ -17,9 +17,15 @@ from satsumaestro.providers.detect import (
     LocalKind,
     ModelContextInfo,
     choose_provider_kind,
+    ollama_root,
 )
 from satsumaestro.providers.factory import openai_endpoint
-from satsumaestro.providers.local import LocalServer, resolve_server, server_for_endpoint
+from satsumaestro.providers.local import (
+    LocalServer,
+    resolve_server,
+    server_for_endpoint,
+    unreached_cause,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -167,7 +173,7 @@ async def check_reachable(
     """起動前にローカルのサーバへ届くかを確かめる。"""
     server = local_server_for(cfg, model, env)
     if server is None:
-        return None
+        return await _check_unreached(cfg, model, env, client=client, timeout_s=timeout_s)
     cause = await server.reachable(client=client, timeout_s=timeout_s)
     if cause is None:
         return None
@@ -180,6 +186,34 @@ async def check_reachable(
             "engine.context_fit.cannot_reach_llamacpp_check_that", root=server.root, cause=cause
         )
     return ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
+
+
+async def _check_unreached(
+    cfg: RuntimeConfig,
+    model: str,
+    env: Mapping[str, str],
+    *,
+    client: httpx.AsyncClient | None,
+    timeout_s: float,
+) -> str | None:
+    """問い合わせでつながらなかったローカルの接続先に、もう一度つないで確かめる。"""
+    endpoint = _local_endpoint(cfg, model, env)
+    if not endpoint or unreached_cause(endpoint) is None:
+        return None
+    root = ollama_root(endpoint)
+    owned = client is None
+    http = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
+    try:
+        await http.get(root)
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        cause = f"{type(exc).__name__}: {exc}"
+        return ui("engine.context_fit.cannot_reach_local_server", root=root, cause=cause)
+    except httpx.HTTPError:
+        return None
+    finally:
+        if owned:
+            await http.aclose()
+    return None
 
 
 @dataclass(frozen=True)

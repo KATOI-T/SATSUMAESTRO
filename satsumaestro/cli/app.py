@@ -118,6 +118,7 @@ from satsumaestro.providers.local import (
     looks_local,
     resolve_server,
     server_for_endpoint,
+    unreached_cause,
 )
 from satsumaestro.providers.local.llamacpp import (
     unload_models_loaded_here as unload_llamacpp_models_loaded_here,
@@ -2355,6 +2356,11 @@ def _local_rows(
         return _llamacpp_rows(cfg, model, server, probe=probe, cwd=cwd, trusted=trusted)
     if server is not None:
         return _ollama_rows(cfg, model, kind, probe=probe, cwd=cwd, trusted=trusted)
+    cause = unreached_cause(endpoint) if endpoint and probe else None
+    if endpoint and cause is not None:
+        root = ollama_root(endpoint)
+        unreached = ui("engine.context_fit.cannot_reach_local_server", root=root, cause=cause)
+        return [("local server", "warn", escape(unreached))]
     undecided = cfg.provider.local.server == "auto" and cfg.provider.ollama.detect == "auto"
     if endpoint and not probe and undecided and looks_local(endpoint):
         return [("local server", "-", ui("cli.app.not_ollama_probe_checks_for"))]

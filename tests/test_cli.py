@@ -15,6 +15,8 @@ from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter
 from satsumaestro.engine.events import MessageStop, TextDelta, Thinking, ToolUse
 from satsumaestro.engine.turn import DenyPrompter
+from satsumaestro.providers import local as local_servers
+from satsumaestro.providers.local import _probe as _real_probe
 from satsumaestro.providers.registry import expand_model_name
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ToolResultBlock
@@ -232,6 +234,27 @@ def test_doctor_probe_llamacpp_rows(monkeypatch, tmp_path: Path) -> None:
     assert slots in result.output
     assert "llamacpp tools" in result.output
     assert "チャットテンプレートはツールを受け付けない" in result.output
+
+
+def test_doctor_probe_says_a_local_server_is_down(monkeypatch, tmp_path: Path) -> None:
+    """ローカルに見える接続先につながらなければ、--probe でそう伝える。"""
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OLLAMA_HOST"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9931/v1")
+    monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("COLUMNS", "400")
+    monkeypatch.setattr(local_servers, "_probe", _real_probe)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=req)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler))
+    )
+    result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--probe"])
+    assert result.exit_code == 0, result.output
+    assert "ローカルのサーバに接続できません: http://127.0.0.1:9931" in result.output
 
 
 async def test_startup_warns_when_the_llamacpp_template_takes_no_tools(monkeypatch) -> None:
