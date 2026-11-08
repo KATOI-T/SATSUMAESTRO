@@ -236,7 +236,7 @@ satsumaestro doctor                   # 設定・プロバイダ・鍵・ポリ�
 REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。REPL を
 閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
 `provider.ollama.unload_on_exit: false`）。LM Studio と llama.cpp の router からは、その REPL が読み込ませたモデルだけを降ろします
-（残すなら `provider.local.unload_on_exit: false`）。
+（残すなら `provider.local.unload_on_exit: false`）。`/provider` でローカルのサーバから切り替えたときも、同じように降ろします。
 
 **モード**: メインモードは `plan` か `code`（既定 `code`）で、プロンプトの接頭辞 `[plan] satsuma>`（緑）/
 `[code] satsuma>`（青）に出ます。
@@ -266,7 +266,24 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 
 ## プロバイダ
 
-リクエストを送るプロバイダは次の順に決まります。
+プロバイダは、REPL の `/provider` か設定の `provider.kind` で選びます（`ollama`・`lmstudio`・`llamacpp`・
+`openai`・`anthropic`・`xai`）。`/provider` だけで、プロバイダごとの接続先か鍵の有無を出します。
+`/provider <名前> [URL] [モデル]` で会話の途中に切り替え、`~/.satsuma/settings.json` に保存します。
+
+```text
+/provider llamacpp http://192.168.1.20:9931/v1
+/provider ollama
+/provider anthropic claude-sonnet-5-5
+/provider xai grok-4.3
+```
+
+- ローカルのサーバの接続先は、`provider.base_url` か、`OLLAMA_HOST`・`LMSTUDIO_HOST`・`LLAMACPP_HOST`
+  （ホスト・`ホスト:ポート`・URL。環境変数か `.env`）
+- クラウドには、環境変数か `.env` の API の鍵が要ります。鍵は設定に書きません
+- `provider.kind` を決めると、モデル ID や `OLLAMA_HOST` ではプロバイダが変わりません。下の自動の選び方に
+  戻すには `"kind": "auto"` にします
+
+`auto`（既定）では、リクエストを送るプロバイダは次の順に決まります。
 
 1. `provider.base_url` か `OLLAMA_HOST` がある → その接続先（OpenAI 互換）。このとき、モデル名だけでは有料の
    クラウドの API へ送りません

@@ -183,6 +183,35 @@ generate images and video.
 - llama-server b12172 on macOS with gpt-oss-20b: one model (`-c 65536`, and `-c 32768 -np 4` for
   a window of 8192 per slot), `--sleep-idle-seconds`, and router mode (`--models-dir`).
 
+### Switching the provider
+
+#### Added
+
+- `provider.kind` chooses the provider: `auto` (the default, chosen as before), `ollama`,
+  `lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. With a kind set, the model ID and
+  `OLLAMA_HOST` do not change it, and a local server is not probed.
+- `/provider` in the REPL lists the providers with their endpoint or key, and
+  `/provider <name|number> [URL] [model]` switches during the session. The switch is saved to
+  `~/.satsuma/settings.json`: `provider.kind`, `provider.default_model`, `provider.base_url` for a
+  local server, and `provider.profiles.<kind>` so that switching back needs no URL or model. When an
+  endpoint, a key or the model is missing, it says what to set and keeps the current provider. It
+  also says when the project's settings override what was saved.
+- `LMSTUDIO_HOST` and `LLAMACPP_HOST` give the endpoints of LM Studio and llama.cpp. They are read
+  like `OLLAMA_HOST`, with the default ports 1234 and 9931.
+- `openai` sends to `https://api.openai.com/v1` with `OPENAI_API_KEY`; `OPENAI_BASE_URL` is not
+  needed.
+- Switching away from a local server unloads the models used there, as closing the REPL does.
+
+#### Fixed
+
+- The `api key` row of `satsumaestro doctor` shows the endpoint actually used
+  (`provider.base_url` before `OLLAMA_HOST`), and the `provider` row shows the chosen kind or
+  `auto (<kind>)`.
+- A history with tool calls made on an OpenAI-compatible server is accepted by Anthropic. Tool ids
+  that repeat (such as `call_synth_0`) or that Anthropic does not accept are renumbered when sent.
+- Decomposition no longer asks a local server for its parallelism when the model goes to a cloud
+  API.
+
 ## [0.5.0] - 2026-11-01
 
 First public release.

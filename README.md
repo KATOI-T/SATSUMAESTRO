@@ -251,6 +251,7 @@ In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C int
 current turn. When the REPL closes, it unloads the model it used from Ollama (set
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
+Switching away from a local server with `/provider` unloads the same way.
 
 **Modes**: the main mode is `plan` or `code` (default `code`). The prompt shows it as
 `[plan] satsuma>` (green) or `[code] satsuma>` (blue).
@@ -283,7 +284,25 @@ turns off the streaming.
 
 ## Providers
 
-SATSUMAESTRO picks the provider in this order:
+Choose the provider with `/provider` in the REPL or with `provider.kind` in the settings: `ollama`,
+`lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. `/provider` alone lists them with their
+endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
+choice to `~/.satsuma/settings.json`.
+
+```text
+/provider llamacpp http://192.168.1.20:9931/v1
+/provider ollama
+/provider anthropic claude-sonnet-5-5
+/provider xai grok-4.3
+```
+
+- Local servers use `provider.base_url`, or `OLLAMA_HOST`, `LMSTUDIO_HOST` and `LLAMACPP_HOST`
+  (a host, `host:port` or a URL, in the environment or `.env`)
+- The clouds need their API key in the environment or `.env`. Keys are never written to the settings
+- With `provider.kind` set, the model ID and `OLLAMA_HOST` do not change the provider. Set
+  `"kind": "auto"` to go back to the automatic choice below
+
+With `auto` (the default), SATSUMAESTRO picks the provider in this order:
 
 1. `provider.base_url` or `OLLAMA_HOST` is set → that server (OpenAI-compatible). A model name alone
    never sends the request to a paid cloud API in this case.
