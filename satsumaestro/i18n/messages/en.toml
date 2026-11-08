@@ -646,9 +646,16 @@ a_streamable_http_mcp_server = "A streamable-http MCP server needs a url"
 anthropic_api_call_failed = "Anthropic API call failed: {error}"
 anthropic_count_tokens_failed = "Anthropic count_tokens failed: {error}"
 
+[providers.choice]
+no_ollama_endpoint = "Ollama has no endpoint: give one with `/provider ollama http://<IP>:11434` or OLLAMA_HOST"
+no_lmstudio_endpoint = "LM Studio has no endpoint: give one with `/provider lmstudio http://<IP>:1234/v1` or LMSTUDIO_HOST"
+no_llamacpp_endpoint = "llama.cpp has no endpoint: give one with `/provider llamacpp http://<IP>:<port>/v1` or LLAMACPP_HOST"
+key_is_not_set = "{name} is not set"
+
 [providers.factory]
 key_is_not_set = "{name} is not set"
 openai_endpoint_unresolved = "OpenAI-compatible endpoint unresolved (set provider.base_url, OPENAI_BASE_URL or OLLAMA_HOST)"
+no_endpoint_for = "{name} has no endpoint (set provider.base_url or {var})"
 
 [providers.notices]
 is_not_responding_so_switching = "'{old}' is not responding, so switching to '{new}'"

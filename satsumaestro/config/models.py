@@ -102,9 +102,24 @@ class OpenAIConfig(BaseModel):
     negotiate: bool = True
 
 
+ProviderChoice = Literal["auto", "ollama", "lmstudio", "llamacpp", "openai", "anthropic", "xai"]
+ChosenProvider = Literal["ollama", "lmstudio", "llamacpp", "openai", "anthropic", "xai"]
+
+
+class ProviderProfile(BaseModel):
+    """``/provider`` が覚えた、プロバイダごとの接続先とモデル。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str | None = None
+    model: str = ""
+
+
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    kind: ProviderChoice = "auto"
+    profiles: dict[ChosenProvider, ProviderProfile] = Field(default_factory=dict)
     default_model: str = ""
     fallback_model: str | None = None
     base_url: str | None = None

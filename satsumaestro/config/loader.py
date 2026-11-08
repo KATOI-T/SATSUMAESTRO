@@ -152,13 +152,14 @@ class ConfigLoader:
                 prefer_dotenv_ollama(dotenv)
         provider = dict(merged.get("provider") or {})
         rag = dict(merged.get("rag") or {})
+        kind = provider.get("kind", "auto")
 
         host = os.environ.get("OLLAMA_HOST")
-        if host and not provider.get("base_url"):
+        if host and kind == "auto" and not provider.get("base_url"):
             provider["base_url"] = ollama_host_url(host)
 
         model = os.environ.get("OLLAMA_MODEL")
-        if model and not provider.get("default_model"):
+        if model and kind in ("auto", "ollama") and not provider.get("default_model"):
             provider["default_model"] = model
 
         embed_base = os.environ.get("SATSUMA_EMBED_BASE_URL")

@@ -95,6 +95,14 @@ from satsumaestro.prompt.builder import (
 )
 from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers.base import Provider, ProviderKind
+from satsumaestro.providers.choice import (
+    CHOICE_LABELS,
+    HOST_ENV,
+    OPENAI_API_BASE_URL,
+    current_choice,
+    is_choice,
+    resolve_endpoint,
+)
 from satsumaestro.providers.detect import (
     LocalKind,
     ModelContextInfo,
@@ -2140,11 +2148,9 @@ def _doctor(cwd: Path, *, probe: bool = False, trust: bool = False) -> None:
         "ok" if model else "warn",
         model or ui("cli.app.not_set_set_provider_default"),
     )
-    kind = choose_provider_kind(model, os.environ, cfg.provider.base_url)
-    table.add_row("provider", "ok", kind.value)
-
-    status, detail = _key_status(kind, os.environ, cfg.provider.base_url)
-    table.add_row("api key", status, detail)
+    kind = choose_provider_kind(model, os.environ, cfg.provider.base_url, choice=cfg.provider.kind)
+    table.add_row("provider", "ok", _provider_label(cfg, model, os.environ))
+    table.add_row("api key", *_key_status(cfg, model, os.environ))
 
     default_mode = PermissionMode(cfg.permission.default_mode)
     parsed = (
@@ -2663,9 +2669,21 @@ def _rag_status(cfg: RuntimeConfig, cwd: Path) -> tuple[str, str]:
     return "ok", detail
 
 
-def _key_status(
-    kind: ProviderKind, env: Mapping[str, str], config_base_url: str | None = None
-) -> tuple[str, str]:
+def _provider_label(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str:
+    """doctor の provider の行（``auto`` なら推測した種類を添える）。"""
+    provider = cfg.provider
+    if provider.kind != "auto":
+        return provider.kind
+    actual = current_choice(provider, model, env)
+    if actual is None or not is_choice(actual):
+        actual = choose_provider_kind(model, env, provider.base_url).value
+    return f"auto ({actual})"
+
+
+def _key_status(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> tuple[str, str]:
+    """doctor の api key の行（実際に使う接続先か、クラウドの鍵）。"""
+    provider = cfg.provider
+    kind = choose_provider_kind(model, env, provider.base_url, choice=provider.kind)
     if kind is ProviderKind.ANTHROPIC:
         ok = bool(env.get("ANTHROPIC_API_KEY"))
         if ok:
@@ -2676,12 +2694,17 @@ def _key_status(
         if ok:
             return "ok", "XAI_API_KEY set"
         return "warn", ui("cli.app.xai_api_key_not_set")
-    if env.get("OLLAMA_HOST"):
-        return ("ok", f"local Ollama ({env['OLLAMA_HOST']})")
-    if env.get("OPENAI_BASE_URL"):
-        return ("ok", f"OPENAI_BASE_URL set ({env['OPENAI_BASE_URL']})")
-    if config_base_url:
-        return ("ok", f"provider.base_url set ({config_base_url})")
+    endpoint = resolve_endpoint(provider, env)
+    if provider.kind == "openai":
+        if env.get("OPENAI_API_KEY"):
+            return "ok", f"OPENAI_API_KEY set ({OPENAI_API_BASE_URL})"
+        return "warn", ui("providers.choice.key_is_not_set", name="OPENAI_API_KEY")
+    if endpoint is not None:
+        label = "provider.base_url" if endpoint.source == "settings" else endpoint.source
+        return "ok", f"{label} ({endpoint.url})"
+    if provider.kind in HOST_ENV:
+        name, var = CHOICE_LABELS[provider.kind], HOST_ENV[provider.kind]
+        return "warn", ui("providers.factory.no_endpoint_for", name=name, var=var)
     if env.get("OPENAI_API_KEY"):
         return ("ok", "OPENAI_API_KEY set")
     names = "(OPENAI_API_KEY / OLLAMA_HOST / OPENAI_BASE_URL / provider.base_url)"

@@ -83,21 +83,60 @@ def test_cli_prompt_text_tool_call_rejected(monkeypatch, tmp_path: Path) -> None
 
 def test_key_status_openai_compat_endpoints_ok() -> None:
     from satsumaestro.cli.app import _key_status
-    from satsumaestro.providers.base import ProviderKind
+    from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 
-    assert _key_status(ProviderKind.OPENAI, {"OLLAMA_HOST": "http://h"})[0] == "ok"
-    assert _key_status(ProviderKind.OPENAI, {"OPENAI_BASE_URL": "http://h/v1"})[0] == "ok"
-    assert _key_status(ProviderKind.OPENAI, {}, "http://h/v1")[0] == "ok"
-    assert _key_status(ProviderKind.OPENAI, {"OPENAI_API_KEY": "sk"})[0] == "ok"
-    assert _key_status(ProviderKind.OPENAI, {})[0] == "warn"
+    cfg, model = RuntimeConfig(), "gpt-oss:20b"
+    with_url = RuntimeConfig(provider=ProviderConfig(base_url="http://h/v1"))
+    assert _key_status(cfg, model, {"OLLAMA_HOST": "h"}) == (
+        "ok",
+        "OLLAMA_HOST (http://h:11434/v1)",
+    )
+    assert _key_status(cfg, model, {"OPENAI_BASE_URL": "http://h/v1"})[0] == "ok"
+    assert _key_status(with_url, model, {}) == ("ok", "provider.base_url (http://h/v1)")
+    assert _key_status(cfg, model, {"OPENAI_API_KEY": "sk"})[0] == "ok"
+    assert _key_status(cfg, model, {})[0] == "warn"
+
+
+def test_key_status_shows_the_endpoint_in_use() -> None:
+    """設定の base_url が OLLAMA_HOST より先に効くなら、base_url を出す。"""
+    from satsumaestro.cli.app import _key_status
+    from satsumaestro.config.models import ProviderConfig, RuntimeConfig
+
+    cfg = RuntimeConfig(provider=ProviderConfig(base_url="http://127.0.0.1:9931/v1"))
+    status = _key_status(cfg, "gpt-oss-20b", {"OLLAMA_HOST": "192.168.1.5"})
+    assert status == ("ok", "provider.base_url (http://127.0.0.1:9931/v1)")
+
+
+def test_key_status_follows_the_chosen_provider() -> None:
+    from satsumaestro.cli.app import _key_status
+    from satsumaestro.config.models import ProviderConfig, RuntimeConfig
+
+    def status(kind: str, env: dict[str, str]) -> tuple[str, str]:
+        cfg = RuntimeConfig(provider=ProviderConfig(kind=kind, base_url="http://h:11434/v1"))
+        return _key_status(cfg, "gpt-oss:20b", env)
+
+    assert status("anthropic", {})[0] == "warn"
+    assert status("openai", {"OPENAI_API_KEY": "k"}) == (
+        "ok",
+        "OPENAI_API_KEY set (https://api.openai.com/v1)",
+    )
+    assert status("openai", {})[0] == "warn"
+    assert status("llamacpp", {}) == ("ok", "provider.base_url (http://h:11434/v1)")
+    no_url = RuntimeConfig(provider=ProviderConfig(kind="lmstudio"))
+    assert _key_status(no_url, "m", {})[0] == "warn"
+    assert _key_status(no_url, "m", {"LMSTUDIO_HOST": "10.0.0.2"}) == (
+        "ok",
+        "LMSTUDIO_HOST (http://10.0.0.2:1234/v1)",
+    )
 
 
 def test_key_status_anthropic_needs_key() -> None:
     from satsumaestro.cli.app import _key_status
-    from satsumaestro.providers.base import ProviderKind
+    from satsumaestro.config.models import RuntimeConfig
 
-    assert _key_status(ProviderKind.ANTHROPIC, {})[0] == "warn"
-    assert _key_status(ProviderKind.ANTHROPIC, {"ANTHROPIC_API_KEY": "x"})[0] == "ok"
+    model = "claude-opus-5-5"
+    assert _key_status(RuntimeConfig(), model, {})[0] == "warn"
+    assert _key_status(RuntimeConfig(), model, {"ANTHROPIC_API_KEY": "x"})[0] == "ok"
 
 
 def test_doctor_offline(monkeypatch, tmp_path: Path) -> None:

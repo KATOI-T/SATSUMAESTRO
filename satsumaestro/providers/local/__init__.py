@@ -70,7 +70,9 @@ def server_for_endpoint(
     """設定・Ollama の規則・問い合わせの記録から、ローカルのサーバを決める（通信はしない）。"""
     chosen = provider.local.server
     root = ollama_root(endpoint)
-    if chosen == "generic":
+    if provider.kind in ("ollama", "lmstudio", "llamacpp"):
+        return _server(provider.kind, root, env)
+    if provider.kind != "auto" or chosen == "generic":
         return None
     if chosen in ("lmstudio", "llamacpp"):
         return _server(chosen, root, env)
@@ -105,6 +107,7 @@ async def resolve_server(
     root = ollama_root(endpoint)
     if (
         known is not None
+        or provider.kind != "auto"
         or provider.local.server != "auto"
         or provider.ollama.detect != "auto"
         or root in _PROBED

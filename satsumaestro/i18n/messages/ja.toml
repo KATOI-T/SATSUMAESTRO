@@ -646,9 +646,16 @@ a_streamable_http_mcp_server = "streamable-http MCP サーバには url が必�
 anthropic_api_call_failed = "Anthropic API 呼び出しに失敗: {error}"
 anthropic_count_tokens_failed = "Anthropic count_tokens に失敗: {error}"
 
+[providers.choice]
+no_ollama_endpoint = "Ollama の接続先がありません: `/provider ollama http://<IP>:11434` か、OLLAMA_HOST で指定します"
+no_lmstudio_endpoint = "LM Studio の接続先がありません: `/provider lmstudio http://<IP>:1234/v1` か、LMSTUDIO_HOST で指定します"
+no_llamacpp_endpoint = "llama.cpp の接続先がありません: `/provider llamacpp http://<IP>:<port>/v1` か、LLAMACPP_HOST で指定します"
+key_is_not_set = "{name} が設定されていません"
+
 [providers.factory]
 key_is_not_set = "{name} が設定されていません"
 openai_endpoint_unresolved = "OpenAI 互換の接続先が決まりません（provider.base_url・OPENAI_BASE_URL・OLLAMA_HOST のどれかを設定してください）"
+no_endpoint_for = "{name} の接続先がありません（provider.base_url か {var} で指定します）"
 
 [providers.notices]
 is_not_responding_so_switching = "'{old}' が応答しないので '{new}' に切り替えます"
