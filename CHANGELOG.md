@@ -139,6 +139,50 @@ generate images and video.
 - When LM Studio rejects a request as longer than the model's window, the window is read again, the
   history is compacted and the request is resent once. A second rejection stops the turn as before.
 
+### llama.cpp
+
+#### Added
+
+- llama.cpp's `llama-server` is recognised at startup through `/props`, asked after LM Studio on a
+  local-looking host. `provider.local.server: llamacpp` sets the kind without asking.
+- The window of one slot (`n_ctx` in `/props`) is read and compaction is fitted to it. When the
+  window is small, the REPL suggests restarting with `-c <size>`, and with more than one slot also
+  the size for `--parallel` without `--kv-unified`.
+- A server started with one model answers under any name, so the model is not checked and `/model`
+  lists that one model. In router mode the model must be one the router lists; one that is not
+  loaded yet gets its trained window, checked again after the first reply. When the REPL closes, it
+  unloads only the models it caused the router to load (`provider.local.unload_on_exit`).
+- The number of slots (`total_slots`) is the server's parallelism for decomposition when
+  `decomposition.provider_parallelism` is `auto`.
+- `LLAMA_API_KEY` (the key given to `--api-key`) is sent when set. Like the API keys, it is removed
+  from the environment of child processes and redacted in session records.
+- The loading notice, the missing-model notice and `satsumaestro doctor --probe` (rows `llamacpp`
+  and `llamacpp ctx`) cover llama.cpp.
+- When the model's chat template does not accept tools (`chat_template_caps` in `/props`), the
+  startup and `satsumaestro doctor --probe` (row `llamacpp tools`) say so and suggest
+  `--chat-template-file`.
+
+#### Fixed
+
+- When llama-server rejects a request as longer than the window (400 `exceed_context_size_error`),
+  the window and the token count it reports are used: the history is compacted, or tool results are
+  shortened by the counted amount, and the request is resent once. Before, the turn failed. Such a
+  rejection is no longer re-sent first in another shape (for example without strict tools).
+- A request that the counted size shows cannot fit, with nothing left to shorten, is not sent
+  again. If no reply came in that turn, the request is removed from the conversation, as when it
+  does not fit before it is first sent.
+- When a local-looking endpoint cannot be reached at startup (for example, llama-server is not
+  running yet), SATSUMAESTRO stops at once and says so, instead of retrying for about 100 seconds.
+  `satsumaestro doctor --probe` shows it in the `local server` row.
+- A reply from llama-server that counts fewer tokens than were sent no longer stops the turn as a
+  truncated request. llama-server rejects a request longer than the window instead, and a smaller
+  count means the chat template left part of it out (for example the tools).
+
+#### Checked servers
+
+- llama-server b12172 on macOS with gpt-oss-20b: one model (`-c 65536`, and `-c 32768 -np 4` for
+  a window of 8192 per slot), `--sleep-idle-seconds`, and router mode (`--models-dir`).
+
 ## [0.5.0] - 2026-11-01
 
 First public release.
