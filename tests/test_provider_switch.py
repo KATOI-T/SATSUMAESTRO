@@ -23,11 +23,13 @@ from satsumaestro.engine.runtime import ConversationRuntime
 from satsumaestro.engine.subagent import RuntimeFactory
 from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.prompt.builder import SystemPromptBuilder
+from satsumaestro.providers.anthropic_provider import _to_wire
 from satsumaestro.providers.base import Provider
 from satsumaestro.providers.detect import note_model_used, used_models
 from satsumaestro.providers.local import Unloaded, unload_used
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import default_policy
+from satsumaestro.session.models import ConversationMessage, ToolResultBlock, ToolUseBlock
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.tools import default_registry
 from satsumaestro.util.errors import ConfigError
@@ -304,3 +306,27 @@ async def test_the_command_lists_switches_and_saves(
 
     kept = await _dispatch(rt, "/provider lmstudio")
     assert "LM Studio の接続先がありません" in kept and "プロバイダは ollama のままです" in kept
+
+
+def test_anthropic_gets_unique_tool_ids() -> None:
+    def use(tid: str) -> ConversationMessage:
+        block = ToolUseBlock(id=tid, name="read_file", input={})
+        return ConversationMessage(role="assistant", blocks=[block])
+
+    def result(tid: str) -> ConversationMessage:
+        block = ToolResultBlock(tool_use_id=tid, tool_name="read_file", output="ok")
+        return ConversationMessage(role="user", blocks=[block])
+
+    history = [
+        use("call_synth_0"),
+        result("call_synth_0"),
+        use("call_synth_0"),
+        result("call_synth_0"),
+        use("call.1"),
+        result("call.1"),
+    ]
+    wire = _to_wire(history)
+    ids = [b["id"] for m in wire for b in m["content"] if b["type"] == "tool_use"]
+    refs = [b["tool_use_id"] for m in wire for b in m["content"] if b["type"] == "tool_result"]
+    assert ids == ["call_synth_0", "toolu_0", "toolu_1"] and refs == ids
+    assert history[2].blocks[0].id == "call_synth_0"  # type: ignore[union-attr]
