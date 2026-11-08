@@ -183,7 +183,7 @@ generate images and video.
 - llama-server b12172 on macOS with gpt-oss-20b: one model (`-c 65536`, and `-c 32768 -np 4` for
   a window of 8192 per slot), `--sleep-idle-seconds`, and router mode (`--models-dir`).
 
-### Switching the provider
+### Switching the provider ([#19](https://github.com/KATOI-T/SATSUMAESTRO/pull/19))
 
 #### Added
 
