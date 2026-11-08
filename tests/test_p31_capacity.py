@@ -57,6 +57,22 @@ async def test_capacity_auto_ollama_env_then_probe_then_one(
     assert await est(is_ollama=False) is None
 
 
+async def test_capacity_takes_the_slots_the_server_reports() -> None:
+    def est(**kwargs: object):  # noqa: ANN202
+        defaults: dict[str, object] = {
+            "configured": "auto",
+            "is_ollama": False,
+            "env": {},
+            "cache_path": None,
+            "cache_key": "http://localhost:9931+m",
+        }
+        return estimate_parallelism(**{**defaults, **kwargs})  # type: ignore[arg-type]
+
+    assert await est(slots=4) == 4
+    assert await est(slots=4, configured=2) == 2
+    assert await est(slots=None) is None
+
+
 class _DelayProvider:
     """prefill（TTFT）と decode を持つプロバイダ。"""
 

@@ -9,7 +9,13 @@ import httpx
 import pytest
 
 from satsumaestro.cli.errors_ui import turn_failure
-from satsumaestro.config.models import CompactionConfig, HookConfig, ProviderConfig, RuntimeConfig
+from satsumaestro.config.models import (
+    CompactionConfig,
+    HookConfig,
+    LocalConfig,
+    ProviderConfig,
+    RuntimeConfig,
+)
 from satsumaestro.engine import context_fit
 from satsumaestro.engine.compaction import Compactor
 from satsumaestro.engine.context_budget import estimate_lower, request_floor
@@ -151,6 +157,22 @@ async def test_anthropic_usage_is_not_read_as_a_truncation(
     rt = _runtime(tmp_path, _provider(kind=ProviderKind.ANTHROPIC))
     summary = await rt.run_turn("data.txt を全部読んで")
     assert summary.final_text == LOST and summary.context_truncations == 0
+
+
+async def test_a_low_count_from_llamacpp_is_not_read_as_a_truncation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_refit(monkeypatch)
+    cfg = RuntimeConfig(
+        provider=ProviderConfig(
+            base_url="http://127.0.0.1:9931/v1", local=LocalConfig(server="llamacpp")
+        )
+    )
+    provider = _provider()
+    rt = _runtime(tmp_path, provider, cfg)
+    summary = await rt.run_turn("data.txt を全部読んで")
+    assert summary.final_text == LOST and summary.context_truncations == 0
+    assert len(provider.requests) == 2
 
 
 def test_the_last_measurement_is_a_floor_only_while_the_head_is_unchanged(

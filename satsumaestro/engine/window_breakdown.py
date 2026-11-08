@@ -70,15 +70,29 @@ class WindowBreakdown:
             threshold=threshold,
         )
 
-    def advice(self, server: LocalKind = "ollama", model: str = "") -> str:
-        """窓が小さいときの案内（サーバごとの広げ方）。"""
+    def advice(
+        self, server: LocalKind = "ollama", model: str = "", slots: int | None = None
+    ) -> str:
+        """窓が小さいときの案内（サーバごとの広げ方。llama.cpp はスロット数も見る）。"""
         size = self.recommended()
+        if server == "llamacpp" and slots is not None and slots > 1:
+            return ui(
+                "engine.window_breakdown.window_is_tight_llamacpp_slots",
+                factor=TIGHT_FACTOR,
+                size=size,
+                slots=slots,
+                total=size * slots,
+            )
         if server == "lmstudio":
             return ui(
                 "engine.window_breakdown.window_is_tight_lmstudio",
                 factor=TIGHT_FACTOR,
                 size=size,
                 model=model,
+            )
+        if server == "llamacpp":
+            return ui(
+                "engine.window_breakdown.window_is_tight_llamacpp", factor=TIGHT_FACTOR, size=size
             )
         return ui(
             "engine.window_breakdown.window_is_tight",

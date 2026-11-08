@@ -121,6 +121,22 @@ def test_the_lines_in_both_languages() -> None:
         )
 
 
+def test_llamacpp_advice_gives_the_size_for_its_slots() -> None:
+    b = WindowBreakdown(window=8_192, threshold=6_553, fixed=3_300, instructions=0)
+    for slots in (None, 1):
+        one = b.advice("llamacpp", "gpt-oss-20b", slots)
+        assert one.endswith("llama-server を `-c 16384` 以上で起動し直します")
+    four = b.advice("llamacpp", "gpt-oss-20b", 4)
+    assert four.endswith(
+        "`-c 16384` 以上で起動し直します。`--parallel 4` で `--kv-unified` を付けていないなら"
+        " `-c 65536` 以上です"
+    )
+    with pinned_ui_language("en"):
+        assert b.advice("llamacpp", "gpt-oss-20b", 4).endswith(
+            "`-c 16384` or more, or `-c 65536` or more with `--parallel 4` and no `--kv-unified`"
+        )
+
+
 async def test_the_runtime_counts_the_instruction_files(tmp_path: Path) -> None:
     rt = _runtime(tmp_path, [[]], window=16_384, threshold=13_107)
     bare = await rt.window_breakdown()

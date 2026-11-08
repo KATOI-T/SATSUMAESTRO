@@ -75,10 +75,17 @@ def is_ollama_endpoint(
     return False
 
 
-LocalKind = Literal["ollama", "lmstudio"]
+LocalKind = Literal["ollama", "lmstudio", "llamacpp"]
 
 ContextSource = Literal[
-    "ps", "show.parameters", "show.model_info", "lmstudio.loaded", "lmstudio.max", "none"
+    "ps",
+    "show.parameters",
+    "show.model_info",
+    "lmstudio.loaded",
+    "lmstudio.max",
+    "llamacpp.slot",
+    "llamacpp.train",
+    "none",
 ]
 
 
@@ -93,6 +100,7 @@ class ModelContextInfo:
     expires_at: str | None = None
     ps_ok: bool = False
     server: LocalKind = "ollama"
+    slots: int | None = None
 
     @property
     def context_length(self) -> int | None:
@@ -102,12 +110,12 @@ class ModelContextInfo:
     @property
     def confirmed(self) -> bool:
         """載っているモデルの実効の窓を読めたか。"""
-        return self.source in ("ps", "lmstudio.loaded")
+        return self.source in ("ps", "lmstudio.loaded", "llamacpp.slot")
 
     @property
     def unconfirmed(self) -> bool:
         """載っておらず本来の窓しか読めなかったか（載ると小さくなりうる）。"""
-        return self.source in ("show.model_info", "lmstudio.max")
+        return self.source in ("show.model_info", "lmstudio.max", "llamacpp.train")
 
 
 def same_model(a: str, b: str) -> bool:

@@ -79,7 +79,7 @@ class LocalConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    server: Literal["auto", "ollama", "lmstudio", "generic"] = "auto"
+    server: Literal["auto", "ollama", "lmstudio", "llamacpp", "generic"] = "auto"
     unload_on_exit: bool = True
     ttl: str | None = None
 

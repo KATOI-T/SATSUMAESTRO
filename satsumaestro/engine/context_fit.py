@@ -69,12 +69,18 @@ def source_label(source: str) -> str:
         return ui("engine.context_fit.lmstudio_loaded_window")
     if source == "lmstudio.max":
         return ui("engine.context_fit.lmstudio_largest_window")
+    if source == "llamacpp.slot":
+        return ui("engine.context_fit.llamacpp_slot_window")
+    if source == "llamacpp.train":
+        return ui("engine.context_fit.llamacpp_trained_window")
     return ui("engine.context_fit.unknown")
 
 
 def loaded_source(server: LocalKind) -> ContextSource:
     """載っているモデルの窓を読んだときの出どころ。"""
-    return "lmstudio.loaded" if server == "lmstudio" else "ps"
+    if server == "lmstudio":
+        return "lmstudio.loaded"
+    return "llamacpp.slot" if server == "llamacpp" else "ps"
 
 
 def fit_compaction_threshold(
@@ -132,6 +138,11 @@ async def refit_window(
     window = info.context_length
     if not info.confirmed or window is None:
         return None
+    return fit_window(cfg, window)
+
+
+def fit_window(cfg: RuntimeConfig, window: int) -> int | None:
+    """窓が、いま使っている窓より小さければ合わせ、その窓を返す。"""
     current = cfg.compaction.context_window
     if current and window >= current:
         return None
@@ -163,6 +174,10 @@ async def check_reachable(
     if server.kind == "lmstudio":
         return ui(
             "engine.context_fit.cannot_reach_lmstudio_check_that", root=server.root, cause=cause
+        )
+    if server.kind == "llamacpp":
+        return ui(
+            "engine.context_fit.cannot_reach_llamacpp_check_that", root=server.root, cause=cause
         )
     return ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
 
@@ -242,6 +257,12 @@ class MissingModelNotice:
                 model=self.model,
                 root=self.root,
             )
+        if self.server == "llamacpp":
+            return ui(
+                "engine.context_fit.model_was_not_found_on_llamacpp",
+                model=self.model,
+                root=self.root,
+            )
         return ui("engine.context_fit.model_was_not_found_on", model=self.model, root=self.root)
 
     @property
@@ -263,10 +284,14 @@ class MissingModelNotice:
     def pull_command(self) -> str:
         if self.server == "lmstudio":
             return f"lms get {self.model}"
+        if self.server == "llamacpp":
+            return "--models-dir"
         return f"ollama pull {self.model}"
 
     def pull_hint(self, command: str) -> str:
         """取得方法の 1 文（``command`` は取得コマンドの書き方。CLI は色を付けるために探す）。"""
+        if self.server == "llamacpp":
+            return ui("engine.context_fit.llamacpp_model_hint", option=command)
         if self.startup:
             return ui("engine.context_fit.pull_hint_startup", command=command)
         return ui("engine.context_fit.pull_hint", command=command)
@@ -340,6 +365,12 @@ async def apply_context_fit(
         _log.info(
             "LM Studio has not loaded %s yet; it loads with the context length set for the model, "
             "so the window is checked again after the first reply",
+            model,
+        )
+    elif info.unconfirmed and info.server == "llamacpp":
+        _log.info(
+            "the llama.cpp router has not loaded %s yet, so the window is checked again after "
+            "the first reply",
             model,
         )
     elif info.unconfirmed:

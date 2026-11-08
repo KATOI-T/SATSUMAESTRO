@@ -192,16 +192,44 @@ def is_tool_call_parse_error(exc: BaseException) -> bool:
     return False
 
 
-_CONTEXT_OVERFLOW_SIGNATURES = ("greater than the context length",)
+_CONTEXT_OVERFLOW_SIGNATURES = (
+    "greater than the context length",
+    "exceed_context_size_error",
+    "exceeds the available context size",
+)
 
 
 def is_context_overflow(exc: BaseException) -> bool:
-    """サーバが、モデルの窓より長い要求として断ったか（LM Studio）。"""
+    """サーバが、モデルの窓より長い要求として断ったか（LM Studio・llama.cpp）。"""
     for e in _causes(exc):
         text = str(e).casefold()
         if any(sig in text for sig in _CONTEXT_OVERFLOW_SIGNATURES):
             return True
     return False
+
+
+@dataclass(frozen=True)
+class ReportedOverflow:
+    """窓あふれでサーバが返した数（llama.cpp の ``n_ctx`` と ``n_prompt_tokens``）。"""
+
+    window: int | None = None
+    prompt_tokens: int | None = None
+
+
+def reported_overflow(exc: BaseException) -> ReportedOverflow:
+    """窓あふれの応答の本文から、窓と要求のトークン数を読む（無ければ空）。"""
+    for e in _causes(exc):
+        body = getattr(e, "body", None)
+        error = body.get("error", body) if isinstance(body, dict) else None
+        if isinstance(error, dict) and error.get("type") == "exceed_context_size_error":
+            window, tokens = error.get("n_ctx"), error.get("n_prompt_tokens")
+            return ReportedOverflow(_positive(window), _positive(tokens))
+    return ReportedOverflow()
+
+
+def _positive(value: object) -> int | None:
+    number = _as_int(value)
+    return number if number is not None and number > 0 else None
 
 
 def backoff_delay(attempt: int, policy: RetryPolicy) -> float:

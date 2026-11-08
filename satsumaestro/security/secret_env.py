@@ -11,6 +11,7 @@ PROVIDER_KEY_VARS: tuple[str, ...] = (
     "XAI_API_KEY",
     "SATSUMA_EMBED_API_KEY",
     "LM_API_TOKEN",
+    "LLAMA_API_KEY",
 )
 
 DEFAULT_STRIP_GLOBS: tuple[str, ...] = ("*_API_KEY",)

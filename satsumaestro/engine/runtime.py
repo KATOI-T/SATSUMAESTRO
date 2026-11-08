@@ -157,10 +157,12 @@ from satsumaestro.prompt.builder import SystemPromptBuilder, TurnContext, git_ch
 from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers import notices, timing
 from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
+from satsumaestro.providers.detect import LocalKind
 from satsumaestro.providers.retry import (
     is_context_overflow,
     is_read_timeout,
     is_tool_call_parse_error,
+    reported_overflow,
 )
 from satsumaestro.security import output_guard, state_write_guard
 from satsumaestro.security.allowlist import PermissionResolver
@@ -371,6 +373,7 @@ class _SentMark:
     model: str = ""
     at: float = 0.0
     floor: bool = True
+    prefilled: bool = True
 
 
 @dataclass
@@ -1207,7 +1210,11 @@ class ConversationRuntime:
                     tools_json,
                     render,
                     counters,
-                    drop_from=turn_message if not iteration else None,
+                    drop_from=(
+                        turn_message
+                        if not iteration or self.session.messages[-1] is turn_message
+                        else None
+                    ),
                 )
             except ContextOverflowError as overflow:
                 notify(TurnAborted(iteration, overflow))
@@ -1233,7 +1240,7 @@ class ConversationRuntime:
                 assistant = await self._request_reply(req, render, repair, counters)
             except ProviderError as e:
                 window = (
-                    await self._refit_window()
+                    await self._refit_overflow(e, sent, sent_estimate, digest)
                     if is_context_overflow(e)
                     and not truncation_retried
                     and self._has_budget(iteration)
@@ -1241,7 +1248,6 @@ class ConversationRuntime:
                 )
                 if window is not None:
                     truncation_retried = True
-                    self._sent = None
                     _log.warning("the server rejected the request as over its window: %s", e)
                     context_notice(
                         render,
@@ -1739,7 +1745,7 @@ class ConversationRuntime:
         """サーバの接頭辞キャッシュに残っていそうな量（前の要求の実測）。"""
         count = self._sent_count()
         mark = self._sent
-        if count is None or mark is None or mark.digest != digest:
+        if count is None or mark is None or mark.digest != digest or not mark.prefilled:
             return 0
         if mark.model != self.session.model:
             return 0
@@ -1820,7 +1826,22 @@ class ConversationRuntime:
             return None
         if usage.input_tokens + _TRUNCATION_SLACK >= floor:
             return None
+        if self._local_kind() == "llamacpp":
+            _log.info(
+                "llama.cpp read %d tokens of >= ~%d sent; it rejects longer requests, so its chat "
+                "template left part of the request out",
+                usage.input_tokens,
+                floor,
+            )
+            return None
         return usage.input_tokens
+
+    def _local_kind(self) -> LocalKind | None:
+        """接続先のローカルのサーバの種類（ローカルでなければ ``None``）。"""
+        from satsumaestro.engine.context_fit import local_server_for
+
+        server = local_server_for(self.config, self.session.model, os.environ)
+        return server.kind if server is not None else None
 
     async def window_breakdown(self) -> WindowBreakdown | None:
         """窓の内訳（起動時と測り直しの後に出す）。"""
@@ -1840,7 +1861,7 @@ class ConversationRuntime:
 
     async def _recheck_window(self) -> None:
         """起動時に分からなかった窓を、読み込んだ後の値で測り直す。"""
-        from satsumaestro.engine.context_fit import loaded_source, local_server_for, source_label
+        from satsumaestro.engine.context_fit import loaded_source, source_label
 
         before = self.config.compaction.context_window
         window = await self._refit_window()
@@ -1849,8 +1870,7 @@ class ConversationRuntime:
         notes = [ui("engine.runtime.window_rechecked", window=f"{window:,}", before=f"{before:,}")]
         breakdown = await self.window_breakdown()
         if breakdown is not None:
-            server = local_server_for(self.config, self.session.model, os.environ)
-            kind = server.kind if server is not None else "ollama"
+            kind = self._local_kind() or "ollama"
             notes.append(breakdown.describe(source_label(loaded_source(kind))))
             if breakdown.tight:
                 notes.append(breakdown.advice(kind, self.session.model))
@@ -1892,6 +1912,26 @@ class ConversationRuntime:
             _log.debug("could not refit the context window", exc_info=True)
             return None
 
+    async def _refit_overflow(
+        self, exc: ProviderError, sent: int, estimate: int, digest: str
+    ) -> int | None:
+        """窓あふれの後に窓を合わせ、サーバが数えた量を次の見積もりの起点にする（送り直す窓）。"""
+        from satsumaestro.engine.context_fit import fit_window
+
+        reported = reported_overflow(exc)
+        if reported.window is not None:
+            window = fit_window(self.config, reported.window)
+        else:
+            window = await self._refit_window()
+        if reported.prompt_tokens is None:
+            if window is not None:
+                self._sent = None
+            return window
+        self._note_sent(sent, TokenUsage(input_tokens=reported.prompt_tokens), estimate, digest)
+        if self._sent is not None:
+            self._sent = replace(self._sent, floor=False, prefilled=False)
+        return window or self.config.compaction.context_window or None
+
     def _fit_window(
         self,
         system: str,
@@ -1925,12 +1965,12 @@ class ConversationRuntime:
         else:
             expected = int(whole * ratio)
         if expected >= limit:
-            excess = math.ceil((int(whole * ratio) - limit + _WINDOW_MARGIN) / ratio)
+            excess = math.ceil((max(expected, int(whole * ratio)) - limit + _WINDOW_MARGIN) / ratio)
             whole_cuts = _cut_results(messages, 0, excess)
             if whole_cuts:
                 self._sent = None
+                expected = int(request_tokens(system, tools_json, messages) * ratio)
             cuts += whole_cuts
-            expected = int(request_tokens(system, tools_json, messages) * ratio)
         if cuts:
             for cut in cuts:
                 counters.tool_result_cuts += 1

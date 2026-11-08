@@ -28,7 +28,7 @@ from satsumaestro.providers.factory import (
     resolve_role_model,
     resolve_role_sampling,
 )
-from satsumaestro.providers.local import server_for_endpoint
+from satsumaestro.providers.local import LlamaCppServer, server_for_endpoint
 from satsumaestro.session.models import Session, TodoItem
 from satsumaestro.util.errors import OrchestrationError
 
@@ -168,10 +168,16 @@ class DecompositionCoordinator:
         base = openai_endpoint(self._config, self._env) or ""
         server = server_for_endpoint(base, self._env, self._config.provider) if base else None
         is_ollama = server is not None and server.kind == "ollama"
+        slots = (
+            await server.slots()
+            if isinstance(server, LlamaCppServer) and dcfg.provider_parallelism == "auto"
+            else None
+        )
         calibrate = dcfg.calibrate_parallelism
         provider_side = await estimate_parallelism(
             configured=dcfg.provider_parallelism,
             is_ollama=is_ollama,
+            slots=slots,
             env=self._env,
             cache_path=(self._cwd / dcfg.capacity_cache_file) if calibrate else None,
             cache_key=f"{base}+{self._model}",
