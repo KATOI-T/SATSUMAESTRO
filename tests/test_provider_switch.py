@@ -304,6 +304,13 @@ async def test_the_command_lists_switches_and_saves(
         },
     }
 
+    switched = await _dispatch(rt, "/model qwen3:8b")
+    assert "model → qwen3:8b。" in switched and "に保存しました" in switched
+    saved = json.loads((home / "settings.json").read_text(encoding="utf-8"))["provider"]
+    assert saved["default_model"] == "qwen3:8b"
+    assert saved["profiles"]["ollama"]["model"] == "qwen3:8b"
+    assert rt.config.provider.profiles["ollama"].model == "qwen3:8b"
+
     kept = await _dispatch(rt, "/provider lmstudio")
     assert "LM Studio の接続先がありません" in kept and "プロバイダは ollama のままです" in kept
 

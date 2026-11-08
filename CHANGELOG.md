@@ -194,13 +194,18 @@ generate images and video.
   `/provider <name|number> [URL] [model]` switches during the session. The switch is saved to
   `~/.satsuma/settings.json`: `provider.kind`, `provider.default_model`, `provider.base_url` for a
   local server, and `provider.profiles.<kind>` so that switching back needs no URL or model. When an
-  endpoint, a key or the model is missing, it says what to set and keeps the current provider. It
-  also says when the project's settings override what was saved.
+  endpoint, a key or the model is missing, it says what to set and keeps the current provider.
 - `LMSTUDIO_HOST` and `LLAMACPP_HOST` give the endpoints of LM Studio and llama.cpp. They are read
   like `OLLAMA_HOST`, with the default ports 1234 and 9931.
 - `openai` sends to `https://api.openai.com/v1` with `OPENAI_API_KEY`; `OPENAI_BASE_URL` is not
   needed.
 - Switching away from a local server unloads the models used there, as closing the REPL does.
+
+#### Changed
+
+- `/model` saves the model to `~/.satsuma/settings.json` as well.
+- The next start uses the provider and model chosen last: `provider.kind`, `provider.base_url` and
+  `provider.default_model` in `~/.satsuma/settings.json` win over the project's settings.
 
 #### Fixed
 

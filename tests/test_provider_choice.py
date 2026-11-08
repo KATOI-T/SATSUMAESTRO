@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from satsumaestro.config.loader import ConfigLoader, provider_update, save_provider
+from satsumaestro.config.loader import (
+    ConfigLoader,
+    model_update,
+    provider_update,
+    save_model,
+    save_provider,
+)
 from satsumaestro.config.models import ProviderConfig, ProviderProfile, RuntimeConfig
 from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.base import ProviderKind
@@ -214,18 +220,32 @@ def test_save_writes_the_user_settings(tmp_path: Path) -> None:
     }
 
 
-def test_the_project_override_is_found(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _home(tmp_path, monkeypatch, {})
-    state = tmp_path / ".satsuma"
-    state.mkdir()
-    (state / "settings.json").write_text(
-        json.dumps({"provider": {"base_url": "http://other:11434/v1", "kind": "ollama"}}),
-        encoding="utf-8",
-    )
-    loader = ConfigLoader(tmp_path, trusted=True)
-    wanted = {"kind": "ollama", "base_url": "http://10.0.0.5:11434/v1", "default_model": "m"}
-    assert loader.provider_overrides(wanted) == {"base_url": "http://other:11434/v1"}
-    assert ConfigLoader(tmp_path, trusted=False).provider_overrides(wanted) == {}
+def test_the_model_update_changes_the_model_and_its_profile() -> None:
+    data = {
+        "provider": {
+            "kind": "ollama",
+            "default_model": "gpt-oss:120b",
+            "profiles": {"ollama": {"base_url": "http://h:11434/v1", "model": "gpt-oss:120b"}},
+        }
+    }
+    out = model_update(data, "qwen3:8b", choice="ollama")
+    assert out["provider"]["default_model"] == "qwen3:8b"
+    assert out["provider"]["profiles"]["ollama"] == {
+        "base_url": "http://h:11434/v1",
+        "model": "qwen3:8b",
+    }
+    assert data["provider"]["default_model"] == "gpt-oss:120b"
+    assert model_update({}, "m") == {"provider": {"default_model": "m"}}
+    assert model_update({}, "m", choice="llamacpp") == {"provider": {"default_model": "m"}}
+
+
+def test_save_model_writes_the_user_settings(tmp_path: Path) -> None:
+    (tmp_path / "settings.json").write_text('{"language": {"ui": "ja"}}', encoding="utf-8")
+    path = save_model("qwen3:8b", config_home=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "language": {"ui": "ja"},
+        "provider": {"default_model": "qwen3:8b"},
+    }
 
 
 def test_the_switch_endpoint_prefers_the_active_then_the_profile_then_the_variable() -> None:

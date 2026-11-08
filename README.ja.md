@@ -269,6 +269,7 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 プロバイダは、REPL の `/provider` か設定の `provider.kind` で選びます（`ollama`・`lmstudio`・`llamacpp`・
 `openai`・`anthropic`・`xai`）。`/provider` だけで、プロバイダごとの接続先か鍵の有無を出します。
 `/provider <名前> [URL] [モデル]` で会話の途中に切り替え、`~/.satsuma/settings.json` に保存します。
+`/model` もモデルをそこに保存し、次の起動では最後に選んだプロバイダとモデルを使います。
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1
@@ -305,6 +306,9 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 2. `.satsuma.json`
 3. `.satsuma/settings.json`
 4. `.satsuma/settings.local.json`
+
+ただし、最後に選んだプロバイダとモデル（ユーザー設定の `provider.kind`・`provider.base_url`・
+`provider.default_model`）は、2〜4 より優先します。
 
 2〜4・`.env`・`.satsuma/memory.md`・スキルの置き場所は、作業ディレクトリから git の根まで（git の外なら
 作業ディレクトリだけ）を探し、いちばん近いものを使います。`.satsuma/policy.md` は重ねます。git の根から

@@ -92,6 +92,9 @@ def save_screen_language(code: str, config_home: Path | None = None) -> Path:
     return path
 
 
+_SELECTION = ("kind", "base_url", "default_model")
+
+
 def provider_update(
     data: Mapping[str, Any],
     choice: str,
@@ -101,12 +104,7 @@ def provider_update(
     remember: Mapping[ChosenProvider, ProviderProfile] | None = None,
 ) -> dict[str, Any]:
     """設定の dict に、プロバイダの切り替え（種類・モデル・接続先・覚える分）を足した dict。"""
-    out = dict(data)
-    provider = out.get("provider", {})
-    profiles = provider.get("profiles", {}) if isinstance(provider, dict) else None
-    if not isinstance(provider, dict) or not isinstance(profiles, dict):
-        raise ConfigError(ui("config.loader.the_provider_item_must_be"))
-    provider, profiles = dict(provider), dict(profiles)
+    provider, profiles = _provider_items(data)
     for kind, profile in (remember or {}).items():
         if kind not in profiles:
             profiles[kind] = profile.model_dump(exclude_none=True)
@@ -116,12 +114,20 @@ def provider_update(
     if base_url:
         provider["base_url"] = base_url
     provider["profiles"] = profiles
-    try:
-        ProviderConfig.model_validate(provider)
-    except ValidationError as exc:
-        raise ConfigError(_invalid(exc)) from exc
-    out["provider"] = provider
-    return out
+    return _with_provider(data, provider)
+
+
+def model_update(
+    data: Mapping[str, Any], model: str, *, choice: ChosenProvider | None = None
+) -> dict[str, Any]:
+    """設定の dict に、選んだモデルを足した dict（``choice`` の記録があればそのモデルも替える）。"""
+    provider, profiles = _provider_items(data)
+    provider["default_model"] = model
+    profile = profiles.get(choice) if choice is not None else None
+    if choice is not None and isinstance(profile, dict):
+        profiles[choice] = {**profile, "model": model}
+        provider["profiles"] = profiles
+    return _with_provider(data, provider)
 
 
 def save_provider(
@@ -133,11 +139,54 @@ def save_provider(
     config_home: Path | None = None,
 ) -> Path:
     """ユーザーの設定（①）にプロバイダの切り替えを書き、書いたファイルを返す。"""
-    home = config_home if config_home is not None else default_config_home()
-    path = home / "settings.json"
+    path = _user_settings(config_home)
     data = provider_update(_load_json(path), choice, model, base_url, remember=remember)
     write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     return path
+
+
+def save_model(
+    model: str, *, choice: ChosenProvider | None = None, config_home: Path | None = None
+) -> Path:
+    """ユーザーの設定（①）に選んだモデルを書き、書いたファイルを返す。"""
+    path = _user_settings(config_home)
+    data = model_update(_load_json(path), model, choice=choice)
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return path
+
+
+def _user_settings(config_home: Path | None) -> Path:
+    home = config_home if config_home is not None else default_config_home()
+    return home / "settings.json"
+
+
+def _provider_items(data: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``provider`` と ``provider.profiles`` の写し（オブジェクトでなければ ConfigError）。"""
+    provider = data.get("provider", {})
+    profiles = provider.get("profiles", {}) if isinstance(provider, dict) else None
+    if not isinstance(provider, dict) or not isinstance(profiles, dict):
+        raise ConfigError(ui("config.loader.the_provider_item_must_be"))
+    return dict(provider), dict(profiles)
+
+
+def _with_provider(data: Mapping[str, Any], provider: dict[str, Any]) -> dict[str, Any]:
+    try:
+        ProviderConfig.model_validate(provider)
+    except ValidationError as exc:
+        raise ConfigError(_invalid(exc)) from exc
+    out = dict(data)
+    out["provider"] = provider
+    return out
+
+
+def _keep_selection(merged: dict[str, Any], user: Mapping[str, Any]) -> dict[str, Any]:
+    """ユーザーの設定の最後の選択（種類・接続先・モデル）を、作業場所の層より優先する。"""
+    chosen = user.get("provider")
+    picked = {k: chosen[k] for k in _SELECTION if k in chosen} if isinstance(chosen, dict) else {}
+    provider = merged.get("provider")
+    if not picked or not isinstance(provider, dict):
+        return merged
+    return {**merged, "provider": {**provider, **picked}}
 
 
 def prefer_dotenv_ollama(path: Path) -> None:
@@ -182,29 +231,14 @@ class ConfigLoader:
             load_dotenv(dotenv)
             prefer_dotenv_ollama(dotenv)
 
-    def provider_overrides(self, wanted: Mapping[str, object]) -> dict[str, object]:
-        """作業場所の層が、``provider`` の項目を別の値で上書きしているもの（最後の層の値）。"""
-        found: dict[str, object] = {}
-        if not self.trusted:
-            return found
-        for path in self._project_files():
-            section = _load_json(path).get("provider")
-            if not isinstance(section, dict):
-                continue
-            for key, value in wanted.items():
-                if key in section and section[key] != value:
-                    found[key] = section[key]
-                elif key in section:
-                    found.pop(key, None)
-        return found
-
     def _merge_layers(self) -> dict[str, Any]:
-        merged = _load_json(self.config_home / "settings.json")
+        user = _load_json(self.config_home / "settings.json")
         if not self.trusted:
-            return merged
+            return user
+        merged = user
         for path in self._project_files():
             merged = deep_merge(merged, _load_json(path))
-        return merged
+        return _keep_selection(merged, user)
 
     def _project_files(self) -> list[Path]:
         files: list[Path] = []

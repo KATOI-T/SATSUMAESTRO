@@ -287,7 +287,8 @@ turns off the streaming.
 Choose the provider with `/provider` in the REPL or with `provider.kind` in the settings: `ollama`,
 `lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. `/provider` alone lists them with their
 endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
-choice to `~/.satsuma/settings.json`.
+choice to `~/.satsuma/settings.json`. `/model` saves the model there as well, and the next start
+uses the provider and model chosen last.
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1
@@ -327,6 +328,9 @@ Settings are layered in this order (later wins), and only the values not set the
 2. `.satsuma.json`
 3. `.satsuma/settings.json`
 4. `.satsuma/settings.local.json`
+
+The provider and model chosen last are the exception: `provider.kind`, `provider.base_url` and
+`provider.default_model` in the user settings win over files 2–4.
 
 Files 2–4, `.env`, `.satsuma/memory.md` and the skill folders are taken from the nearest directory
 that has them, searching from the working directory up to the git root (only the working directory

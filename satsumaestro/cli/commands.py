@@ -17,7 +17,7 @@ from rich.text import Text
 
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
-from satsumaestro.config.loader import save_screen_language
+from satsumaestro.config.loader import save_model, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, ReasoningEffort
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
@@ -421,9 +421,7 @@ class SlashDispatcher:
             self._print(f"[dim]{ui('cli.commands.model_stays', kept=kept)}[/dim]")
             return
         self.rt.session.model = resolved
-        name = escape(resolved)
-        switched = ui("cli.commands.model_switched", name=name)
-        self._print(f"[dim]{switched}[/dim]")
+        self._print(self._save_model(resolved))
         fit = await self.rt.refit_for_model()
         await _print_window(self.rt, fit, console=self.console, breakdown_line=True)
 
@@ -488,12 +486,6 @@ class SlashDispatcher:
             self._print(Text(note, style="yellow"))
         for unloaded in result.unloaded:
             self._print(Text(unloaded_text(unloaded), style="dim"))
-        wanted: dict[str, object] = {"kind": result.choice, "default_model": result.model}
-        if result.base_url:
-            wanted["base_url"] = result.base_url
-        for key, value in loader.provider_overrides(wanted).items():
-            note = ui("cli.commands.provider_overridden", key=key, value=value)
-            self._print(Text(note, style="yellow"))
         kept = self._role_models()
         if kept:
             name = CHOICE_LABELS[result.choice]
@@ -504,6 +496,23 @@ class SlashDispatcher:
             kind = server.kind if server is not None else "ollama"
             self.render.use_local_server(kind, _unloaded_model(result.fit))
         await _print_window(self.rt, result.fit, console=self.console, breakdown_line=True)
+
+    def _save_model(self, model: str) -> Text:
+        """選んだモデルを今の設定とユーザーの設定に書き、知らせる文を返す。"""
+        provider = self.rt.config.provider
+        choice = provider.kind if provider.kind != "auto" else None
+        profiles = dict(provider.profiles)
+        profile = profiles.get(choice) if choice is not None else None
+        if choice is not None and profile is not None:
+            profiles[choice] = profile.model_copy(update={"model": model})
+        update = {"default_model": model, "profiles": profiles}
+        self.rt.config.provider = provider.model_copy(update=update)
+        try:
+            path = save_model(model, choice=choice)
+        except (ConfigError, OSError) as exc:
+            text = ui("cli.commands.model_switched_not_saved", name=model, error=str(exc))
+            return Text(text, style="yellow")
+        return Text(ui("cli.commands.model_switched", name=model, path=path), style="dim")
 
     def _show_providers(self) -> None:
         """今のプロバイダと、選べるプロバイダごとの接続先か鍵の有無を出す。"""

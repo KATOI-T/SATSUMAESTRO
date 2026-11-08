@@ -53,16 +53,43 @@ def test_four_layer_merge_last_wins(tmp_path: Path) -> None:
 
     _put_json(
         home / "settings.json",
-        {"max_iterations": 10, "provider": {"default_model": "global"}},
+        {"max_iterations": 10, "provider": {"fallback_model": "global"}},
     )
     _put_json(cwd / ".satsuma.json", {"max_iterations": 20})
-    _put_json(cwd / ".satsuma" / "settings.json", {"provider": {"default_model": "project"}})
+    _put_json(cwd / ".satsuma" / "settings.json", {"provider": {"fallback_model": "project"}})
     _put_json(cwd / ".satsuma" / "settings.local.json", {"max_iterations": 99})
 
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
 
     assert cfg.max_iterations == 99
-    assert cfg.provider.default_model == "project"
+    assert cfg.provider.fallback_model == "project"
+
+
+def test_the_users_last_choice_wins_over_the_project(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    chosen = {"kind": "llamacpp", "base_url": "http://h:9931/v1", "default_model": "gpt-oss-20b"}
+    _put_json(home / "settings.json", {"provider": chosen})
+    _put_json(
+        cwd / ".satsuma" / "settings.local.json",
+        {
+            "provider": {
+                "kind": "ollama",
+                "base_url": "http://other:11434/v1",
+                "default_model": "gpt-oss:120b",
+                "fallback_model": "qwen3:8b",
+            }
+        },
+    )
+
+    provider = ConfigLoader(cwd, config_home=home, trusted=True).load().provider
+
+    assert (provider.kind, provider.base_url, provider.default_model) == tuple(chosen.values())
+    assert provider.fallback_model == "qwen3:8b"
+    _put_json(home / "settings.json", {"provider": {"default_model": "gpt-oss-20b"}})
+    provider = ConfigLoader(cwd, config_home=home, trusted=True).load().provider
+    assert (provider.kind, provider.default_model) == ("ollama", "gpt-oss-20b")
 
 
 def test_env_fills_missing_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
