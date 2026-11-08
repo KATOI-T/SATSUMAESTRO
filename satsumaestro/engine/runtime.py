@@ -14,7 +14,7 @@ import signal
 import statistics
 import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -1894,7 +1894,9 @@ class ConversationRuntime:
             self.decomposition.use_provider(provider, model)
         self.store.save(self.session)
 
-    async def refit_for_model(self) -> ContextFitResult | None:
+    async def refit_for_model(
+        self, env: Mapping[str, str] | None = None
+    ) -> ContextFitResult | None:
         """モデルを替えた後に、窓・圧縮の閾値・指示ファイルの量を新しいモデルで決め直す。"""
         from satsumaestro.engine.context_fit import apply_context_fit
 
@@ -1906,7 +1908,9 @@ class ConversationRuntime:
         self._sent = None
         self.window_unconfirmed = False
         try:
-            fit = await apply_context_fit(self.config, self.session.model, os.environ)
+            fit = await apply_context_fit(
+                self.config, self.session.model, os.environ if env is None else env
+            )
         except Exception:
             _log.debug("could not fit the context window to %s", self.session.model, exc_info=True)
             fit = None

@@ -207,7 +207,7 @@ async def switch_provider(
     old_server = local_server_for(rt.config, now, env)
     rt.config.provider = chosen_settings
     rt.use_provider(connection.provider, resolved, compactor=compactor)
-    fit = await rt.refit_for_model()
+    fit = await rt.refit_for_model(env)
 
     unloaded: list[Unloaded] = []
     new_server = local_server_for(rt.config, resolved, env)

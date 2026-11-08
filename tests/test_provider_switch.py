@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +15,7 @@ from rich.console import Console
 import satsumaestro.cli.app  # noqa: F401
 from satsumaestro.cli.commands import SlashDispatcher, parse_slash, provider_args
 from satsumaestro.config.models import HookConfig, ProviderConfig, RuntimeConfig
+from satsumaestro.engine import context_fit
 from satsumaestro.engine.provider_switch import (
     MissingModelError,
     ModelNeededError,
@@ -230,6 +231,23 @@ async def test_a_cloud_keeps_the_local_url_in_the_settings(
     assert rt.config.provider.kind == "anthropic"
     assert rt.config.provider.base_url == f"{_LLAMA}/v1"
     assert rt.config.provider.profiles["llamacpp"].model == "gpt-oss-20b"
+
+
+async def test_the_refit_uses_the_given_environment(
+    servers: _Servers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[Mapping[str, str]] = []
+
+    async def fit(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> None:
+        seen.append(env)
+
+    monkeypatch.setattr(context_fit, "apply_context_fit", fit)
+    rt = _runtime(tmp_path, _llamacpp_cfg(), "gpt-oss-20b")
+    rt.fit_base = (rt.config.compact_token_threshold, rt.config.compaction.context_window)
+    env = {**_ENV, "LLAMA_API_KEY": "k"}
+
+    await switch_provider(rt, "ollama", env=env, model="gpt-oss:120b", build=_builder([]))
+    assert seen == [env]
 
 
 @pytest.mark.parametrize(
