@@ -35,6 +35,7 @@ it can also use OpenAI-compatible servers and cloud APIs.
 - [Optional features](#optional-features)
 - [Using Ollama on another machine](#using-ollama-on-another-machine)
 - [Using LM Studio](#using-lm-studio)
+- [Using llama.cpp](#using-llamacpp)
 - [Contributing, security and license](#contributing-security-and-license)
 
 ## Requirements
@@ -187,7 +188,8 @@ PARAMETER num_ctx 16384
 ```
 
 See also [Context length](https://docs.ollama.com/context-length) in the Ollama documentation. For
-LM Studio, see [Using LM Studio](#using-lm-studio).
+LM Studio and llama.cpp, see [Using LM Studio](#using-lm-studio) and
+[Using llama.cpp](#using-llamacpp).
 
 ## Comparison with other tools (Aider Polyglot)
 
@@ -247,8 +249,8 @@ satsumaestro doctor                   # health check of settings, provider, keys
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
 current turn. When the REPL closes, it unloads the model it used from Ollama (set
-`provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio only the models it
-caused to load (`provider.local.unload_on_exit: false` keeps them).
+`provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
+router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 
 **Modes**: the main mode is `plan` or `code` (default `code`). The prompt shows it as
 `[plan] satsuma>` (green) or `[code] satsuma>` (blue).
@@ -286,8 +288,8 @@ SATSUMAESTRO picks the provider in this order:
 1. `provider.base_url` or `OLLAMA_HOST` is set → that server (OpenAI-compatible). A model name alone
    never sends the request to a paid cloud API in this case.
 2. The model ID names a vendor (for example `claude-…`, `gpt-…`, `grok-…`) → that vendor.
-3. `OPENAI_BASE_URL` is set → that OpenAI-compatible server (LM Studio, mlx-lm, vLLM, OpenRouter and
-   others).
+3. `OPENAI_BASE_URL` is set → that OpenAI-compatible server (LM Studio, llama.cpp, mlx-lm, vLLM,
+   OpenRouter and others).
 4. The first API key found: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`.
 5. Otherwise an OpenAI-compatible server, and SATSUMAESTRO tells you how to set the endpoint
    (`provider.base_url`, `OPENAI_BASE_URL` or `OLLAMA_HOST`).
@@ -396,7 +398,7 @@ are confined to the workspace. There is no OS-level isolation (namespaces, secco
 are an extra layer of warnings; the real guards are the workspace jail and the permission policy.
 
 **Keys and records**: API keys that SATSUMAESTRO reads (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`XAI_API_KEY`, `SATSUMA_EMBED_API_KEY`, `LM_API_TOKEN`) and names matching `*_API_KEY` are removed from the
+`XAI_API_KEY`, `SATSUMA_EMBED_API_KEY`, `LM_API_TOKEN`, `LLAMA_API_KEY`) and names matching `*_API_KEY` are removed from the
 environment of child processes (bash, hooks, LSP servers); adjust with `sandbox.env_strip` and
 `sandbox.env_keep`. `config show` masks `mcp_servers.*.env`. Session records (`.satsuma/sessions/`)
 are saved with these replaced by `[redacted]`: the values of the keys above, values given to
@@ -513,15 +515,12 @@ restart it with `OLLAMA_HOST=0.0.0.0:11434` set on the server side.
 
 ## Using LM Studio
 
-Start the server in LM Studio (the Developer tab, or `lms server start`) and point SATSUMAESTRO at
-it:
+Start the server in LM Studio (the Developer tab, or `lms server start`) and put the endpoint and
+the model in `~/.satsuma/settings.json`. Model names are the ones `lms ls` shows.
 
-```bash
-OPENAI_BASE_URL=http://localhost:1234/v1 satsumaestro repl -m openai/gpt-oss-20b
+```json
+{"provider": {"base_url": "http://localhost:1234/v1", "default_model": "openai/gpt-oss-20b"}}
 ```
-
-`OLLAMA_HOST` wins over `OPENAI_BASE_URL`, so if it is set, use `provider.base_url` in the settings.
-Model names are the ones `lms ls` shows.
 
 **Make the window larger first**: LM Studio's default window (often 4K–8K) is too small. Before
 you start, set Context Length to 32768 or more for the model in My Models, or load it yourself:
@@ -545,6 +544,24 @@ If LM Studio requires authentication, set the API token in `LM_API_TOKEN`.
 
 For RAG embeddings in LM Studio, set `SATSUMA_EMBED_BASE_URL=http://localhost:1234/v1` and
 `SATSUMA_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5`.
+
+## Using llama.cpp
+
+Start `llama-server` with a window of 32768 or more and put the endpoint and the model in
+`~/.satsuma/settings.json`:
+
+```bash
+llama-server -m gpt-oss-20b.gguf -c 32768
+```
+
+```json
+{"provider": {"base_url": "http://127.0.0.1:9931/v1", "default_model": "gpt-oss-20b"}}
+```
+
+- With `--parallel N`, each request gets 1/N of `-c` (unless `--kv-unified` is set)
+- In router mode (`--models-dir`), closing the REPL unloads the models SATSUMAESTRO caused it to load
+- For a model whose chat template does not accept tools, give one with `--chat-template-file`
+- If the server was started with `--api-key`, set the same key in `LLAMA_API_KEY`
 
 ## Contributing, security and license
 

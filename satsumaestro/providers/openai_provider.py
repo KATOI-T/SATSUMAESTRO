@@ -37,6 +37,7 @@ from satsumaestro.providers.detect import (
 )
 from satsumaestro.providers.retry import (
     describe,
+    is_context_overflow,
     retry_after_of,
     status_code_of,
     transport_retryable,
@@ -515,7 +516,7 @@ class OpenAICompatProvider:
                         "providers.openai_provider.model_needs_the_responses_api", model=req.model
                     )
                     raise ProviderError(text, status_code=status_code_of(e), retryable=False) from e
-                if status_code_of(e) != 400:
+                if status_code_of(e) != 400 or is_context_overflow(e):
                     raise
                 if error is None or error_strict:
                     error, error_strict = e, shape.strict

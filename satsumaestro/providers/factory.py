@@ -15,7 +15,7 @@ from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import Provider, ProviderKind
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.fallback import FallbackProvider
-from satsumaestro.providers.local import LMStudioServer, server_for_endpoint
+from satsumaestro.providers.local import LlamaCppServer, LMStudioServer, server_for_endpoint
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.registry import expand_model_name
@@ -70,6 +70,15 @@ def build_bare(
             kind=ProviderKind.OPENAI,
             timeout=timeout,
             extra_body={"ttl": int(ttl)} if ttl else None,
+            on_used=server.note_used,
+            openai=config.provider.openai,
+        )
+    if isinstance(server, LlamaCppServer):
+        return OpenAICompatProvider(
+            server.token or _local_key(env) or "llama.cpp",
+            endpoint,
+            kind=ProviderKind.OPENAI,
+            timeout=timeout,
             on_used=server.note_used,
             openai=config.provider.openai,
         )

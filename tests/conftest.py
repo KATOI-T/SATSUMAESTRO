@@ -12,6 +12,7 @@ import pytest
 
 from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.detect import reset_used_models
+from satsumaestro.providers.local.llamacpp import reset_llamacpp_state
 from satsumaestro.providers.local.lmstudio import reset_lmstudio_state
 
 _SESSION_CONFIG_HOME = "_satsuma_session_config_home"
@@ -93,15 +94,17 @@ def _no_used_ollama_models() -> Iterator[None]:
 def _no_local_server_probe(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """手元で動いているローカルのサーバ（LM Studio など）へ、テストから問い合わせない。"""
 
-    async def no_probe(server: object, client: object) -> None:
+    async def no_probe(*servers: object) -> None:
         return None
 
     monkeypatch.setattr(local_servers, "_probe", no_probe)
     local_servers.reset_probed()
     reset_lmstudio_state()
+    reset_llamacpp_state()
     yield
     local_servers.reset_probed()
     reset_lmstudio_state()
+    reset_llamacpp_state()
 
 
 @pytest.fixture(autouse=True)

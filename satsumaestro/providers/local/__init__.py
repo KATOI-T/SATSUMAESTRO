@@ -1,4 +1,4 @@
-"""ローカルの LLM サーバ（Ollama・LM Studio）の判定とネイティブ API。"""
+"""ローカルの LLM サーバ（Ollama・LM Studio・llama.cpp）の判定とネイティブ API。"""
 
 from __future__ import annotations
 
@@ -12,11 +12,13 @@ import httpx
 from satsumaestro.config.models import ProviderConfig
 from satsumaestro.providers.detect import LocalKind, is_ollama_endpoint, ollama_root
 from satsumaestro.providers.local.base import LocalServer
+from satsumaestro.providers.local.llamacpp import LlamaCppServer
 from satsumaestro.providers.local.lmstudio import LMStudioServer
 from satsumaestro.providers.local.ollama import OllamaServer
 
 __all__ = [
     "LMStudioServer",
+    "LlamaCppServer",
     "LocalKind",
     "LocalServer",
     "OllamaServer",
@@ -24,6 +26,7 @@ __all__ = [
     "reset_probed",
     "resolve_server",
     "server_for_endpoint",
+    "unreached_cause",
 ]
 
 _log = logging.getLogger(__name__)
@@ -31,15 +34,34 @@ _log = logging.getLogger(__name__)
 PROBE_TIMEOUT_S = 1.5
 
 _PROBED: dict[str, LocalKind | None] = {}
+_UNREACHED: dict[str, str] = {}
 
 
 def reset_probed() -> None:
     """問い合わせの記録を空にする（テスト用）。"""
     _PROBED.clear()
+    _UNREACHED.clear()
+
+
+def unreached_cause(endpoint: str) -> str | None:
+    """起動時の問い合わせでつながらなかった接続先なら、その理由。"""
+    return _UNREACHED.get(ollama_root(endpoint))
 
 
 def _lmstudio(root: str, env: Mapping[str, str]) -> LMStudioServer:
     return LMStudioServer(root, token=env.get("LM_API_TOKEN") or None)
+
+
+def _llamacpp(root: str, env: Mapping[str, str]) -> LlamaCppServer:
+    return LlamaCppServer(root, token=env.get("LLAMA_API_KEY") or None)
+
+
+def _server(kind: LocalKind | None, root: str, env: Mapping[str, str]) -> LocalServer | None:
+    if kind == "lmstudio":
+        return _lmstudio(root, env)
+    if kind == "llamacpp":
+        return _llamacpp(root, env)
+    return OllamaServer(root) if kind == "ollama" else None
 
 
 def server_for_endpoint(
@@ -50,13 +72,13 @@ def server_for_endpoint(
     root = ollama_root(endpoint)
     if chosen == "generic":
         return None
-    if chosen == "lmstudio":
-        return _lmstudio(root, env)
+    if chosen in ("lmstudio", "llamacpp"):
+        return _server(chosen, root, env)
     if chosen == "ollama" or is_ollama_endpoint(endpoint, env, provider.ollama.detect):
         return OllamaServer(root)
     if provider.ollama.detect == "on":
         return None
-    return _lmstudio(root, env) if _PROBED.get(root) == "lmstudio" else None
+    return _server(_PROBED.get(root), root, env)
 
 
 def looks_local(endpoint: str) -> bool:
@@ -90,21 +112,29 @@ async def resolve_server(
     ):
         return known
     try:
-        _PROBED[root] = await _probe(_lmstudio(root, env), client)
+        _PROBED[root] = await _probe(_lmstudio(root, env), _llamacpp(root, env), client)
+        _UNREACHED.pop(root, None)
     except httpx.HTTPError as exc:
         _log.debug("local server probe failed for %s: %s", root, exc)
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            _UNREACHED[root] = f"{type(exc).__name__}: {exc}"
     return server_for_endpoint(endpoint, env, provider)
 
 
-async def _probe(server: LMStudioServer, client: httpx.AsyncClient | None) -> LocalKind | None:
-    """LM Studio なら ``"lmstudio"``、別のサーバなら ``None``（届かなければ例外）。"""
+async def _probe(
+    lmstudio: LMStudioServer, llamacpp: LlamaCppServer, client: httpx.AsyncClient | None
+) -> LocalKind | None:
+    """LM Studio か llama.cpp ならその種類、別のサーバなら ``None``（届かなければ例外）。"""
     owned = client is None
     http = client if client is not None else httpx.AsyncClient(timeout=PROBE_TIMEOUT_S)
     try:
-        resp = await http.get(f"{server.root}/api/v1/models", headers=server.headers())
+        resp = await http.get(f"{lmstudio.root}/api/v1/models", headers=lmstudio.headers())
         if resp.status_code == 200 and _lmstudio_v1(resp):
             return "lmstudio"
-        resp = await http.get(f"{server.root}/api/v0/models", headers=server.headers())
+        resp = await http.get(f"{llamacpp.root}/props", headers=llamacpp.headers())
+        if resp.status_code == 200 and _llamacpp_props(resp):
+            return "llamacpp"
+        resp = await http.get(f"{lmstudio.root}/api/v0/models", headers=lmstudio.headers())
         return "lmstudio" if resp.status_code == 200 and _lmstudio_v0(resp) else None
     finally:
         if owned:
@@ -124,6 +154,13 @@ def _lmstudio_v1(resp: httpx.Response) -> bool:
     return isinstance(models, list) and all(
         isinstance(m, dict) and "key" in m and "loaded_instances" in m for m in models
     )
+
+
+def _llamacpp_props(resp: httpx.Response) -> bool:
+    data = _json(resp)
+    if not isinstance(data, dict) or not isinstance(data.get("default_generation_settings"), dict):
+        return False
+    return "total_slots" in data or data.get("role") == "router"
 
 
 def _lmstudio_v0(resp: httpx.Response) -> bool:

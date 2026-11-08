@@ -111,12 +111,17 @@ from satsumaestro.providers.factory import (
     resolve_role_sampling,
 )
 from satsumaestro.providers.local import (
+    LlamaCppServer,
     LMStudioServer,
     LocalServer,
     OllamaServer,
     looks_local,
     resolve_server,
     server_for_endpoint,
+    unreached_cause,
+)
+from satsumaestro.providers.local.llamacpp import (
+    unload_models_loaded_here as unload_llamacpp_models_loaded_here,
 )
 from satsumaestro.providers.local.lmstudio import unload_models_loaded_here
 from satsumaestro.providers.registry import MODEL_SHORTHANDS, expand_model_name
@@ -266,6 +271,14 @@ async def _require_model(cfg: RuntimeConfig, model: str) -> None:
         raise MissingModelError(missing_model_notice(model, check))
 
 
+async def _warn_without_tools(cfg: RuntimeConfig, model: str) -> None:
+    """llama-server のチャットテンプレートがツールを受け付けなければ知らせる。"""
+    server = local_server_for(cfg, model, os.environ)
+    if isinstance(server, LlamaCppServer) and await server.tools_supported() is False:
+        text = ui("cli.app.llamacpp_template_has_no_tools", model=model)
+        _err_console.print(Text(text, style="yellow"))
+
+
 _TRUST_HELP = ui("cli.app.trust_this_directory_s_settings")
 _LANG_HELP = ui("cli.app.fix_the_reply_language_for")
 _MODEL_HELP = ui("cli.app.model_shorthands_work")
@@ -395,6 +408,7 @@ async def _assemble_runtime(
     provider = build_provider(cfg, resolved, os.environ)
     await _require_server(cfg, resolved)
     await _require_model(cfg, resolved)
+    await _warn_without_tools(cfg, resolved)
     fit_base = (cfg.compact_token_threshold, cfg.compaction.context_window)
     fit = await apply_context_fit(cfg, resolved, os.environ)
     orch_enabled, workers_enabled = _orchestration_flags(cfg, os.environ)
@@ -587,11 +601,14 @@ async def _print_window(
     if breakdown_line:
         console.print(Text(breakdown.describe(source_label(fit.info.source)), style="dim"))
     if breakdown.tight:
-        console.print(Text(breakdown.advice(fit.info.server, fit.model), style="yellow"))
+        advice = breakdown.advice(fit.info.server, fit.model, fit.info.slots)
+        console.print(Text(advice, style="yellow"))
     if fit.info.unconfirmed:
         rt.window_unconfirmed = True
         if breakdown_line and fit.info.server == "lmstudio":
             console.print(Text(ui("cli.app.window_not_loaded_yet_lmstudio"), style="dim"))
+        elif breakdown_line and fit.info.server == "llamacpp":
+            console.print(Text(ui("cli.app.window_not_loaded_yet_llamacpp"), style="dim"))
         elif breakdown_line:
             console.print(Text(ui("cli.app.window_not_loaded_yet"), style="dim"))
 
@@ -690,16 +707,20 @@ async def _unload_on_exit(cfg: RuntimeConfig) -> None:
                     style="dim",
                 )
             )
-    if cfg.provider.local.unload_on_exit:
-        loaded_here = await unload_models_loaded_here()
-        if loaded_here:
-            unloaded = ", ".join(loaded_here)
-            _console.print(
-                Text(
-                    ui("cli.app.unloaded_from_lmstudio_set_provider", unloaded=unloaded),
-                    style="dim",
-                )
-            )
+    if not cfg.provider.local.unload_on_exit:
+        return
+    loaded_here = await unload_models_loaded_here()
+    if loaded_here:
+        unloaded = ", ".join(loaded_here)
+        _console.print(
+            Text(ui("cli.app.unloaded_from_lmstudio_set_provider", unloaded=unloaded), style="dim")
+        )
+    loaded_here = await unload_llamacpp_models_loaded_here()
+    if loaded_here:
+        unloaded = ", ".join(loaded_here)
+        _console.print(
+            Text(ui("cli.app.unloaded_from_llamacpp_set_provider", unloaded=unloaded), style="dim")
+        )
 
 
 async def _drain_background(rt: ConversationRuntime) -> list[dict[str, str]]:
@@ -2320,7 +2341,7 @@ def _local_rows(
     cwd: Path | None = None,
     trusted: bool = False,
 ) -> list[tuple[str, str, str]]:
-    """ローカルのサーバの種類ごとの doctor 行（--probe のときだけ LM Studio かを問い合わせる）。"""
+    """ローカルのサーバの種類ごとの doctor 行（--probe のときだけサーバの種類を問い合わせる）。"""
     if kind is not ProviderKind.OPENAI:
         return []
     endpoint = openai_endpoint(cfg, os.environ)
@@ -2331,8 +2352,15 @@ def _local_rows(
         server = server_for_endpoint(endpoint, os.environ, cfg.provider)
     if isinstance(server, LMStudioServer):
         return _lmstudio_rows(cfg, model, server, probe=probe, cwd=cwd, trusted=trusted)
+    if isinstance(server, LlamaCppServer):
+        return _llamacpp_rows(cfg, model, server, probe=probe, cwd=cwd, trusted=trusted)
     if server is not None:
         return _ollama_rows(cfg, model, kind, probe=probe, cwd=cwd, trusted=trusted)
+    cause = unreached_cause(endpoint) if endpoint and probe else None
+    if endpoint and cause is not None:
+        root = ollama_root(endpoint)
+        unreached = ui("engine.context_fit.cannot_reach_local_server", root=root, cause=cause)
+        return [("local server", "warn", escape(unreached))]
     undecided = cfg.provider.local.server == "auto" and cfg.provider.ollama.detect == "auto"
     if endpoint and not probe and undecided and looks_local(endpoint):
         return [("local server", "-", ui("cli.app.not_ollama_probe_checks_for"))]
@@ -2404,7 +2432,7 @@ def _window_rows(
         return []
     text = breakdown.describe(source_label(fit.info.source)) + ui("cli.app.mcp_tools_not_counted")
     if breakdown.tight:
-        text += "\n" + breakdown.advice(fit.info.server, model)
+        text += "\n" + breakdown.advice(fit.info.server, model, fit.info.slots)
     return [("context window", "warn" if breakdown.tight else "ok", escape(text))]
 
 
@@ -2458,6 +2486,60 @@ def _lmstudio_rows(
         else:
             unloaded = ui("cli.app.lmstudio_role_not_loaded", name=name)
             rows.append(("lmstudio role", "warn", unloaded))
+    return rows
+
+
+def _llamacpp_rows(
+    cfg: RuntimeConfig,
+    model: str,
+    server: LlamaCppServer,
+    *,
+    probe: bool,
+    cwd: Path | None,
+    trusted: bool,
+) -> list[tuple[str, str, str]]:
+    """llama.cpp のサーバの形・窓・内訳の doctor 行。"""
+    if not probe:
+        fit_flag = "on" if cfg.compaction.auto_context_fit else "off"
+        unload_flag = "on" if cfg.provider.local.unload_on_exit else "off"
+        flags = f"{server.root} / auto_context_fit={fit_flag} / unload_on_exit={unload_flag}"
+        return [("llamacpp", "ok", ui("cli.app.probe_to_query_the_context", flags=flags))]
+    props = asyncio.run(server.props())
+    if props is None:
+        return [("llamacpp", "warn", ui("cli.app.cannot_reach_llamacpp", root=server.root))]
+    if props.router:
+        rows = [("llamacpp", "ok", ui("cli.app.llamacpp_router_mode", root=server.root))]
+    else:
+        shape = ui(
+            "cli.app.llamacpp_single_model",
+            model=props.model or "-",
+            slots=props.slots or "-",
+            root=server.root,
+        )
+        rows = [("llamacpp", "ok", escape(shape))]
+        if props.tools is False:
+            name = props.model or model or "-"
+            no_tools = ui("cli.app.llamacpp_template_has_no_tools", model=name)
+            rows.append(("llamacpp tools", "warn", escape(no_tools)))
+    if not model:
+        return [*rows, ("llamacpp ctx", "warn", ui("cli.app.cannot_query_because_no_model"))]
+    fit = asyncio.run(_probe_local(cfg, model, server))
+    info = fit.info
+    if props.router and not asyncio.run(server.has_model(model)):
+        missing = ui(
+            "engine.context_fit.model_was_not_found_on_llamacpp", model=model, root=server.root
+        )
+        return [*rows, ("llamacpp ctx", "warn", escape(missing))]
+    status = "ok"
+    detail = fit.describe() if fit.context_length else ui("cli.app.llamacpp_window_unknown")
+    if not cfg.compaction.auto_context_fit and fit.clamped:
+        status = "warn"
+        detail += ui("cli.app.not_applied_because_auto_context")
+    if info.unconfirmed or not fit.context_length:
+        status = "warn"
+        detail += ui("cli.app.llamacpp_window_after_load")
+    rows.append(("llamacpp ctx", status, escape(detail)))
+    rows.extend(_window_rows(cfg, model, fit, cwd, trusted))
     return rows
 
 

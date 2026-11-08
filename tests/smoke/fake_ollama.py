@@ -1,4 +1,4 @@
-"""OpenAI 互換の SSE を返す擬似 Ollama（``flavor="lmstudio"`` で LM Studio のネイティブ API）。"""
+"""OpenAI 互換の SSE を返す擬似 Ollama（``flavor`` で LM Studio・llama.cpp のネイティブ API）。"""
 
 from __future__ import annotations
 
@@ -281,6 +281,21 @@ def sse_chunks(reply: dict[str, Any], model: str, prompt_tokens: int = 10) -> It
     yield b"data: [DONE]\n\n"
 
 
+def _llamacpp_overflow(window: int, overflow: dict[str, Any]) -> dict[str, Any]:
+    """llama-server が窓より長い要求に返す 400 の ``error``。"""
+    tokens = int(overflow.get("n_prompt_tokens", window + 1))
+    return {
+        "code": 400,
+        "message": (
+            f"request ({tokens} tokens) exceeds the available context size ({window} tokens), "
+            "try increasing it"
+        ),
+        "type": "exceed_context_size_error",
+        "n_prompt_tokens": tokens,
+        "n_ctx": window,
+    }
+
+
 class _Server(ThreadingHTTPServer):
     allow_reuse_address = True
 
@@ -334,9 +349,24 @@ class _Handler(BaseHTTPRequestHandler):
         }
         return {"models": [entry]}
 
+    def _llamacpp_props(self) -> dict[str, Any]:
+        srv = self._srv
+        return {
+            "default_generation_settings": {"params": {}, "n_ctx": srv.loaded_window},
+            "total_slots": 4,
+            "model_alias": srv.model,
+            "model_path": f"/models/{srv.model}.gguf",
+            "is_sleeping": not srv.loaded,
+        }
+
     def do_GET(self) -> None:  # noqa: N802
         model = self._srv.model
-        if self._srv.flavor == "lmstudio" and self.path.startswith("/api/"):
+        if self._srv.flavor == "llamacpp" and not self.path.startswith("/v1/"):
+            if self.path.startswith("/props"):
+                self._json(self._llamacpp_props())
+            else:
+                self._json({"error": {"code": 404, "type": "not_found_error"}}, 404)
+        elif self._srv.flavor == "lmstudio" and self.path.startswith("/api/"):
             if self.path.startswith("/api/v1/models"):
                 self._json(self._lmstudio_models())
             else:
@@ -390,6 +420,12 @@ class _Handler(BaseHTTPRequestHandler):
         if "stream_error" in reply:
             self._srv.loaded = True
             self._stream_error(str(reply["stream_error"]))
+            self._srv.script.mark_done(seq)
+            return
+        overflow = cast(dict[str, Any] | None, reply.get("overflow"))
+        if overflow:
+            self._srv.loaded = True
+            self._json({"error": _llamacpp_overflow(self._srv.loaded_window, overflow)}, 400)
             self._srv.script.mark_done(seq)
             return
         load = float(reply.get("load_ms", 0)) / 1000
@@ -495,11 +531,11 @@ class FakeOllama:
     @property
     def base_url(self) -> str:
         root = f"http://127.0.0.1:{self.port}"
-        return f"{root}/v1" if self.flavor == "lmstudio" else root
+        return root if self.flavor == "ollama" else f"{root}/v1"
 
     @property
     def base_url_env(self) -> str:
-        return "OPENAI_BASE_URL" if self.flavor == "lmstudio" else "OLLAMA_HOST"
+        return "OLLAMA_HOST" if self.flavor == "ollama" else "OPENAI_BASE_URL"
 
     @property
     def unloads(self) -> list[str]:

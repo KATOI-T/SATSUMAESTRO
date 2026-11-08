@@ -35,10 +35,13 @@ async def estimate_parallelism(
     cache_path: Path | None,
     cache_key: str,
     probe: Callable[[], Awaitable[int]] | None = None,
+    slots: int | None = None,
 ) -> int | None:
-    """提供者側の並列能力を推定する。"""
+    """提供者側の並列能力を推定する（``slots`` はサーバが答えた同時処理の数）。"""
     if configured != "auto":
         return max(1, configured)
+    if slots is not None:
+        return max(1, slots)
     if not is_ollama:
         return None
     from_env = _parse_env(env.get(OLLAMA_NUM_PARALLEL_ENV))

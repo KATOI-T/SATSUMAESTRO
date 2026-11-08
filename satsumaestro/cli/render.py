@@ -79,6 +79,8 @@ _LOAD_STALL_S = 180.0
 def _load_stall_label(server: LocalKind) -> str:
     if server == "lmstudio":
         return ui("cli.render.the_model_has_not_finished_lmstudio")
+    if server == "llamacpp":
+        return ui("cli.render.the_model_has_not_finished_llamacpp")
     return ui("cli.render.the_model_has_not_finished")
 
 

@@ -40,6 +40,7 @@ _BASE = {
     "XAI_API_KEY": "xai-1",
     "SATSUMA_EMBED_API_KEY": "e",
     "LM_API_TOKEN": "t",
+    "LLAMA_API_KEY": "l",
     "FOO_API_KEY": "f",
     "GH_TOKEN": "g",
     "api_key": "lower",
@@ -96,6 +97,12 @@ def test_the_lmstudio_token_is_kept_from_children_and_records() -> None:
     env = {"LM_API_TOKEN": "lm-token-value", "PATH": "/usr/bin"}
     assert strip_secret_env(env) == {"PATH": "/usr/bin"}
     assert secret_values(env) == ("lm-token-value",)
+
+
+def test_the_llamacpp_key_is_kept_from_children_and_records() -> None:
+    env = {"LLAMA_API_KEY": "llama-key-value", "PATH": "/usr/bin"}
+    assert strip_secret_env(env) == {"PATH": "/usr/bin"}
+    assert secret_values(env) == ("llama-key-value",)
 
 
 def test_provider_key_vars_cover_source() -> None:

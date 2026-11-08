@@ -508,9 +508,12 @@ def test_a_call_still_broken_after_the_hint_is_rewritten(scenario: Runner, tmp_p
     assert tr.turn_ends(result.transcript.plain) == 1
 
 
-@pytest.mark.parametrize(("flavor", "server"), [("ollama", "Ollama"), ("lmstudio", "LM Studio")])
+@pytest.mark.parametrize(
+    ("flavor", "server"),
+    [("ollama", "Ollama"), ("lmstudio", "LM Studio"), ("llamacpp", None)],
+)
 def test_reloading_model_is_shown_in_a_later_turn(
-    scenario: Runner, flavor: str, server: str
+    scenario: Runner, flavor: str, server: str | None
 ) -> None:
     """2 ターン目の前にモデルが降りていたら、そのターンの待ちでもロード中を出す。"""
     seen: dict[str, bool] = {}
@@ -535,7 +538,10 @@ def test_reloading_model_is_shown_in_a_later_turn(
     assert result.report.failures == [], result.report.failures
     assert seen == {"loading": True, "before_reply": True}
     assert tr.turn_ends(result.transcript.plain) == 2
-    assert f"{server} から {FAKE_MODEL} を降ろしました" in result.transcript.text
+    if server is None:
+        assert "を降ろしました" not in result.transcript.text
+    else:
+        assert f"{server} から {FAKE_MODEL} を降ろしました" in result.transcript.text
 
 
 def test_lmstudio_window_is_read_and_the_model_is_unloaded(scenario: Runner) -> None:
@@ -575,6 +581,34 @@ def test_lmstudio_overflow_is_resent_once_with_the_loaded_window(scenario: Runne
     assert "送り直しを受けました。" in text
     assert [r["note"] for r in result.requests] == ["窓あふれ", "catch-all"]
     assert tr.turn_ends(result.transcript.plain) == 1
+
+
+def test_llamacpp_overflow_is_resent_once_with_the_counted_size(
+    scenario: Runner, tmp_path: Path
+) -> None:
+    """llama.cpp の窓あふれの 400 には、サーバが数えた量でツールの結果を切って 1 回だけ送り直す。"""
+    ws = tmp_path / "ws"
+    ws.mkdir(parents=True)
+    lines = "".join(f"line {i:04d} of a large file\n" for i in range(1500))
+    (ws / "big.txt").write_text(lines, encoding="utf-8")
+    result = scenario(
+        "llamacpp_overflow.jsonl",
+        turns=("窓あふれを起こして",),
+        plan=False,
+        loaded_window=16384,
+        cols=400,
+        flavor="llamacpp",
+    )
+    text = result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert "OLLAMA_CONTEXT_LENGTH" not in text
+    assert "モデルの窓より長い要求として断りました。窓 16,384 に合わせて送り直します" in text
+    assert text.count("だけを渡しました") == 2
+    assert "送り直しを受けました。" in text and "切り詰めました" not in text
+    notes = [r["note"] for r in result.requests]
+    assert notes == ["大きなファイルを読む", "窓あふれ", "catch-all"]
+    assert tr.turn_ends(text) == 1
+    assert "を降ろしました" not in text and result.unloads == []
 
 
 @pytest.mark.parametrize("answer", ["y", "n"])

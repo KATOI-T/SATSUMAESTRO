@@ -15,6 +15,8 @@ from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter
 from satsumaestro.engine.events import MessageStop, TextDelta, Thinking, ToolUse
 from satsumaestro.engine.turn import DenyPrompter
+from satsumaestro.providers import local as local_servers
+from satsumaestro.providers.local import _probe as _real_probe
 from satsumaestro.providers.registry import expand_model_name
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ToolResultBlock
@@ -192,6 +194,95 @@ def test_doctor_probe_non_ollama_is_noop(monkeypatch, tmp_path: Path) -> None:
     assert "local server" in result.output
     assert "provider.local.server で固定可" in result.output
     assert "--probe で確かめる" not in result.output
+
+
+def test_doctor_probe_llamacpp_rows(monkeypatch, tmp_path: Path) -> None:
+    """llama.cpp は --probe でサーバの形・1 スロットの窓・窓を広げる助言を出す。"""
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OLLAMA_HOST"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:9931/v1")
+    monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("COLUMNS", "400")
+    (tmp_path / ".satsuma").mkdir()
+    (tmp_path / ".satsuma" / "settings.json").write_text(
+        '{"provider": {"default_model": "gpt-oss-20b", "local": {"server": "llamacpp"}}}',
+        encoding="utf-8",
+    )
+    props = {
+        "default_generation_settings": {"params": {}, "n_ctx": 4096},
+        "total_slots": 4,
+        "model_alias": "gpt-oss-20b",
+        "is_sleeping": False,
+        "chat_template_caps": {"supports_tools": False},
+    }
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/props":
+            return httpx.Response(200, json=props)
+        return httpx.Response(404, json={})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler))
+    )
+    result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--probe", "--trust"])
+    assert result.exit_code == 0, result.output
+    assert "1 つのモデル: gpt-oss-20b / スロット 4" in result.output
+    assert "1 スロットの窓（llama.cpp）" in result.output
+    assert "llama-server を `-c 16384` 以上で起動し直します" in result.output
+    slots = "`--parallel 4` で `--kv-unified` を付けていないなら `-c 65536` 以上です"
+    assert slots in result.output
+    assert "llamacpp tools" in result.output
+    assert "チャットテンプレートはツールを受け付けない" in result.output
+
+
+def test_doctor_probe_says_a_local_server_is_down(monkeypatch, tmp_path: Path) -> None:
+    """ローカルに見える接続先につながらなければ、--probe でそう伝える。"""
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OLLAMA_HOST"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9931/v1")
+    monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("COLUMNS", "400")
+    monkeypatch.setattr(local_servers, "_probe", _real_probe)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=req)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler))
+    )
+    result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--probe"])
+    assert result.exit_code == 0, result.output
+    assert "ローカルのサーバに接続できません: http://127.0.0.1:9931" in result.output
+
+
+async def test_startup_warns_when_the_llamacpp_template_takes_no_tools(monkeypatch) -> None:
+    """llama-server のテンプレートがツールを受け付けなければ、起動時に知らせる。"""
+    from satsumaestro.config.models import LocalConfig, ProviderConfig, RuntimeConfig
+
+    printed: list[str] = []
+    monkeypatch.setattr(cli_app._err_console, "print", lambda text: printed.append(str(text)))
+    caps = {"supports_tools": False}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = {"default_generation_settings": {"n_ctx": 8192}, "total_slots": 1}
+        return httpx.Response(200, json={**body, "chat_template_caps": caps})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real(transport=httpx.MockTransport(handler))
+    )
+    cfg = RuntimeConfig(
+        provider=ProviderConfig(
+            base_url="http://127.0.0.1:9931/v1", local=LocalConfig(server="llamacpp")
+        )
+    )
+    await cli_app._warn_without_tools(cfg, "gpt-oss-20b")
+    assert len(printed) == 1 and "--chat-template-file" in printed[0]
+    caps["supports_tools"] = True
+    await cli_app._warn_without_tools(cfg, "gpt-oss-20b")
+    assert len(printed) == 1
 
 
 def _mock_web_search_http(monkeypatch, handler) -> None:
