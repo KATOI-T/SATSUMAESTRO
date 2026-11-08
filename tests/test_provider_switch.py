@@ -328,6 +328,7 @@ async def test_the_command_lists_switches_and_saves(
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(home))
     monkeypatch.setenv("OLLAMA_HOST", "10.0.0.9")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     rt = _runtime(tmp_path, _llamacpp_cfg(), "gpt-oss-20b")
 
     listed = await _dispatch(rt, "/provider")
