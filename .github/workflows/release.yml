@@ -1,11 +1,11 @@
-# リリース: build して PyPI / TestPyPI に公開するだけ（テストは手元の make check / make smoke で済ませておく）。
+# リリース: build して PyPI / TestPyPI に公開し、GitHub Release を作る（テストは手元の make check / make smoke で済ませておく）。
 #
-# - `v*` のタグを push → build → environment `pypi` の承認 → PyPI
+# - `v*` のタグを push → build → environment `pypi` の承認 → PyPI → GitHub Release（本文は CHANGELOG の節・同じ配布物を添える）
 # - 手動で起動（workflow_dispatch）→ build → environment `testpypi` → TestPyPI（タグを打つ前の予行）
 #
 # 公開は Trusted Publishing（PyPI / TestPyPI に登録した publisher: このリポジトリ・release.yml・environment）。
-# API トークンは置かない。id-token の権限は公開の job にだけ渡し、出所の証明（attestation）は既定で付く。
-# actions はコミットの SHA で固定する。
+# API トークンは置かない。id-token の権限は公開の job にだけ、contents の書き込みは Release の job にだけ渡す。
+# 出所の証明（attestation）は既定で付く。actions はコミットの SHA で固定する。
 
 name: release
 
@@ -76,6 +76,51 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  github-release:
+    name: Create the GitHub Release
+    needs: publish-pypi
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Release を作り配布物を添える
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - name: Write the release notes from the changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          awk -v head="## [${version}]" '
+            index($0, head) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md | sed -e '1{/^$/d;}' > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section for ${version}"
+            exit 1
+          fi
+          printf '%s\n' 'Install: `uv tool install satsumaestro` (or `pipx install satsumaestro`, or `brew install katoi-t/tap/satsumaestro`). See the [README](https://github.com/KATOI-T/SATSUMAESTRO#readme) for setup.' >> notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          case "${TAG}" in
+            *a[0-9]* | *b[0-9]* | *rc[0-9]*) flags+=(--prerelease) ;;
+          esac
+          gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
+            --title "SATSUMAESTRO ${TAG#v}" --notes-file notes.md "${flags[@]}" dist/*
 
   publish-testpypi:
     name: Publish to TestPyPI
