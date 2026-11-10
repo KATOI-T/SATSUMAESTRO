@@ -19,6 +19,7 @@ from satsumaestro.cli.app import default_to_repl
         (["--cwd", "../app"], ["repl", "--cwd", "../app"]),
         (["--debug"], ["--debug", "repl"]),
         (["--debug", "-m", "qwen3:8b"], ["--debug", "repl", "-m", "qwen3:8b"]),
+        (["--"], ["repl", "--"]),
     ],
 )
 def test_no_command_starts_the_repl(args: list[str], expected: list[str]) -> None:
@@ -38,6 +39,8 @@ def test_no_command_starts_the_repl(args: list[str], expected: list[str]) -> Non
         ["--debug", "doctor"],
         ["--debug", "--help"],
         ["promt", "hi"],
+        ["--", "doctor"],
+        ["--debug", "--", "doctor"],
     ],
 )
 def test_commands_and_root_options_are_kept(args: list[str]) -> None:

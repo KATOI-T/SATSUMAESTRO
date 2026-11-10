@@ -2670,7 +2670,14 @@ def default_to_repl(args: list[str], *, interactive: bool) -> list[str]:
     while i < len(args) and args[i] in _ROOT_FLAGS:
         i += 1
     rest = args[i:]
-    if not interactive or (rest and (rest[0] in _ROOT_EXITS or not rest[0].startswith("-"))):
+    if not interactive or (
+        rest
+        and (
+            rest[0] in _ROOT_EXITS
+            or not rest[0].startswith("-")
+            or (rest[0] == "--" and len(rest) > 1)
+        )
+    ):
         return args
     return [*args[:i], "repl", *rest]
 
