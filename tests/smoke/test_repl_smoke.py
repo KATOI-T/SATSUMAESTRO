@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -219,6 +220,33 @@ def test_no_command_starts_the_repl(scenario: Runner) -> None:
     users = [r for r in result.requests if r["role"] == "user"]
     assert users, result.requests
     assert "コマンドなしで起動しました" in result.transcript.text
+
+
+def test_slash_suggestions_fill_in_the_line(scenario: Runner) -> None:
+    """``/mo`` で /model と /mode が説明つきで出て、Tab で埋めた行が Enter で走る。"""
+
+    def before(index: int, driver: ReplDriver) -> None:
+        if index:
+            return
+        driver.send(b"/mo")
+        driver.wait_for(r"/model\s*現在のモデルと利用可能な一覧")
+        driver.wait_for(r"/mode\s*メインモード")
+        driver.send(b"\t")
+        driver.pump(0.5)
+        seen = driver.transcript.plain.count(FAKE_MODEL)
+        driver.send(b" ")
+        deadline = time.monotonic() + 10.0
+        while driver.transcript.plain.count(FAKE_MODEL) <= seen:
+            assert time.monotonic() < deadline, "no model was suggested after '/model '"
+            driver.pump(0.2)
+        driver.send(b"\t\r")
+        driver.wait_for(rf"model →\s*{re.escape(FAKE_MODEL)}。")
+
+    result = scenario("slash_completion.jsonl", turns=("こんにちは",), plan=False, before=before)
+    text = tr.flat(result.transcript.text)
+    assert tr.flat("候補から選んだモデルで応答しました。") in text
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert users and all(r["model"] == FAKE_MODEL for r in users), result.requests
 
 
 def test_user_deny_stops_the_turn(scenario: Runner, tmp_path: Path) -> None:

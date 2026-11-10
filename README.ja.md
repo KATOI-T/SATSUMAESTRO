@@ -233,8 +233,9 @@ satsumaestro config show              # 重ねた後の設定
 satsumaestro doctor                   # 設定・プロバイダ・鍵・ポリシーの診断
 ```
 
-REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。REPL を
-閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
+REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。`/` を打つと
+コマンドの候補が、コマンドの後には引数の候補が出ます（`/model ` なら今のサーバのモデル）。Tab か矢印のキーで
+選びます。REPL を閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
 `provider.ollama.unload_on_exit: false`）。LM Studio と llama.cpp の router からは、その REPL が読み込ませたモデルだけを降ろします
 （残すなら `provider.local.unload_on_exit: false`）。`/provider` でローカルのサーバから切り替えたときも、同じように降ろします。
 

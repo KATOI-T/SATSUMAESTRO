@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -142,6 +142,32 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
 _BY_NAME: dict[str, ReplCommand] = {
     name: command for command in SLASH_COMMANDS for name in (command.name, *command.also)
 }
+
+
+def command_named(name: str) -> ReplCommand | None:
+    """名前か別名のコマンド（大文字と小文字は区別しない）。"""
+    return _BY_NAME.get(name.lower())
+
+
+def argument_choices(name: str, given: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    """``/<name>`` で ``given`` の次の引数に取れる決まった値と、その説明。"""
+    if name == "mode" and [arg.lower() for arg in given] == ["code"]:
+        return tuple((sub, "") for sub in _SUB_VALUES)
+    if given:
+        return ()
+    if name in ("lang", "language"):
+        values = _LANG_VALUES if name == "lang" else _SCREEN_VALUES
+        auto = language_gate.AUTO
+        return tuple((v, "" if v == auto else language_gate.native_name(v)) for v in values)
+    if name == "provider":
+        return tuple((choice, CHOICE_LABELS[choice]) for choice in PROVIDER_CHOICES)
+    values = {
+        "effort": _EFFORT_VALUES,
+        "mode": ("plan", "code"),
+        "sub-mode": _SUB_VALUES,
+        "plan": ("on", "off"),
+    }.get(name, ())
+    return tuple((value, "") for value in values)
 
 
 @dataclass
