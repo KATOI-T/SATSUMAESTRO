@@ -113,30 +113,39 @@ def slash_completions(text: str, models: Sequence[Choice] = ()) -> Iterator[Comp
     words, current = split
     typed = current.lower()
     if not words:
-        for command in SLASH_COMMANDS:
-            for name in (command.name, *command.also):
-                aliased = name != command.name
-                if name.startswith(typed) and (typed or not aliased):
-                    yield Completion(
-                        name,
-                        -len(current),
-                        display="/" + name,
-                        display_meta=command.about(),
-                    )
+        names = [
+            (name, command)
+            for command in SLASH_COMMANDS
+            for name in (command.name, *command.also)
+            if name.startswith(typed) and (typed or name == command.name)
+        ]
+        for name, command in _exact_first(names, typed):
+            yield Completion(
+                name + " ", -len(current), display="/" + name, display_meta=command.about()
+            )
         return
     named = command_named(words[0])
     if named is None:
         return
+    given = words[1:]
     if named.name == "model":
-        if len(words) > 1:
+        if given:
             return
         first = [c for c in models if c[0].lower().startswith(typed)]
         rest = [c for c in models if typed in c[0].lower() and c not in first]
-        choices: Iterable[Choice] = [*first, *rest]
+        choices: list[Choice] = [*first, *rest]
     else:
-        choices = [c for c in argument_choices(named.name, words[1:]) if c[0].startswith(typed)]
-    for value, meta in choices:
-        yield Completion(value, -len(current), display_meta=meta)
+        choices = [c for c in argument_choices(named.name, given) if c[0].startswith(typed)]
+    for value, meta in _exact_first(choices, typed):
+        more = bool(argument_choices(named.name, [*given, value]))
+        yield Completion(
+            value + (" " if more else ""), -len(current), display=value, display_meta=meta
+        )
+
+
+def _exact_first[T](items: Iterable[tuple[str, T]], typed: str) -> list[tuple[str, T]]:
+    """打った語と同じ候補を先頭に（一覧は先頭を選んだ状態で出る）。"""
+    return sorted(items, key=lambda item: item[0].lower() != typed)
 
 
 class SlashCompleter(Completer):

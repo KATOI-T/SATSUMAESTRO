@@ -18,6 +18,7 @@ from rich.text import Text
 
 from satsumaestro.cli.commands import CommandOutcome, SlashDispatcher, cycle_main_mode, parse_slash
 from satsumaestro.cli.completion import ModelNames, SlashCompleter
+from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
 from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
@@ -256,8 +257,10 @@ def _prompt_session(
         key_bindings=bindings,
         completer=SlashCompleter(ModelNames(rt)),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
+        reserve_space_for_menu=MENU_ROWS + 1,
         **io,
     )
+    install_menu(session)
     return session
 
 

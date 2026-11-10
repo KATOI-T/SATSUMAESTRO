@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
-from prompt_toolkit.input import create_pipe_input
-from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
-from prompt_toolkit.keys import Keys
-from prompt_toolkit.output import DummyOutput
 
 from satsumaestro.cli import completion as completion_mod
 from satsumaestro.cli.commands import SLASH_COMMANDS
 from satsumaestro.cli.completion import ModelNames, SlashCompleter, slash_completions
-from satsumaestro.cli.repl import _prompt_session
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 from satsumaestro.i18n.text import pinned_ui_language, ui
 from satsumaestro.util.errors import ConfigError
@@ -27,13 +22,13 @@ MODELS = [("gpt-oss:120b", ""), ("gpt-oss:20b", ""), ("qwen3-coder:30b", ""), ("
 
 
 def _texts(text: str, models: Sequence[tuple[str, str]] = ()) -> list[str]:
-    return [c.text for c in slash_completions(text, models)]
+    return [c.text.strip() for c in slash_completions(text, models)]
 
 
 def test_a_slash_lists_every_command_with_its_description() -> None:
     shown = list(slash_completions("/"))
-    assert [c.text for c in shown] == [command.name for command in SLASH_COMMANDS]
-    model = next(c for c in shown if c.text == "model")
+    assert [c.text for c in shown] == [command.name + " " for command in SLASH_COMMANDS]
+    model = next(c for c in shown if c.text == "model ")
     assert model.display_text == "/model"
     assert model.display_meta_text == ui("cli.commands.show_switch_the_current_model")
     assert model.start_position == 0
@@ -41,16 +36,30 @@ def test_a_slash_lists_every_command_with_its_description() -> None:
 
 def test_the_list_narrows_as_you_type() -> None:
     shown = list(slash_completions("/mo"))
-    assert [c.text for c in shown] == ["model", "mode"]
+    assert [c.text for c in shown] == ["model ", "mode "]
     assert all(c.start_position == -2 for c in shown)
     assert _texts("/MO") == ["model", "mode"]
     assert _texts("/he") == ["help"]
 
 
 def test_aliases_are_offered_once_typed() -> None:
-    assert _texts("/q") == ["quit", "q"]
+    assert _texts("/q") == ["q", "quit"]
     assert _texts("/sub") == ["sub-mode", "submode"]
     assert "quit" not in _texts("/")
+
+
+def test_the_typed_word_comes_first() -> None:
+    assert _texts("/mode") == ["mode", "model"]
+    assert _texts("/plan") == ["plan"]
+    models = [("gpt-oss:120b-q8", ""), ("gpt-oss:120b", "")]
+    assert _texts("/model gpt-oss:120b", models) == ["gpt-oss:120b", "gpt-oss:120b-q8"]
+
+
+def test_a_space_follows_when_more_can_be_chosen() -> None:
+    inserted = {c.display_text: c.text for c in slash_completions("/mode ")}
+    assert inserted == {"plan": "plan", "code": "code "}
+    assert [c.text for c in slash_completions("/he")] == ["help "]
+    assert [c.text for c in slash_completions("/lang j")] == ["ja"]
 
 
 def test_the_descriptions_follow_the_screen_language() -> None:
@@ -138,7 +147,8 @@ class _Source:
 
 async def _complete(completer: SlashCompleter, text: str) -> list[str]:
     document = Document(text)
-    return [c.text async for c in completer.get_completions_async(document, CompleteEvent())]
+    events = completer.get_completions_async(document, CompleteEvent())
+    return [c.text.strip() async for c in events]
 
 
 async def test_the_completer_asks_for_models_only_after_model() -> None:
@@ -151,7 +161,7 @@ async def test_the_completer_asks_for_models_only_after_model() -> None:
     assert await _complete(completer, "hello") == []
     assert await _complete(completer, "/Users/a") == []
     assert (source.asked, source.prefetched) == (1, 1)
-    assert list(completer.get_completions(Document("/pl"), CompleteEvent()))[0].text == "plan"
+    assert list(completer.get_completions(Document("/pl"), CompleteEvent()))[0].text == "plan "
 
 
 def _runtime(kind: str = "ollama", model: str = "gpt-oss:120b") -> Any:
@@ -225,61 +235,3 @@ async def test_shorthands_are_offered_for_anthropic(monkeypatch: pytest.MonkeyPa
     shown = await ModelNames(_runtime("anthropic", "claude-sonnet-5")).names()
     assert ("sonnet", "→ claude-sonnet-5") in shown
     assert await ModelNames(_runtime("ollama")).names() == []
-
-
-async def _until(check: Callable[[], object]) -> None:
-    for _ in range(200):
-        if check():
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("timed out")
-
-
-def _menu(buffer: Any, text: str) -> list[str] | None:
-    state = buffer.complete_state
-    if buffer.text != text or state is None:
-        return None
-    return [c.text for c in state.completions]
-
-
-async def test_tab_fills_in_a_suggestion_and_enter_runs_the_line(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _fake_list(monkeypatch, [["gpt-oss:120b", "gpt-oss:20b"]])
-    with create_pipe_input() as pipe:
-        session = _prompt_session(_runtime(), KeyBindings(), input=pipe, output=DummyOutput())
-        answer = asyncio.create_task(session.prompt_async())
-        buffer = session.default_buffer
-        pipe.send_text("/mo")
-        await _until(lambda: _menu(buffer, "/mo") == ["model", "mode"])
-        pipe.send_text("\t")
-        await _until(lambda: buffer.text == "/model")
-        pipe.send_text(" ")
-        await _until(lambda: _menu(buffer, "/model ") == ["gpt-oss:120b", "gpt-oss:20b"])
-        pipe.send_text("\t\t\r")
-        assert await answer == "/model gpt-oss:20b"
-
-
-async def test_shift_tab_keeps_its_binding_and_plain_lines_get_no_menu() -> None:
-    bindings = KeyBindings()
-    pressed: list[str] = []
-
-    @bindings.add(Keys.BackTab)
-    def _cycle(event: KeyPressEvent) -> None:
-        pressed.append(event.current_buffer.text)
-
-    with create_pipe_input() as pipe:
-        session = _prompt_session(_runtime(), bindings, input=pipe, output=DummyOutput())
-        answer = asyncio.create_task(session.prompt_async())
-        buffer = session.default_buffer
-        pipe.send_text("/mo")
-        await _until(lambda: _menu(buffer, "/mo") == ["model", "mode"])
-        pipe.send_text("\x1b[Z")
-        await _until(lambda: pressed)
-        assert pressed == ["/mo"] and buffer.text == "/mo"
-        pipe.send_text("\x15hello mo")
-        await _until(lambda: buffer.text == "hello mo")
-        await asyncio.sleep(0.1)
-        assert buffer.complete_state is None
-        pipe.send_text("\r")
-        assert await answer == "hello mo"

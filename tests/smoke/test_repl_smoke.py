@@ -223,7 +223,7 @@ def test_no_command_starts_the_repl(scenario: Runner) -> None:
 
 
 def test_slash_suggestions_fill_in_the_line(scenario: Runner) -> None:
-    """``/mo`` で /model と /mode が説明つきで出て、Tab で埋めた行が Enter で走る。"""
+    """``/mo`` で /model と /mode が説明つきで出て、Tab で埋め、Enter で選んだ行が走る。"""
 
     def before(index: int, driver: ReplDriver) -> None:
         if index:
@@ -231,16 +231,20 @@ def test_slash_suggestions_fill_in_the_line(scenario: Runner) -> None:
         driver.send(b"/mo")
         driver.wait_for(r"/model\s*現在のモデルと利用可能な一覧")
         driver.wait_for(r"/mode\s*メインモード")
-        driver.send(b"\t")
         driver.pump(0.5)
         seen = driver.transcript.plain.count(FAKE_MODEL)
-        driver.send(b" ")
+        driver.send(b"\t")
         deadline = time.monotonic() + 10.0
         while driver.transcript.plain.count(FAKE_MODEL) <= seen:
             assert time.monotonic() < deadline, "no model was suggested after '/model '"
             driver.pump(0.2)
         driver.send(b"\t\r")
         driver.wait_for(rf"model →\s*{re.escape(FAKE_MODEL)}。")
+        driver.send(b"/he")
+        driver.wait_for(r"/help\s*コマンド一覧を表示する")
+        driver.pump(0.3)
+        driver.send(b"\r")
+        driver.wait_for(r"\(/submode\)")
 
     result = scenario("slash_completion.jsonl", turns=("こんにちは",), plan=False, before=before)
     text = tr.flat(result.transcript.text)
