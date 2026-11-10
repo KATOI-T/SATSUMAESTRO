@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `satsumaestro`, `satsuma`, `stro` and `python -m satsumaestro` without a command start the REPL,
+  and options without a command go to it (`stro -m qwen3:8b`). Commands, `--help` and `--version`
+  work as before, and so does `satsumaestro repl`. When stdin or stdout is not a terminal, the help
+  is shown as before. ([#22](https://github.com/KATOI-T/SATSUMAESTRO/issues/22))
+
 ## [0.5.1] - 2026-11-09
 
 ### OpenAI models ([#2](https://github.com/KATOI-T/SATSUMAESTRO/pull/2))

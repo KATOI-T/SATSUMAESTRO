@@ -114,7 +114,7 @@ SATSUMAESTRO は Windows では直接動きません。WSL2（Windows Subsystem 
    ```bash
    satsumaestro doctor --probe
    cd your-project
-   satsumaestro repl
+   satsumaestro
    ```
    初めて開くディレクトリでは、信頼するかを聞きます（[設定と信頼](#設定と信頼)）。初めて REPL を
    起動したときは、画面の言語を聞きます
@@ -222,8 +222,8 @@ JavaScript・Python・Rust）を解かせました（当社調べ・2026-10-30�
 ## REPL の使い方
 
 ```bash
-satsumaestro repl                     # 対話 REPL（おすすめ）
-satsumaestro repl -m qwen3:14b        # モデルを替えて起動
+satsumaestro                          # 対話 REPL（おすすめ。satsumaestro repl と同じ）
+satsumaestro -m qwen3:14b             # モデルを替えて起動
 satsumaestro prompt "say hi"          # 一発実行（非対話）
 satsumaestro prompt "認証周りの改修計画を立てて" --mode plan   # plan モードで起動（プロジェクトのファイルは変えない）
 satsumaestro prompt "say hi" --output-format json             # JSON 出力

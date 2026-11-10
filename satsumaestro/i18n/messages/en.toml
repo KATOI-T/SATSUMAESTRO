@@ -1,7 +1,7 @@
 # Screen text in English.
 
 [cli.app]
-satsumaestro_an_agentic_coding = "SATSUMAESTRO — an agentic coding CLI"
+satsumaestro_an_agentic_coding = "SATSUMAESTRO — an agentic coding CLI. Run it without a command to start the REPL."
 show_the_version_and_exit = "Show the version and exit."
 also_show_developer_logs_warning = "Also show developer logs (WARNING and above) on the screen (stderr). By default they go only to the log file."
 trust_this_directory_s_settings = "Trust this directory's settings for this run only (not recorded)"

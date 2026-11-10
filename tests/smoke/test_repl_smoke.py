@@ -55,6 +55,7 @@ def scenario(tmp_path: Path) -> Runner:
         flavor: str = "ollama",
         before: Callable[[int, ReplDriver], None] | None = None,
         env: dict[str, str] | None = None,
+        command: Sequence[str] = ("repl",),
     ) -> ScenarioResult:
         try:
             result = run_scenario(
@@ -77,6 +78,7 @@ def scenario(tmp_path: Path) -> Runner:
                 flavor=flavor,
                 before=before,
                 env=env,
+                command=command,
             )
         except DriverError as e:
             _dump(e.transcript, e.requests)
@@ -209,6 +211,14 @@ def test_model_switch_to_a_missing_model_is_refused(scenario: Runner) -> None:
     users = [r for r in result.requests if r["role"] == "user"]
     assert users and all(r["model"] == "gpt-oss:120b" for r in users), result.requests
     assert "元のモデルで応答しました" in text
+
+
+def test_no_command_starts_the_repl(scenario: Runner) -> None:
+    """コマンドなし（オプションだけ）で起動しても REPL になり、依頼がモデルへ届く。"""
+    result = scenario("no_command.jsonl", turns=("こんにちは",), plan=False, command=())
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert users, result.requests
+    assert "コマンドなしで起動しました" in result.transcript.text
 
 
 def test_user_deny_stops_the_turn(scenario: Runner, tmp_path: Path) -> None:

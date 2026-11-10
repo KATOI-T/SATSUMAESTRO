@@ -1,0 +1,3 @@
+# コマンドなし（`satsumaestro --cwd … --model …`）で起動した REPL への 1 ターン。
+{"when": {"role": "user", "contains": "こんにちは"}, "reply": {"text": "コマンドなしで起動しました。"}, "note": "コマンドなしの起動"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}
