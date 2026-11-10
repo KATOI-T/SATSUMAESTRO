@@ -117,7 +117,7 @@ SATSUMAESTRO does not run natively on Windows. Use it inside WSL2 (Windows Subsy
    ```bash
    satsumaestro doctor --probe
    cd your-project
-   satsumaestro repl
+   satsumaestro
    ```
    The first time you open a directory, SATSUMAESTRO asks whether to trust it (see
    [Settings and trust](#settings-and-trust)). The first time you start the REPL, it asks which
@@ -236,8 +236,8 @@ How to run it yourself is in [CONTRIBUTING.md](https://github.com/KATOI-T/SATSUM
 ## Using the REPL
 
 ```bash
-satsumaestro repl                     # interactive REPL (recommended)
-satsumaestro repl -m qwen3:14b        # with a different model
+satsumaestro                          # interactive REPL (recommended; the same as satsumaestro repl)
+satsumaestro -m qwen3:14b             # with a different model
 satsumaestro prompt "say hi"          # one-shot, non-interactive
 satsumaestro prompt "plan a refactor of the auth code" --mode plan   # plan only; project files are not changed
 satsumaestro prompt "say hi" --output-format json                    # JSON output

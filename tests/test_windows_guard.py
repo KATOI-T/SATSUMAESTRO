@@ -12,7 +12,7 @@ def test_windows_stops_with_the_wsl2_notice(
 ) -> None:
     started: list[bool] = []
     monkeypatch.setattr(cli_app.sys, "platform", "win32")
-    monkeypatch.setattr(cli_app, "app", lambda: started.append(True))
+    monkeypatch.setattr(cli_app, "app", lambda **_: started.append(True))
     with pytest.raises(SystemExit) as exc:
         cli_app.main()
     assert exc.value.code == 1
@@ -24,6 +24,6 @@ def test_windows_stops_with_the_wsl2_notice(
 def test_other_platforms_start_the_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[bool] = []
     monkeypatch.setattr(cli_app.sys, "platform", "linux")
-    monkeypatch.setattr(cli_app, "app", lambda: started.append(True))
+    monkeypatch.setattr(cli_app, "app", lambda **_: started.append(True))
     cli_app.main()
     assert started == [True]

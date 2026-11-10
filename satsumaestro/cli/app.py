@@ -2660,12 +2660,41 @@ def _session_list(cwd: Path) -> None:
     _console.print(table)
 
 
+_ROOT_FLAGS = frozenset({"--debug"})
+_ROOT_EXITS = frozenset({"--help", "--version", "-V"})
+
+
+def default_to_repl(args: list[str], *, interactive: bool) -> list[str]:
+    """コマンドが無ければ ``repl`` を足す（端末でないときと --help・--version は足さない）。"""
+    i = 0
+    while i < len(args) and args[i] in _ROOT_FLAGS:
+        i += 1
+    rest = args[i:]
+    if not interactive or (
+        rest
+        and (
+            rest[0] in _ROOT_EXITS
+            or not rest[0].startswith("-")
+            or (rest[0] == "--" and len(rest) > 1)
+        )
+    ):
+        return args
+    return [*args[:i], "repl", *rest]
+
+
+def _on_terminal() -> bool:
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 def main() -> None:
     """``[project.scripts] satsumaestro`` のエントリポイント。"""
     if sys.platform == "win32":
         _err_console.print(ui("cli.app.windows_is_not_supported"), markup=False)
         raise SystemExit(1)
-    app()
+    app(args=default_to_repl(sys.argv[1:], interactive=_on_terminal()))
 
 
 if __name__ == "__main__":

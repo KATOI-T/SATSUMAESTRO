@@ -39,6 +39,8 @@ DANGER = PermissionMode.DANGER_FULL_ACCESS
         "python -m satsumaestro repl",
         "uv run python -m satsumaestro eval evals/code_analysis",
         "satsuma repl",
+        "stro",
+        "satsuma -m qwen3:8b --trust",
         "stro eval evals/code_analysis",
         "FOO=1 satsumaestro repl",
         "nohup satsumaestro eval evals/code_analysis",

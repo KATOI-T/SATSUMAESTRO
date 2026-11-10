@@ -1,7 +1,7 @@
 # 画面の文（日本語）。
 
 [cli.app]
-satsumaestro_an_agentic_coding = "SATSUMAESTRO — エージェント型コーディング CLI"
+satsumaestro_an_agentic_coding = "SATSUMAESTRO — エージェント型コーディング CLI。コマンドなしで実行すると REPL を起動します。"
 show_the_version_and_exit = "バージョンを表示して終了する。"
 also_show_developer_logs_warning = "開発者向けのログ（WARNING 以上）を画面（stderr）にも出す。既定はログファイルだけ。"
 trust_this_directory_s_settings = "このディレクトリの設定を今回だけ信頼する（記録しない）"

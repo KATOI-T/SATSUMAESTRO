@@ -20,7 +20,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. cd into a project and run `satsumaestro repl`
+        1. cd into a project and run `satsumaestro`
         2. Ask "..."
         3. ...
     validations:

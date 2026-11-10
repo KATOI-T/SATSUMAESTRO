@@ -74,8 +74,10 @@ class ReplDriver:
         locale: str = "ja_JP.UTF-8",
         base_url_env: str = "OLLAMA_HOST",
         extra_env: Mapping[str, str] | None = None,
+        command: Sequence[str] = ("repl",),
     ) -> None:
         self.workspace = workspace
+        self.command = tuple(command)
         self.extra_env = dict(extra_env or {})
         self.base_url = base_url
         self.base_url_env = base_url_env
@@ -125,7 +127,7 @@ class ReplDriver:
             self.python,
             "-m",
             "satsumaestro.cli.app",
-            "repl",
+            *self.command,
             "--cwd",
             str(self.workspace),
             "--model",
@@ -330,6 +332,7 @@ def run_scenario(
     flavor: str = "ollama",
     before: Callable[[int, ReplDriver], None] | None = None,
     env: Mapping[str, str] | None = None,
+    command: Sequence[str] = ("repl",),
 ) -> ScenarioResult:
     """擬似サーバと REPL を起動し、plan → 依頼（→ 削除）を流して転写と検査結果を返す。"""
     workspace.mkdir(parents=True, exist_ok=True)
@@ -361,6 +364,7 @@ def run_scenario(
         trusted=trust_answer is None,
         locale=locale,
         extra_env=env,
+        command=command,
     )
     try:
         driver.start()
