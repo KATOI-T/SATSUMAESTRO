@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The REPL lists slash commands under the prompt as you type `/`, with their descriptions, and then
+  their arguments: the models of the current server for `/model`, and the values of `/provider`,
+  `/mode`, `/sub-mode`, `/plan`, `/effort`, `/lang` and `/language`, each with a one-line note
+  (`/provider` shows where each provider connects or whether its key is set). The first suggestion
+  is chosen; ↑/↓ move the choice, Tab fills it in, Enter runs it and Esc closes the list. Right
+  after a command and a space nothing is chosen, so Enter runs the command as typed. Lines that do
+  not start with `/`, and paths, get no suggestions.
+  ([#25](https://github.com/KATOI-T/SATSUMAESTRO/issues/25))
+
 ### Changed
 
 - `satsumaestro`, `satsuma`, `stro` and `python -m satsumaestro` without a command start the REPL,

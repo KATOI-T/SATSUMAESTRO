@@ -248,7 +248,10 @@ satsumaestro doctor                   # health check of settings, provider, keys
 ```
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
-current turn. When the REPL closes, it unloads the model it used from Ollama (set
+current turn. Typing `/` lists the commands under the prompt, and after a command its arguments
+(`/model ` lists the models of the current server), each with a one-line note. ↑/↓ choose, Tab
+fills in the choice, Enter runs it, and Esc closes the list. Not every model takes every `/effort`
+level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.

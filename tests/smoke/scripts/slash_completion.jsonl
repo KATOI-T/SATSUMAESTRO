@@ -1,0 +1,3 @@
+# 候補で埋めた `/model gpt-oss:120b` の後の 1 ターン。
+{"when": {"role": "user", "contains": "こんにちは"}, "reply": {"text": "候補から選んだモデルで応答しました。"}, "note": "候補の後のターン"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

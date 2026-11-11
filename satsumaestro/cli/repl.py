@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
+from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from rich.console import Console
@@ -14,7 +17,15 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 
-from satsumaestro.cli.commands import CommandOutcome, SlashDispatcher, cycle_main_mode, parse_slash
+from satsumaestro.cli.commands import (
+    CommandOutcome,
+    SlashDispatcher,
+    cycle_main_mode,
+    parse_slash,
+    provider_notes,
+)
+from satsumaestro.cli.completion import ModelNames, SlashCompleter
+from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
 from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
@@ -245,6 +256,24 @@ class InteractivePrompter:
         return PlanExitVerdict(approved=False, feedback=feedback or None)
 
 
+def _prompt_session(
+    rt: ConversationRuntime, bindings: KeyBindings, **io: Any
+) -> PromptSession[str]:
+    """入力欄（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
+    session: PromptSession[str] = PromptSession(
+        key_bindings=bindings,
+        completer=SlashCompleter(
+            ModelNames(rt),
+            providers=lambda: provider_notes(rt.config.provider, rt.session.model, os.environ),
+        ),
+        complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
+        reserve_space_for_menu=MENU_ROWS + 1,
+        **io,
+    )
+    install_menu(session)
+    return session
+
+
 async def run_repl(
     rt: ConversationRuntime,
     prompter: InteractivePrompter,
@@ -264,7 +293,7 @@ async def run_repl(
         cycle_main_mode(rt)
         event.app.invalidate()
 
-    session: PromptSession[str] = PromptSession(key_bindings=bindings)
+    session = _prompt_session(rt, bindings)
     dispatcher = SlashDispatcher(rt, console, trace_log=trace_log, trusted=trusted, render=render)
     banner = ui("cli.repl.satsumaestro_repl_help_for")
     console.print(f"[dim]{banner}[/dim]")
