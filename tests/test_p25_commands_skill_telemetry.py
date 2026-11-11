@@ -79,7 +79,7 @@ async def test_dispatch_help_lists_specs(tmp_path: Path) -> None:
         assert f"/{command.name}" in text
     assert "/effort low|medium|high|default" in text
     assert "/exit (/quit, /q)" in text
-    assert "/lang [auto|ja|en]" in text
+    assert "/language [ja|en|auto]" in text
     assert "/model [model]" in text
 
 

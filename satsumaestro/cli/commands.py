@@ -19,7 +19,6 @@ from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
 from satsumaestro.config.loader import save_model, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffort
-from satsumaestro.i18n.schema import catalog
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
@@ -42,7 +41,6 @@ if TYPE_CHECKING:
     from satsumaestro.engine.runtime import ConversationRuntime
 
 _EFFORT_VALUES = (*get_args(ReasoningEffort), "default")
-_LANG_VALUES = ("auto", *catalog().codes())
 _SCREEN_VALUES = (*screen_languages(), language_gate.AUTO)
 _SUB_VALUES = tuple(m.value for m in PermissionMode)
 
@@ -79,11 +77,6 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
         "effort",
         lambda: ui("cli.commands.switch_the_reasoning_effort"),
         usage="low|medium|high|default",
-    ),
-    ReplCommand(
-        "lang",
-        lambda: ui("cli.commands.show_fix_the_reply_language"),
-        usage=f"[{'|'.join(_LANG_VALUES)}]",
     ),
     ReplCommand(
         "language",
@@ -192,11 +185,10 @@ def argument_choices(
         return _noted("sub-mode", _SUB_VALUES)
     if given:
         return ()
-    if name in ("lang", "language"):
-        values = _LANG_VALUES if name == "lang" else _SCREEN_VALUES
+    if name == "language":
         auto = ui("cli.commands.choice_language_auto")
         named = language_gate.native_name
-        return tuple((v, auto if v == language_gate.AUTO else named(v)) for v in values)
+        return tuple((v, auto if v == language_gate.AUTO else named(v)) for v in _SCREEN_VALUES)
     if name == "provider":
         notes = providers or {}
         return tuple((c, notes.get(c) or CHOICE_LABELS[c]) for c in PROVIDER_CHOICES)
@@ -377,39 +369,6 @@ class SlashDispatcher:
         sampling.reasoning_effort = None if value == "default" else cast(ReasoningEffort, value)
         self._fast_on = False
         self._print(f"[dim]reasoning effort → {value}[/dim]")
-
-    async def _cmd_lang(self, args: list[str]) -> None:
-        """応答言語の表示と固定。"""
-        language = self.rt.language
-        values = "|".join(_LANG_VALUES)
-        if not args:
-            current = language.current or ui("cli.commands.undetermined")
-            mode = f"mode={language.mode}" + (
-                f" / fixed={language.fixed}" if language.mode == "fixed" else ""
-            )
-            self._print(
-                ui(
-                    "cli.commands.reply_language_change_lang",
-                    current=current,
-                    mode=mode,
-                    values=values,
-                )
-            )
-            return
-        value = args[0].lower()
-        if value not in _LANG_VALUES:
-            bad = ui("cli.commands.lang_must_be_one_of", values=values)
-            self._print(f"[yellow]{bad}[/yellow]")
-            return
-        if value == "auto":
-            language.set_auto()
-            auto = ui("cli.commands.reply_language_automatic_follows_the")
-            self._print(f"[dim]{auto}[/dim]")
-            return
-        language.set_fixed(value)
-        self.rt.store.save(self.rt.session)
-        fixed = ui("cli.commands.reply_language_fixed_to", value=value)
-        self._print(f"[dim]{fixed}[/dim]")
 
     async def _cmd_language(self, args: list[str]) -> None:
         """画面の言語の表示と切り替え（設定の ``language.ui``）。"""

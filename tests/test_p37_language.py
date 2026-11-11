@@ -512,31 +512,10 @@ def test_ab_summary_reads_legacy_reports_as_zero(tmp_path: Path) -> None:
     assert "| 言語ドリフト率 (修復前) | 0.0% | 0.0% | +0.0% |" in out
 
 
-async def test_lang_command_shows_and_fixes_language(tmp_path: Path) -> None:
-    rt = _runtime(SequencedMockProvider([[TextDelta(text="はい"), MessageStop()]]), tmp_path)
-    console = Console(record=True, width=160)
-    d = SlashDispatcher(rt, console)
-
-    async def run(line: str) -> str:
-        await d.dispatch(parse_slash(line))  # type: ignore[arg-type]
-        return console.export_text(clear=True)
-
-    assert "未判定" in await run("/lang")
-    await run("/lang en")
-    assert rt.language.mode == "fixed"
-    assert rt.language.fixed == EN
-    assert rt.session.language == EN
-    loaded = rt.store.load(rt.store.path_for(tmp_path, rt.session.session_id))
-    assert loaded.language == EN
-    assert "mode=fixed" in await run("/lang")
-    await run("/lang auto")
-    assert rt.language.mode == "auto"
-
-
-async def test_lang_command_rejects_unsupported_language(tmp_path: Path) -> None:
+async def test_the_reply_language_is_not_fixed_from_the_repl(tmp_path: Path) -> None:
     rt = _runtime(SequencedMockProvider([[MessageStop()]]), tmp_path)
     console = Console(record=True, width=160)
     d = SlashDispatcher(rt, console)
-    await d.dispatch(parse_slash("/lang zh"))  # type: ignore[arg-type]
-    assert "未対応" in console.export_text(clear=True)
+    await d.dispatch(parse_slash("/lang en"))  # type: ignore[arg-type]
+    assert "/lang" in console.export_text(clear=True)
     assert rt.language.mode == "auto"

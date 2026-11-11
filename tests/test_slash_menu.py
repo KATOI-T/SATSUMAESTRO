@@ -75,8 +75,8 @@ def test_the_list_scrolls_to_keep_the_choice_in_view() -> None:
         menu.move(1)
     lines = menu.lines(100)
     assert len(lines) == 8
-    assert _highlighted(lines)[0].startswith("/doctor")
-    assert _row(lines[-1]).split()[0] == "/doctor"
+    assert _highlighted(lines)[0].startswith("/mode")
+    assert _row(lines[-1]).split()[0] == "/mode"
     menu.move(-9)
     assert _row(menu.lines(100)[0]).split()[0] == "/help"
 

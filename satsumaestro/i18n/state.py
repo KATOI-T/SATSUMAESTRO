@@ -83,7 +83,7 @@ class LanguageState:
 
     @property
     def min_chars(self) -> int:
-        """ラテン文字の判定に要る文字数。"""
+        """返答の言語を確かめるときに、ラテン文字の判定に要る文字数。"""
         return self._parent.min_chars if self._parent is not None else self._settings.min_chars
 
     @property
@@ -127,18 +127,14 @@ class LanguageState:
         """ターンの頭で言語を決めて返す（設定ファイルの書き換えを読み、発話から判定する）。"""
         if self._parent is None:
             self._reload()
-            self._current = resolve_turn_language(
-                self.mode, self.fixed, self._current, user_text, min_chars=self.min_chars
-            )
+            self._current = resolve_turn_language(self.mode, self.fixed, self._current, user_text)
         elif self.mode == "auto":
-            self._current = resolve_turn_language(
-                "auto", self.fixed, self._current, user_text, min_chars=self.min_chars
-            )
+            self._current = resolve_turn_language("auto", self.fixed, self._current, user_text)
         self._write_session()
         return self.current
 
     def set_fixed(self, code: str) -> None:
-        """この言語に固定する（``/lang``・``--lang``・評価）。"""
+        """この言語に固定する（``--lang``・評価）。"""
         if catalog().get(code) is None:
             raise ValueError(f"unknown language: {code!r}")
         self._settings = self._settings.model_copy(update={"mode": "fixed", "fixed": code})

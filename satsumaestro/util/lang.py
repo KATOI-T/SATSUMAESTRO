@@ -9,6 +9,7 @@ from functools import cache
 from satsumaestro.i18n.schema import DetectSpec, LanguageCatalog, catalog
 
 UNDETERMINED = "und"
+MESSAGE_MIN_CHARS = 3
 
 LANGUAGE_DIRECTIVE = (
     "\n\n(Reply in {name}. Code, paths, identifiers and command output stay as-is.)"
@@ -104,7 +105,7 @@ def resolve_language(previous: str, detected: str) -> str:
 
 
 def resolve_turn_language(
-    mode: str, fixed: str, previous: str, user_text: str, *, min_chars: int = 8
+    mode: str, fixed: str, previous: str, user_text: str, *, min_chars: int = MESSAGE_MIN_CHARS
 ) -> str:
     """このターンで応答に使う言語を決める（``""`` = 制御しない）。"""
     if mode == "off":
