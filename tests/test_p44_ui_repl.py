@@ -208,13 +208,10 @@ async def test_slash_commands(tmp_path: Path) -> None:
     help_text = await run("/help")
     assert "Command" in help_text and "Description" in help_text
     assert "Show the commands" in help_text and "Exit the REPL" in help_text
-    assert "Reply language: undetermined (mode=auto)" in await run("/lang")
-    assert "Reply language → fixed to en" in await run("/lang en")
-    assert "lang must be one of auto|ja|en" in await run("/lang zh")
     assert "Unknown command: /nope — /help for the list" in await run("/nope")
     assert "Nothing to fold (too few messages)" in await run("/compact")
     assert "Use /plan on|off" in await run("/plan maybe")
     assert "Cleared the conversation, TODOs and plan state" in await run("/clear")
     assert "Telemetry is off" in await run("/insights")
-    for line in ("/help", "/lang", "/mode", "/sub-mode", "/effort", "/fast"):
+    for line in ("/help", "/mode", "/sub-mode", "/effort", "/fast"):
         _english(await run(line))

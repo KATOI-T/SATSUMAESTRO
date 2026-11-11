@@ -356,7 +356,7 @@ async def test_language_command_switches_and_records(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("_unpinned")
 async def test_language_command_keeps_the_fixed_reply_language(tmp_path: Path) -> None:
     d, console, language = _dispatcher(tmp_path)
-    await _run(d, console, "/lang en")
+    language.set_fixed("en")
     await _run(d, console, "/language ja")
     language.begin_turn("with_tax はどこで呼ばれていますか")
     assert (language.mode, language.current, ui_language()) == ("fixed", "en", "ja")
@@ -402,4 +402,4 @@ async def test_help_lists_the_language_command(tmp_path: Path) -> None:
     d, console, _ = _dispatcher(tmp_path)
     printed = await _run(d, console, "/help")
     assert "/language [ja|en|auto]" in printed
-    assert "画面の言語を表示 / 切り替える（会話の言語に合わせるなら auto。応答の言語は" in printed
+    assert "画面の言語を表示 / 切り替える（会話の言語に合わせるなら auto）" in printed

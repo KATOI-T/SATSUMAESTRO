@@ -178,6 +178,15 @@ def test_the_owner_follows_the_user_and_keeps_the_last_language() -> None:
     assert state.begin_turn(_EN) == "en"
 
 
+def test_a_short_english_message_switches_to_english() -> None:
+    state = _state()
+    assert state.begin_turn(_JA) == "ja"
+    assert state.begin_turn("ok") == "ja"
+    assert state.begin_turn("HELLO") == "en"
+    assert state.begin_turn(_JA) == "ja"
+    assert state.begin_turn("HOW ARE U") == "en"
+
+
 def test_fixed_and_off() -> None:
     assert _state(mode="fixed", fixed="ja").begin_turn(_EN) == "ja"
     off = _state(mode="off")

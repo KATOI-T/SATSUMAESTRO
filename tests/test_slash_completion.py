@@ -40,6 +40,7 @@ def test_the_list_narrows_as_you_type() -> None:
     assert all(c.start_position == -2 for c in shown)
     assert _texts("/MO") == ["model", "mode"]
     assert _texts("/he") == ["help"]
+    assert _texts("/lan") == ["language"]
 
 
 def test_aliases_are_offered_once_typed() -> None:
@@ -59,7 +60,7 @@ def test_a_space_follows_when_more_can_be_chosen() -> None:
     inserted = {c.display_text: c.text for c in slash_completions("/mode ")}
     assert inserted == {"plan": "plan", "code": "code "}
     assert [c.text for c in slash_completions("/he")] == ["help "]
-    assert [c.text for c in slash_completions("/lang j")] == ["ja"]
+    assert [c.text for c in slash_completions("/language j")] == ["ja"]
 
 
 def test_the_descriptions_follow_the_screen_language() -> None:
@@ -83,6 +84,7 @@ def test_the_descriptions_follow_the_screen_language() -> None:
         "/nothing ",
         "/help ",
         "/exit ",
+        "/lang ",
     ],
 )
 def test_no_suggestions(text: str) -> None:
@@ -106,7 +108,6 @@ def test_no_suggestions(text: str) -> None:
         ("/plan ", ["on", "off"]),
         ("/effort ", ["none", "minimal", "low", "medium", "high", "xhigh", "max", "default"]),
         ("/effort m", ["minimal", "medium", "max"]),
-        ("/lang ", ["auto", "ja", "en"]),
         ("/language ", ["ja", "en", "auto"]),
         ("/language e", ["en"]),
     ],
@@ -120,8 +121,7 @@ def _notes(text: str, **kwargs: Any) -> dict[str, str]:
 
 
 def test_arguments_carry_a_label() -> None:
-    assert _notes("/lang ") == {"auto": "会話の言語に合わせる", "ja": "日本語", "en": "English"}
-    assert _notes("/language ")["auto"] == "会話の言語に合わせる"
+    assert _notes("/language ") == {"ja": "日本語", "en": "English", "auto": "会話の言語に合わせる"}
     assert _notes("/provider ")["llamacpp"] == "llama.cpp"
     assert _notes("/effort ")["high"] == "深く考える。遅くなる"
     assert _notes("/mode code ")["workspace-write"] == "作業場所の中の書き込みまで確認なし（既定）"

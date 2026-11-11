@@ -272,12 +272,13 @@ Switching away from a local server with `/provider` unloads the same way.
   as in `[code:read-only]`. `/sub-mode` shows or changes it.
 
 **Languages**: SATSUMAESTRO detects the language of each message and tells the model to reply in
-it. If the reply comes back in another language, it asks once for a rewrite. Japanese and English
-are supported.
+it. A message of two letters or fewer, such as `ok`, keeps the language of the one before. If the
+reply comes back in another language, it asks once for a rewrite. Japanese and English are
+supported.
 
-- `/lang` shows the reply language, `/lang ja|en` fixes it and `/lang auto` goes back to detection.
-  Settings: `language.mode` (`auto` / `fixed` / `off`), `language.fixed` and `language.repair`
-  (`false` skips the rewrite round trip, which can take tens of seconds on local models).
+- To fix the reply language, start with `--lang ja|en`, or set `language.mode` to `fixed` and
+  `language.fixed`. `language.mode` can also be `off`, and `language.repair: false` skips the
+  rewrite round trip, which can take tens of seconds on local models.
 - `/language ja|en|auto` sets the screen language (menus, cards, notices and help) and records it as
   `language.ui` in `~/.satsuma/settings.json`. It does not change the reply language.
 
