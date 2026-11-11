@@ -1284,7 +1284,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.40,<1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.25,<2" },
-    { name = "openai", specifier = ">=1.50" },
+    { name = "openai", specifier = ">=1.50,<3" },
     { name = "pathspec", specifier = ">=1.1" },
     { name = "prompt-toolkit", specifier = ">=3.0.10" },
     { name = "pydantic", specifier = ">=2.11" },
