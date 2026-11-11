@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,7 +17,13 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 
-from satsumaestro.cli.commands import CommandOutcome, SlashDispatcher, cycle_main_mode, parse_slash
+from satsumaestro.cli.commands import (
+    CommandOutcome,
+    SlashDispatcher,
+    cycle_main_mode,
+    parse_slash,
+    provider_notes,
+)
 from satsumaestro.cli.completion import ModelNames, SlashCompleter
 from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
@@ -255,7 +262,10 @@ def _prompt_session(
     """入力欄（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
     session: PromptSession[str] = PromptSession(
         key_bindings=bindings,
-        completer=SlashCompleter(ModelNames(rt)),
+        completer=SlashCompleter(
+            ModelNames(rt),
+            providers=lambda: provider_notes(rt.config.provider, rt.session.model, os.environ),
+        ),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
         reserve_space_for_menu=MENU_ROWS + 1,
         **io,

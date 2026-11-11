@@ -139,7 +139,7 @@ class _Prompt:
             _runtime(), bindings or KeyBindings(), input=self.pipe, output=DummyOutput(), **options
         )
         self.buffer = self.session.default_buffer
-        self.answer = asyncio.create_task(self.session.prompt_async())
+        self.answer = asyncio.create_task(self.session.prompt_async(set_exception_handler=False))
 
     async def type(self, text: str, *, then: Callable[[], object] | None = None) -> None:
         self.pipe.send_text(text)

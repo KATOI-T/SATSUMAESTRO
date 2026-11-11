@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from collections.abc import AsyncGenerator, Iterable, Iterator, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -96,17 +96,20 @@ def _split(text: str) -> tuple[list[str], str] | None:
     return words, current
 
 
-def _wants_models(text: str) -> bool:
+def _first_argument_of(text: str) -> str | None:
+    """最初の引数を打っているコマンドの名前。"""
     split = _split(text)
     if split is None:
-        return False
+        return None
     words, _ = split
     command = command_named(words[0]) if len(words) == 1 else None
-    return command is not None and command.name == "model"
+    return command.name if command is not None else None
 
 
-def slash_completions(text: str, models: Sequence[Choice] = ()) -> Iterator[Completion]:
-    """カーソルの前の ``text`` に出す候補（``models`` は ``/model`` の候補）。"""
+def slash_completions(
+    text: str, models: Sequence[Choice] = (), *, providers: Mapping[str, str] | None = None
+) -> Iterator[Completion]:
+    """カーソルの前の ``text`` に出す候補（``models`` と ``providers`` は引数の候補と説明）。"""
     split = _split(text)
     if split is None:
         return
@@ -135,7 +138,8 @@ def slash_completions(text: str, models: Sequence[Choice] = ()) -> Iterator[Comp
         rest = [c for c in models if typed in c[0].lower() and c not in first]
         choices: list[Choice] = [*first, *rest]
     else:
-        choices = [c for c in argument_choices(named.name, given) if c[0].startswith(typed)]
+        found = argument_choices(named.name, given, providers=providers)
+        choices = [c for c in found if c[0].startswith(typed)]
     for value, meta in _exact_first(choices, typed):
         more = bool(argument_choices(named.name, [*given, value]))
         yield Completion(
@@ -151,22 +155,34 @@ def _exact_first[T](items: Iterable[tuple[str, T]], typed: str) -> list[tuple[st
 class SlashCompleter(Completer):
     """行頭の ``/`` で、コマンドとその引数の候補を出す。"""
 
-    def __init__(self, models: ModelSource | None = None) -> None:
+    def __init__(
+        self,
+        models: ModelSource | None = None,
+        *,
+        providers: Callable[[], Mapping[str, str]] | None = None,
+    ) -> None:
         self._models = models
+        self._providers = providers
+
+    def _provider_notes(self, text: str) -> Mapping[str, str] | None:
+        if self._providers is None or _first_argument_of(text) != "provider":
+            return None
+        return self._providers()
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
-        return slash_completions(document.text_before_cursor)
+        text = document.text_before_cursor
+        return slash_completions(text, providers=self._provider_notes(text))
 
     async def get_completions_async(
         self, document: Document, complete_event: CompleteEvent
     ) -> AsyncGenerator[Completion, None]:
         text = document.text_before_cursor
         models: Sequence[Choice] = ()
-        if self._models is not None and _wants_models(text):
+        if self._models is not None and _first_argument_of(text) == "model":
             models = await self._models.names()
         elif self._models is not None and _split(text) is not None:
             self._models.prefetch()
-        for completion in slash_completions(text, models):
+        for completion in slash_completions(text, models, providers=self._provider_notes(text)):
             yield completion

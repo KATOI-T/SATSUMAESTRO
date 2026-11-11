@@ -12,7 +12,7 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from satsumaestro.cli import completion as completion_mod
-from satsumaestro.cli.commands import SLASH_COMMANDS
+from satsumaestro.cli.commands import SLASH_COMMANDS, provider_notes
 from satsumaestro.cli.completion import ModelNames, SlashCompleter, slash_completions
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 from satsumaestro.i18n.text import pinned_ui_language, ui
@@ -115,11 +115,55 @@ def test_arguments_are_suggested(text: str, expected: list[str]) -> None:
     assert _texts(text) == expected
 
 
+def _notes(text: str, **kwargs: Any) -> dict[str, str]:
+    return {c.display_text: c.display_meta_text for c in slash_completions(text, **kwargs)}
+
+
 def test_arguments_carry_a_label() -> None:
-    metas = {c.text: c.display_meta_text for c in slash_completions("/lang ")}
-    assert metas == {"auto": "", "ja": "日本語", "en": "English"}
-    provider = {c.text: c.display_meta_text for c in slash_completions("/provider ")}
-    assert provider["llamacpp"] == "llama.cpp"
+    assert _notes("/lang ") == {"auto": "会話の言語に合わせる", "ja": "日本語", "en": "English"}
+    assert _notes("/language ")["auto"] == "会話の言語に合わせる"
+    assert _notes("/provider ")["llamacpp"] == "llama.cpp"
+    assert _notes("/effort ")["high"] == "深く考える。遅くなる"
+    assert _notes("/mode code ")["workspace-write"] == "作業場所の中の書き込みまで確認なし（既定）"
+    with pinned_ui_language("en"):
+        assert _notes("/effort h") == {"high": "Think deeply; slower"}
+        assert _notes("/plan ") == {"on": "Enter plan mode", "off": "Go back to code mode"}
+
+
+@pytest.mark.parametrize("language", ["ja", "en"])
+@pytest.mark.parametrize("text", ["/effort ", "/mode ", "/mode code ", "/sub-mode ", "/plan "])
+def test_every_fixed_value_has_a_one_line_note(language: str, text: str) -> None:
+    with pinned_ui_language(language):
+        notes = _notes(text)
+    assert notes and all(note and "\n" not in note for note in notes.values()), notes
+
+
+def test_providers_show_where_they_connect() -> None:
+    notes = {"ollama": "Ollama ✓ · http://192.168.188.110:11434（OLLAMA_HOST）"}
+    shown = _notes("/provider ", providers=notes)
+    assert shown["ollama"] == notes["ollama"]
+    assert shown["xai"] == "xAI"
+    env = {"OLLAMA_HOST": "192.168.188.110:11434", "ANTHROPIC_API_KEY": "x"}
+    found = provider_notes(ProviderConfig(), "gpt-oss:120b", env)
+    assert found["ollama"].startswith("Ollama ✓ · http://192.168.188.110:11434")
+    assert found["anthropic"] == "Anthropic · 鍵あり（ANTHROPIC_API_KEY）"
+    assert found["xai"] == "xAI · 鍵なし（XAI_API_KEY）"
+    assert found["lmstudio"] == "LM Studio · 未設定"
+
+
+async def test_provider_notes_are_read_only_for_provider_lines() -> None:
+    asked: list[int] = []
+
+    def notes() -> dict[str, str]:
+        asked.append(1)
+        return {"openai": "OpenAI · 鍵あり（OPENAI_API_KEY）"}
+
+    completer = SlashCompleter(providers=notes)
+    events = completer.get_completions_async(Document("/provider o"), CompleteEvent())
+    shown = {c.display_text: c.display_meta_text async for c in events}
+    assert shown == {"ollama": "Ollama", "openai": "OpenAI · 鍵あり（OPENAI_API_KEY）"}
+    assert await _complete(completer, "/mode ") == ["plan", "code"]
+    assert len(asked) == 1
 
 
 def test_models_match_anywhere_with_prefix_matches_first() -> None:

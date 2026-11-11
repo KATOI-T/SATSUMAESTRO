@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -18,7 +18,7 @@ from rich.text import Text
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
 from satsumaestro.config.loader import save_model, save_screen_language
-from satsumaestro.config.models import ROLE_NAMES, ReasoningEffort
+from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffort
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
 from satsumaestro.providers.choice import (
@@ -149,25 +149,73 @@ def command_named(name: str) -> ReplCommand | None:
     return _BY_NAME.get(name.lower())
 
 
-def argument_choices(name: str, given: Sequence[str]) -> tuple[tuple[str, str], ...]:
-    """``/<name>`` で ``given`` の次の引数に取れる決まった値と、その説明。"""
+_SUB_NOTES: dict[str, Callable[[], str]] = {
+    "read-only": lambda: ui("cli.commands.choice_sub_read_only"),
+    "workspace-write": lambda: ui("cli.commands.choice_sub_workspace_write"),
+    "danger-full-access": lambda: ui("cli.commands.choice_sub_danger_full_access"),
+    "prompt": lambda: ui("cli.commands.choice_sub_prompt"),
+    "allow": lambda: ui("cli.commands.choice_sub_allow"),
+}
+_VALUE_NOTES: dict[str, dict[str, Callable[[], str]]] = {
+    "effort": {
+        "none": lambda: ui("cli.commands.choice_effort_none"),
+        "minimal": lambda: ui("cli.commands.choice_effort_minimal"),
+        "low": lambda: ui("cli.commands.choice_effort_low"),
+        "medium": lambda: ui("cli.commands.choice_effort_medium"),
+        "high": lambda: ui("cli.commands.choice_effort_high"),
+        "xhigh": lambda: ui("cli.commands.choice_effort_xhigh"),
+        "max": lambda: ui("cli.commands.choice_effort_max"),
+        "default": lambda: ui("cli.commands.choice_effort_default"),
+    },
+    "mode": {
+        "plan": lambda: ui("cli.commands.choice_mode_plan"),
+        "code": lambda: ui("cli.commands.choice_mode_code"),
+    },
+    "sub-mode": _SUB_NOTES,
+    "plan": {
+        "on": lambda: ui("cli.commands.choice_plan_on"),
+        "off": lambda: ui("cli.commands.choice_plan_off"),
+    },
+}
+
+
+def _noted(name: str, values: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    notes = _VALUE_NOTES.get(name, {})
+    return tuple((value, note() if (note := notes.get(value)) else "") for value in values)
+
+
+def argument_choices(
+    name: str, given: Sequence[str], *, providers: Mapping[str, str] | None = None
+) -> tuple[tuple[str, str], ...]:
+    """``/<name>`` で ``given`` の次の引数に取れる決まった値と、その 1 行の説明。"""
     if name == "mode" and [arg.lower() for arg in given] == ["code"]:
-        return tuple((sub, "") for sub in _SUB_VALUES)
+        return _noted("sub-mode", _SUB_VALUES)
     if given:
         return ()
     if name in ("lang", "language"):
         values = _LANG_VALUES if name == "lang" else _SCREEN_VALUES
-        auto = language_gate.AUTO
-        return tuple((v, "" if v == auto else language_gate.native_name(v)) for v in values)
+        auto = ui("cli.commands.choice_language_auto")
+        named = language_gate.native_name
+        return tuple((v, auto if v == language_gate.AUTO else named(v)) for v in values)
     if name == "provider":
-        return tuple((choice, CHOICE_LABELS[choice]) for choice in PROVIDER_CHOICES)
+        notes = providers or {}
+        return tuple((c, notes.get(c) or CHOICE_LABELS[c]) for c in PROVIDER_CHOICES)
     values = {
         "effort": _EFFORT_VALUES,
         "mode": ("plan", "code"),
         "sub-mode": _SUB_VALUES,
         "plan": ("on", "off"),
     }.get(name, ())
-    return tuple((value, "") for value in values)
+    return _noted(name, values)
+
+
+def provider_notes(provider: ProviderConfig, model: str, env: Mapping[str, str]) -> dict[str, str]:
+    """``/provider`` の候補に添える、名前と接続先か鍵の有無（今の種類に ✓）。"""
+    notes: dict[str, str] = {}
+    for status in provider_statuses(provider, model, env):
+        label = CHOICE_LABELS[status.choice] + (" ✓" if status.current else "")
+        notes[status.choice] = f"{label} · {_status_text(status)}"
+    return notes
 
 
 @dataclass
