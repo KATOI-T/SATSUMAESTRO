@@ -92,7 +92,7 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
     ),
     ReplCommand(
         "fast",
-        lambda: ui("cli.commands.toggle_low_effort_fast_mode"),
+        lambda: ui("cli.commands.turn_fast_mode_on_or_off"),
     ),
     ReplCommand(
         "model",
