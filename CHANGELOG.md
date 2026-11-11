@@ -28,6 +28,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and options without a command go to it (`stro -m qwen3:8b`). Commands, `--help` and `--version`
   work as before, and so does `satsumaestro repl`. When stdin or stdout is not a terminal, the help
   is shown as before. ([#22](https://github.com/KATOI-T/SATSUMAESTRO/issues/22))
+- `openai` is kept below 3. openai 3 moves to httpx2 and has not been tried against real servers
+  yet, and a project that installs SATSUMAESTRO as a dependency could get it.
+  ([#35](https://github.com/KATOI-T/SATSUMAESTRO/issues/35))
 
 ### Removed
 

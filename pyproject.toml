@@ -25,7 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.40,<1",     # 公式 SDK（1 から httpx2 になり、渡している httpx.Timeout を受けない）
-    "openai>=1.50",           # OpenAI 互換
+    "openai>=1.50,<3",        # OpenAI 互換（3 から httpx2 になり、実機ではまだ試していない）
     "typer>=0.16",            # CLI
     "prompt_toolkit>=3.0.10", # REPL
     "rich>=13.7",             # 描画
