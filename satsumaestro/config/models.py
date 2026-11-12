@@ -164,6 +164,7 @@ class SandboxConfig(BaseModel):
     filesystem_mode: Literal["off", "workspace-only", "allow-list"] = "workspace-only"
     isolate_network: bool = False
     allowed_mounts: list[str] = Field(default_factory=list)
+    env_mode: Literal["strip", "allow-list"] = "strip"
     env_strip: list[str] = Field(default_factory=list)
     env_keep: list[str] = Field(default_factory=list)
 

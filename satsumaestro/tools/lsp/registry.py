@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -47,11 +48,16 @@ class LanguageServers:
     """言語ごとに :class:`LspClient` を遅延起動・キャッシュする。"""
 
     def __init__(
-        self, root: Path, config: LspConfig, *, sandbox: SandboxConfig | None = None
+        self,
+        root: Path,
+        config: LspConfig,
+        *,
+        sandbox: SandboxConfig | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self.root = root
         self.config = config
-        self._env = child_environment(sandbox)
+        self._env = child_environment(sandbox, env)
         self._clients: dict[str, LspClient | None] = {}
 
     async def _client_for(self, path: Path) -> tuple[LspClient, str]:

@@ -84,6 +84,64 @@ def test_isolation_carries_config_only() -> None:
     assert plain[FS_MODE_VAR] == "workspace-only"
 
 
+_WIDE = {
+    **_BASE,
+    "LANG": "ja_JP.UTF-8",
+    "LC_ALL": "C",
+    "XDG_CONFIG_HOME": "/home/u/.config",
+    "TMPDIR": "/tmp/x",
+    "SATSUMA_KEEP_ME": "1",
+    "DATABASE_URL": "postgres://u:pw@db/x",
+}
+
+
+def test_the_strip_mode_is_the_default() -> None:
+    assert SandboxConfig().env_mode == "strip"
+    assert isolation_for(SandboxConfig()).env_mode == "strip"
+    assert child_environment(SandboxConfig(), _WIDE)["DATABASE_URL"] == "postgres://u:pw@db/x"
+
+
+def test_the_allow_list_passes_only_the_listed_names() -> None:
+    out = strip_secret_env(_WIDE, allow_list=True)
+    assert out == {
+        "PATH": "/usr/bin",
+        "HOME": "/home/u",
+        "LANG": "ja_JP.UTF-8",
+        "LC_ALL": "C",
+        "XDG_CONFIG_HOME": "/home/u/.config",
+        "TMPDIR": "/tmp/x",
+    }
+
+
+def test_the_allow_list_takes_keep_and_strip() -> None:
+    out = strip_secret_env(
+        _WIDE, allow_list=True, keep=["GH_TOKEN", "OPENAI_API_KEY"], extra_strip=["TMPDIR"]
+    )
+    assert out["GH_TOKEN"] == "g" and out["OPENAI_API_KEY"] == "sk-o"
+    assert "TMPDIR" not in out and "ANTHROPIC_API_KEY" not in out
+    assert "DATABASE_URL" not in out
+
+
+def test_the_allow_list_reaches_bash_and_other_children() -> None:
+    cfg = SandboxConfig(env_mode="allow-list", env_keep=["SATSUMA_KEEP_ME"])
+    env = bash_environment(_WIDE, isolation=isolation_for(cfg))
+    assert "DATABASE_URL" not in env and "GH_TOKEN" not in env
+    assert env["SATSUMA_KEEP_ME"] == "1" and env[FS_MODE_VAR] == "workspace-only"
+    child = child_environment(cfg, _WIDE)
+    assert "DATABASE_URL" not in child and child["SATSUMA_KEEP_ME"] == "1"
+
+
+async def test_bash_takes_the_base_environment(tmp_path: Path) -> None:
+    cfg = RuntimeConfig(sandbox=SandboxConfig(env_mode="allow-list", env_keep=["SATSUMA_KEEP_ME"]))
+    base = {**_WIDE, "PATH": "/usr/bin:/bin"}
+    ctx = ToolContext(workspace_root=tmp_path, jail=WorkspaceJail(tmp_path), config=cfg, env=base)
+    res = await Bash().run(
+        Bash.Input(command='printf "%s|%s|%s" "$DATABASE_URL" "$SATSUMA_KEEP_ME" "$LANG"'), ctx
+    )
+    assert res.is_error is False
+    assert res.output == "|1|ja_JP.UTF-8"
+
+
 def test_child_environment_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("SATSUMA_KEEP_ME", "1")
@@ -189,6 +247,27 @@ async def test_hook_env_keep(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert seen["ANTHROPIC_API_KEY"] == "sk-ant-test"
 
 
+async def test_hook_takes_the_base_environment(tmp_path: Path) -> None:
+    dump = tmp_path / "env.json"
+    script = tmp_path / "hook.py"
+    script.write_text(
+        "import json, os, sys\njson.load(sys.stdin)\n"
+        f"open({str(dump)!r}, 'w').write(json.dumps(dict(os.environ)))\nprint('{{}}')\n",
+        encoding="utf-8",
+    )
+    runner = HookRunner(
+        HookConfig(post_tool_use=[f"{sys.executable} {script}"]),
+        tmp_path,
+        sandbox=SandboxConfig(env_mode="allow-list"),
+        env={**_WIDE, "PATH": "/usr/bin:/bin"},
+    )
+    call = ToolUse(id="1", name="bash", input={"command": "true"})
+    await runner.post_tool_use(call, ToolResult(output="ok"))
+    seen = json.loads(dump.read_text(encoding="utf-8"))
+    assert "DATABASE_URL" not in seen and "SATSUMA_KEEP_ME" not in seen
+    assert seen["HOME"] == "/home/u"
+
+
 async def test_lsp_client_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("SATSUMA_KEEP_ME", "1")
@@ -225,6 +304,30 @@ async def test_lsp_registry_passes_sandbox(tmp_path: Path, monkeypatch: pytest.M
         await registry._client_for(tmp_path / "a.py")
     env = captured["env"]
     assert isinstance(env, dict) and env["ANTHROPIC_API_KEY"] == "sk-ant-test"
+    await registry.aclose()
+
+
+async def test_lsp_registry_takes_the_base_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_exec(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        raise OSError("spawn stopped by test")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    registry = LanguageServers(
+        tmp_path,
+        LspConfig(servers={"python": [sys.executable, "-c", "pass"]}),
+        sandbox=SandboxConfig(env_mode="allow-list"),
+        env=_WIDE,
+    )
+    with pytest.raises(ToolError):
+        await registry._client_for(tmp_path / "a.py")
+    env = captured["env"]
+    assert isinstance(env, dict) and env["HOME"] == "/home/u"
+    assert "DATABASE_URL" not in env and "GH_TOKEN" not in env
     await registry.aclose()
 
 

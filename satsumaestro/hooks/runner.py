@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,11 +42,13 @@ class HookRunner:
         timeout_s: float = 30.0,
         *,
         sandbox: SandboxConfig | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self._config = config
         self._cwd = cwd
         self._timeout_s = timeout_s
         self._sandbox = sandbox if sandbox is not None else SandboxConfig()
+        self._env = env
 
     async def pre_tool_use(self, call: ToolUse, inp: BaseModel) -> HookResult:
         """設定された pre フックを順に実行し、集約した :class:`HookResult` を返す。"""
@@ -118,7 +121,7 @@ class HookRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._cwd),
-                env=child_environment(self._sandbox),
+                env=child_environment(self._sandbox, self._env),
                 start_new_session=True,
             )
         except OSError as e:

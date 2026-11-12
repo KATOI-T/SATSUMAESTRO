@@ -234,7 +234,8 @@ class Bash(Tool):
         )
         validate_bash(inp.command, ctx.jail, mode=mode, workspace=ctx.workspace_root)
         mounts = mount_paths(isolation, ctx.workspace_root)
-        env = bash_environment(os.environ, isolation=isolation, mounts=mounts)
+        base = ctx.env if ctx.env is not None else os.environ
+        env = bash_environment(base, isolation=isolation, mounts=mounts)
         if ctx.auto_allowed:
             env = with_git_config(env, AUTO_ALLOWED_GIT_CONFIG)
         if inp.run_in_background:
