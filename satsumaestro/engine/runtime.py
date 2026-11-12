@@ -2364,7 +2364,8 @@ class ConversationRuntime:
         key = f"lsp:{language}"
         if key in self._first_use_cleared():
             return None
-        command = resolve_server_command(language, cfg.servers)
+        search_path = getattr(self._ctx.lsp, "search_path", None)
+        command = resolve_server_command(language, cfg.servers, path=search_path)
         if command is None:
             return None
         note = f"first {language} language server this session: {command[0]}"

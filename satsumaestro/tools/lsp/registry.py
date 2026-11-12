@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ class LanguageServers:
         self.root = root
         self.config = config
         self._env = child_environment(sandbox, env)
+        self.search_path: str = self._env.get("PATH", os.defpath)
         self._clients: dict[str, LspClient | None] = {}
 
     async def _client_for(self, path: Path) -> tuple[LspClient, str]:
@@ -74,7 +76,7 @@ class LanguageServers:
             if client is None:
                 raise ToolError(self._missing_message(language))
             return client, language
-        command = resolve_server_command(language, self.config.servers)
+        command = resolve_server_command(language, self.config.servers, path=self.search_path)
         if command is None:
             self._clients[language] = None
             raise ToolError(self._missing_message(language))

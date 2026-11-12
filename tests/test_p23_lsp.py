@@ -98,7 +98,7 @@ def test_language_and_server_resolution(monkeypatch: pytest.MonkeyPatch) -> None
     assert language_for_path(Path("a.py")) == "python"
     assert language_for_path(Path("a.tsx")) == "typescript"
     assert language_for_path(Path("a.txt")) is None
-    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    monkeypatch.setattr(shutil, "which", lambda cmd, path=None: None)
     assert resolve_server_command("python", {"python": ["no-such-server"]}) is None
     assert resolve_server_command("python", {}) is None
 

@@ -397,6 +397,49 @@ async def test_lsp_registry_takes_the_base_environment(
     await registry.aclose()
 
 
+def _child_only_server(tmp_path: Path) -> Path:
+    bindir = tmp_path / "child-bin"
+    bindir.mkdir()
+    server = bindir / "child-only-ls"
+    server.write_text("#!/bin/sh\n", encoding="utf-8")
+    server.chmod(0o755)
+    return bindir
+
+
+async def test_lsp_registry_finds_servers_on_the_child_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[object] = []
+
+    async def fake_exec(*args: object, **kwargs: object) -> object:
+        started.extend(args)
+        raise OSError("spawn stopped by test")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    bindir = _child_only_server(tmp_path)
+    registry = LanguageServers(
+        tmp_path,
+        LspConfig(servers={"python": ["child-only-ls"]}),
+        env={**_BASE, "PATH": str(bindir)},
+    )
+    assert registry.search_path == str(bindir)
+    with pytest.raises(ToolError, match="failed to start"):
+        await registry._client_for(tmp_path / "a.py")
+    assert started[0] == "child-only-ls"
+    await registry.aclose()
+
+
+async def test_lsp_registry_skips_servers_only_on_the_host_path(tmp_path: Path) -> None:
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    registry = LanguageServers(
+        tmp_path, LspConfig(servers={"python": ["sh"]}), env={**_BASE, "PATH": str(empty)}
+    )
+    with pytest.raises(ToolError, match="no language server available"):
+        await registry._client_for(tmp_path / "a.py")
+    await registry.aclose()
+
+
 def test_config_show_masks_mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     state = tmp_path / ".satsuma"
