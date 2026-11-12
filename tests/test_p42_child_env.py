@@ -7,15 +7,21 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from satsumaestro.cli import app as cli_app
 from satsumaestro.config.models import HookConfig, LspConfig, RuntimeConfig, SandboxConfig
-from satsumaestro.engine.events import ToolUse
+from satsumaestro.engine.events import MessageStop, TextDelta, ToolUse
+from satsumaestro.engine.runtime import ConversationRuntime
+from satsumaestro.engine.subagent import RuntimeFactory, resolve_subagent_type
 from satsumaestro.hooks.runner import HookRunner
+from satsumaestro.prompt.builder import SystemPromptBuilder
+from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.jail import WorkspaceJail
+from satsumaestro.security.policy import PermissionOutcome, default_policy
 from satsumaestro.security.sandbox import (
     FS_MODE_VAR,
     Isolation,
@@ -25,12 +31,14 @@ from satsumaestro.security.sandbox import (
 )
 from satsumaestro.security.secret_env import PROVIDER_KEY_VARS, strip_secret_env
 from satsumaestro.session.redact import secret_values
-from satsumaestro.tools import ToolContext
+from satsumaestro.session.store import JSONLSessionStore, new_session
+from satsumaestro.tools import ToolContext, default_registry
 from satsumaestro.tools.base import ToolResult
 from satsumaestro.tools.builtins.bash import Bash
 from satsumaestro.tools.lsp.client import LspClient
 from satsumaestro.tools.lsp.registry import LanguageServers
 from satsumaestro.util.errors import ToolError
+from tests.fixtures.mock_provider import SequencedMockProvider
 
 _BASE = {
     "PATH": "/usr/bin",
@@ -140,6 +148,64 @@ async def test_bash_takes_the_base_environment(tmp_path: Path) -> None:
     )
     assert res.is_error is False
     assert res.output == "|1|ja_JP.UTF-8"
+
+
+class _Allow:
+    def decide(
+        self, call: ToolUse, required: PermissionMode, warning: str | None = None
+    ) -> PermissionOutcome:
+        return PermissionOutcome(decision="allow", reason="test")
+
+
+def _runtime(
+    tmp_path: Path, provider: object, cfg: RuntimeConfig, **kwargs: Any
+) -> ConversationRuntime:
+    return ConversationRuntime(
+        session=new_session(tmp_path, "mock-model"),
+        provider=provider,  # type: ignore[arg-type]
+        tools=default_registry(),
+        policy=default_policy(PermissionMode.WORKSPACE_WRITE),
+        prompt_builder=SystemPromptBuilder(),
+        store=JSONLSessionStore(),
+        hooks=HookRunner(HookConfig(), tmp_path),
+        config=cfg,
+        **kwargs,
+    )
+
+
+async def test_the_runtime_gives_bash_the_base_environment(tmp_path: Path) -> None:
+    cfg = RuntimeConfig(sandbox=SandboxConfig(env_mode="allow-list", env_keep=["SATSUMA_KEEP_ME"]))
+    command = 'printf "%s|%s" "$DATABASE_URL" "$SATSUMA_KEEP_ME"'
+    provider = SequencedMockProvider(
+        [
+            [ToolUse(id="b1", name="bash", input={"command": command}), MessageStop()],
+            [TextDelta(text="done"), MessageStop()],
+        ]
+    )
+    rt = _runtime(tmp_path, provider, cfg, env={**_WIDE, "PATH": "/usr/bin:/bin"})
+    await rt.run_turn("show it", prompter=_Allow())
+    block = rt.session.messages[2].blocks[0]
+    assert block.is_error is False
+    assert block.output == "|1"
+
+
+def test_a_child_runtime_takes_the_factory_environment(tmp_path: Path) -> None:
+    cfg = RuntimeConfig()
+    factory = RuntimeFactory(
+        provider=SequencedMockProvider([[MessageStop()]]),  # type: ignore[arg-type]
+        model="mock-model",
+        config=cfg,
+        tools=default_registry(),
+        policy=default_policy(PermissionMode.WORKSPACE_WRITE),
+        hooks=HookRunner(HookConfig(), tmp_path),
+        cwd=tmp_path,
+        provider_builder=lambda m: SequencedMockProvider([[MessageStop()]]),  # type: ignore[arg-type,return-value]
+        env=_WIDE,
+    )
+    child = factory.build_child(preset=resolve_subagent_type("general"), depth=1)
+    assert child._ctx.env == _WIDE
+    assert _runtime(tmp_path, factory.provider, cfg, runtime_factory=factory)._ctx.env == _WIDE
+    assert _runtime(tmp_path, factory.provider, cfg)._ctx.env is None
 
 
 def test_child_environment_defaults(monkeypatch: pytest.MonkeyPatch) -> None:

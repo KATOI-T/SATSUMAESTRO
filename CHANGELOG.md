@@ -20,8 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `sandbox.env_mode: "allow-list"` passes only basic names (`PATH`, `HOME`, `LANG`, `LC_*`,
   `TMPDIR` and a few more) and the names in `sandbox.env_keep` to bash, hooks and LSP servers, so
   secrets whose names do not look like keys stay out too. The default, `strip`, works as before.
-  Code that embeds SATSUMAESTRO can give bash (`ToolContext.env`), `HookRunner` and
-  `LanguageServers` the environment to start from instead of `os.environ`.
+  Code that embeds SATSUMAESTRO can give `ConversationRuntime` and `RuntimeFactory` (bash, also in
+  sub-agents), `HookRunner` and `LanguageServers` the environment to start from instead of
+  `os.environ`.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
