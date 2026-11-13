@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -33,6 +32,7 @@ from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ModeState
 from satsumaestro.telemetry.log import TraceLog
 from satsumaestro.telemetry.recorder import insights_from
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import ConfigError, SatsumaError
 from satsumaestro.util.paths import default_config_home
 
@@ -441,13 +441,13 @@ class SlashDispatcher:
         current = self.rt.session.model
         if not args:
             self._print(f"model: {escape(current)}")
-            names = await list_models(self.rt.config, current, os.environ)
+            names = await list_models(self.rt.config, current, ENVIRON)
             for name in names or []:
                 mark = "*" if same_model(name, current) else " "
                 self._print(f"  {mark} {escape(name)}")
             return
         resolved = expand_model_name(args[0])
-        check = await check_model(self.rt.config, resolved, os.environ)
+        check = await check_model(self.rt.config, resolved, ENVIRON)
         if check is not None and check.missing:
             self._print(missing_model_text(missing_model_notice(resolved, check, startup=False)))
             kept = escape(current)
@@ -481,7 +481,7 @@ class SlashDispatcher:
         choice, url, model = parsed
         stays = Text(ui("cli.commands.provider_stays", name=self._provider_name()), style="dim")
         try:
-            result = await switch_provider(self.rt, choice, env=os.environ, url=url, model=model)
+            result = await switch_provider(self.rt, choice, env=ENVIRON, url=url, model=model)
         except MissingModelError as exc:
             self._print(missing_model_text(exc.notice))
             self._print(stays)
@@ -525,7 +525,7 @@ class SlashDispatcher:
             note = ui("cli.commands.provider_roles_kept", items=kept, name=name)
             self._print(Text(note, style="yellow"))
         if self.render is not None:
-            server = local_server_for(self.rt.config, result.model, os.environ)
+            server = local_server_for(self.rt.config, result.model, ENVIRON)
             kind = server.kind if server is not None else "ollama"
             self.render.use_local_server(kind, _unloaded_model(result.fit))
         await _print_window(self.rt, result.fit, console=self.console, breakdown_line=True)
@@ -550,14 +550,14 @@ class SlashDispatcher:
     def _show_providers(self) -> None:
         """今のプロバイダと、選べるプロバイダごとの接続先か鍵の有無を出す。"""
         provider, model = self.rt.config.provider, self.rt.session.model
-        actual = current_choice(provider, model, os.environ)
+        actual = current_choice(provider, model, ENVIRON)
         endpoint = (
-            resolve_endpoint(provider, os.environ) if actual not in ("anthropic", "xai") else None
+            resolve_endpoint(provider, ENVIRON) if actual not in ("anthropic", "xai") else None
         )
         detail = " · ".join(part for part in (endpoint.url if endpoint else "", model) if part)
         name = self._provider_name()
         self._print(Text(ui("cli.commands.provider_header", name=name, detail=detail)))
-        statuses = provider_statuses(provider, model, os.environ)
+        statuses = provider_statuses(provider, model, ENVIRON)
         width = max(len(status.choice) for status in statuses) + 2
         for n, status in enumerate(statuses, 1):
             label = f"{status.choice} ✓" if status.current else status.choice
@@ -570,7 +570,7 @@ class SlashDispatcher:
         provider = self.rt.config.provider
         if provider.kind != "auto":
             return provider.kind
-        actual = current_choice(provider, self.rt.session.model, os.environ)
+        actual = current_choice(provider, self.rt.session.model, ENVIRON)
         return f"auto → {actual}" if actual is not None and is_choice(actual) else "auto"
 
     def _role_models(self) -> str:

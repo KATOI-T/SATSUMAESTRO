@@ -11,6 +11,7 @@ import sys
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,8 @@ from satsumaestro.orchestration.worker import (
     combine_roots,
     receipt_mismatches,
 )
+from satsumaestro.security.secret_env import PROVIDER_KEY_VARS
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import OrchestrationError
 from satsumaestro.util.proc import terminate_graceful
 
@@ -60,6 +63,18 @@ def _same_directory(a: str, b: str) -> bool:
         return Path(a).resolve() == Path(b).resolve()
     except OSError:
         return a == b
+
+
+_HARNESS_NAMES: tuple[str, ...] = (*PROVIDER_KEY_VARS, "OPENAI_BASE_URL", "OLLAMA_*", "SATSUMA_*")
+
+
+def worker_environment() -> dict[str, str]:
+    """worker の環境（``os.environ`` と、持っている ``.env`` のうちハーネスが読む名前）。"""
+    return {
+        name: value
+        for name, value in ENVIRON.items()
+        if name in os.environ or any(fnmatchcase(name, p) for p in _HARNESS_NAMES)
+    }
 
 
 @dataclass(frozen=True)
@@ -151,7 +166,7 @@ class WorkerSupervisor:
         worker = self.ledger.dispatch(worker_id, prompt, receipt)
         self.ledger.note_preflight(worker_id, worker.prompt or "")
 
-        env = dict(os.environ)
+        env = worker_environment()
         env[WORKER_CHILD_ENV] = "1"
         if worker.receipt is not None:
             env[RECEIPT_ENV] = worker.receipt.model_dump_json()

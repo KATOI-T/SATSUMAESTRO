@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import os
 import sqlite3
 import statistics
 import sys
@@ -150,6 +149,7 @@ from satsumaestro.tools.lsp.servers import DEFAULT_SERVERS, resolve_server_comma
 from satsumaestro.tools.mcp_bridge import register_mcp_tools
 from satsumaestro.tools.registry import ToolRegistry
 from satsumaestro.util.clock import now_ms
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import (
     ConfigError,
     MaxIterationsError,
@@ -312,7 +312,7 @@ def _choose_screen_language(cwd: Path, *, trust: bool) -> None:
 
 def _ask_screen_language() -> str | None:
     """初回の画面の言語の問い。"""
-    default = locale_language(os.environ)
+    default = locale_language(ENVIRON)
     for line in language_gate.question_lines():
         _console.print(line)
     while True:
@@ -377,13 +377,13 @@ async def _assemble_runtime(
     cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
     resolved = expand_model_name(model or cfg.provider.default_model)
-    connection = await connect(cfg, resolved, os.environ, build=build_provider)
+    connection = await connect(cfg, resolved, ENVIRON, build=build_provider)
     provider = connection.provider
     for note in connection.notes:
         _err_console.print(Text(note, style="yellow"))
     fit_base = (cfg.compact_token_threshold, cfg.compaction.context_window)
-    fit = await apply_context_fit(cfg, resolved, os.environ)
-    orch_enabled, workers_enabled = _orchestration_flags(cfg, os.environ)
+    fit = await apply_context_fit(cfg, resolved, ENVIRON)
+    orch_enabled, workers_enabled = _orchestration_flags(cfg, ENVIRON)
     tools = _tool_registry(cfg, orchestration=orch_enabled, workers=workers_enabled)
     mcp_manager = await MCPManager.start(cfg.mcp_servers)
     rag: RAGService | None = None
@@ -410,7 +410,7 @@ async def _assemble_runtime(
         store.prune(cwd)
         session = store.load(resume_path) if resume_path else new_session(cwd, resolved)
         if resume_path and session.model != resolved:
-            saved = await check_model(cfg, session.model, os.environ)
+            saved = await check_model(cfg, session.model, ENVIRON)
             if saved is not None and saved.missing:
                 notice = ui(
                     "cli.app.the_saved_model_was_not", model=session.model, resolved=resolved
@@ -449,7 +449,7 @@ async def _assemble_runtime(
             policy=resolver,
             hooks=hooks,
             cwd=cwd,
-            provider_builder=lambda m: build_provider(cfg, m, os.environ),
+            provider_builder=lambda m: build_provider(cfg, m, ENVIRON),
             mcp=mcp_manager,
             rag=rag,
             background=background,
@@ -478,8 +478,8 @@ async def _assemble_runtime(
                 model=resolved,
                 session=session,
                 cwd=cwd,
-                env=os.environ,
-                provider_builder=lambda m: build_provider(cfg, m, os.environ),
+                env=ENVIRON,
+                provider_builder=lambda m: build_provider(cfg, m, ENVIRON),
             )
         rt = ConversationRuntime(
             session=session,
@@ -490,7 +490,7 @@ async def _assemble_runtime(
             store=store,
             hooks=hooks,
             config=cfg,
-            compactor=build_compactor(cfg, provider, resolved, os.environ, build=build_provider),
+            compactor=build_compactor(cfg, provider, resolved, ENVIRON, build=build_provider),
             mcp=mcp_manager,
             rag=rag,
             runtime_factory=factory,
@@ -587,7 +587,7 @@ async def _print_window(
 
 def _local_kind(cfg: RuntimeConfig, model: str) -> LocalKind:
     """表示の文を選ぶためのローカルのサーバの種類（ローカルでなければ Ollama の文）。"""
-    server = local_server_for(cfg, model, os.environ)
+    server = local_server_for(cfg, model, ENVIRON)
     return server.kind if server is not None else "ollama"
 
 
@@ -819,7 +819,7 @@ async def _repl_session(
             observer=recorder,
             trace_log=trace_log,
             trusted=trusted,
-            load_probe=load_probe(rt, os.environ),
+            load_probe=load_probe(rt, ENVIRON),
         )
     finally:
         try:
@@ -1633,16 +1633,16 @@ async def _build_eval_agent(
         cfg = _load_config(cwd, trusted=trusted)
         spec_model, decompose, plan = parse_satsuma_agent_spec(spec)
         resolved = expand_model_name(spec_model or model or cfg.provider.default_model)
-        provider = (await connect(cfg, resolved, os.environ, build=build_provider)).provider
-        await apply_context_fit(cfg, resolved, os.environ)
+        provider = (await connect(cfg, resolved, ENVIRON, build=build_provider)).provider
+        await apply_context_fit(cfg, resolved, ENVIRON)
         return SatsumaAgent(
             provider,
             cfg,
             resolved,
             decompose=decompose,
             plan=plan,
-            provider_builder=lambda m: build_provider(cfg, m, os.environ),
-            env=os.environ,
+            provider_builder=lambda m: build_provider(cfg, m, ENVIRON),
+            env=ENVIRON,
         )
     return build_cli_agent(spec, timeout_s=timeout_s)
 
@@ -2014,7 +2014,7 @@ async def _run_repl_resume(model: str | None, cwd: Path, path: Path, *, trusted:
             render,
             _console,
             trusted=trusted,
-            load_probe=load_probe(rt, os.environ),
+            load_probe=load_probe(rt, ENVIRON),
         )
     finally:
         try:
@@ -2038,7 +2038,7 @@ def _screen_language_row(cfg: RuntimeConfig) -> tuple[str, str]:
     chosen = cfg.language.chosen_ui
     if chosen is not None:
         return "ok", ui("cli.app.screen_language_chosen", name=language_gate.native_name(chosen))
-    name = language_gate.native_name(locale_language(os.environ))
+    name = language_gate.native_name(locale_language(ENVIRON))
     if cfg.language.ui == "auto":
         return "ok", ui("cli.app.screen_language_auto", name=name)
     return "-", ui("cli.app.screen_language_not_set", name=name)
@@ -2073,9 +2073,9 @@ def _doctor(cwd: Path, *, probe: bool = False, trust: bool = False) -> None:
         "ok" if model else "warn",
         model or ui("cli.app.not_set_set_provider_default"),
     )
-    kind = choose_provider_kind(model, os.environ, cfg.provider.base_url, choice=cfg.provider.kind)
-    table.add_row("provider", "ok", _provider_label(cfg, model, os.environ))
-    table.add_row("api key", *_key_status(cfg, model, os.environ))
+    kind = choose_provider_kind(model, ENVIRON, cfg.provider.base_url, choice=cfg.provider.kind)
+    table.add_row("provider", "ok", _provider_label(cfg, model, ENVIRON))
+    table.add_row("api key", *_key_status(cfg, model, ENVIRON))
 
     default_mode = PermissionMode(cfg.permission.default_mode)
     parsed = (
@@ -2275,12 +2275,12 @@ def _local_rows(
     """ローカルのサーバの種類ごとの doctor 行（--probe のときだけサーバの種類を問い合わせる）。"""
     if kind is not ProviderKind.OPENAI:
         return []
-    endpoint = openai_endpoint(cfg, os.environ)
+    endpoint = openai_endpoint(cfg, ENVIRON)
     server: LocalServer | None = None
     if endpoint and probe:
-        server = asyncio.run(resolve_server(endpoint, os.environ, cfg.provider))
+        server = asyncio.run(resolve_server(endpoint, ENVIRON, cfg.provider))
     elif endpoint:
-        server = server_for_endpoint(endpoint, os.environ, cfg.provider)
+        server = server_for_endpoint(endpoint, ENVIRON, cfg.provider)
     if isinstance(server, LMStudioServer):
         return _lmstudio_rows(cfg, model, server, probe=probe, cwd=cwd, trusted=trusted)
     if isinstance(server, LlamaCppServer):
@@ -2310,8 +2310,8 @@ def _ollama_rows(
     """Ollama 判定・コンテキスト長整合・窓の内訳・常駐状態の doctor 行。"""
     if kind is not ProviderKind.OPENAI:
         return []
-    endpoint = openai_endpoint(cfg, os.environ)
-    server = server_for_endpoint(endpoint, os.environ, cfg.provider) if endpoint else None
+    endpoint = openai_endpoint(cfg, ENVIRON)
+    server = server_for_endpoint(endpoint, ENVIRON, cfg.provider) if endpoint else None
     if not endpoint or not isinstance(server, OllamaServer):
         not_ollama = ui("cli.app.not_ollama_can_be_fixed")
         return [("ollama", "-", not_ollama)]
@@ -2516,7 +2516,7 @@ async def _doctor_breakdown(
     if probe_cfg.compaction.context_window <= 0 and fit.context_length:
         probe_cfg.compaction.context_window = fit.context_length
     probe_cfg.compact_token_threshold = fit.effective_threshold
-    orchestration, workers = _orchestration_flags(probe_cfg, os.environ)
+    orchestration, workers = _orchestration_flags(probe_cfg, ENVIRON)
     tools = _tool_registry(probe_cfg, orchestration=orchestration, workers=workers)
     skills = list_skills(cwd, state_dir=trusted)
     if skills:
@@ -2554,7 +2554,7 @@ async def _probe_ollama(cfg: RuntimeConfig, model: str) -> ContextFitResult:
     """doctor 用: cfg を書き換えずに整合結果だけ計算する。"""
     from satsumaestro.engine.context_fit import fit_compaction_threshold
 
-    endpoint = openai_endpoint(cfg, os.environ) or ""
+    endpoint = openai_endpoint(cfg, ENVIRON) or ""
     info = await fetch_model_context(ollama_root(endpoint), model, timeout_s=1.5)
     fitted = fit_compaction_threshold(cfg.compact_token_threshold, info.context_length)
     return ContextFitResult(

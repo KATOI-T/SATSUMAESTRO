@@ -24,6 +24,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sub-agents), `HookRunner` and `LanguageServers` the environment to start from instead of
   `os.environ`.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+- `dotenv.into_environ: false` reads `.env` without writing it into the process environment. The
+  values are used for SATSUMAESTRO's own settings and keys only, so bash, hooks and LSP servers do
+  not get them, and orchestration workers get only the names SATSUMAESTRO reads. The default,
+  `true`, works as before.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
 

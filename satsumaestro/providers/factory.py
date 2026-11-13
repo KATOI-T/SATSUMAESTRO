@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 
 import httpx
@@ -25,6 +24,7 @@ from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.registry import expand_model_name
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import ProviderError
 
 _XAI_BASE_URL = "https://api.x.ai/v1"
@@ -38,7 +38,7 @@ def build_bare(
     env: Mapping[str, str] | None = None,
 ) -> Provider:
     """モデル ID・設定・環境から**素の** :class:`Provider` を生成する。"""
-    env = env if env is not None else os.environ
+    env = env if env is not None else ENVIRON
     resolved = expand_model_name(model)
     choice = config.provider.kind
     kind = choose_provider_kind(resolved, env, config.provider.base_url, choice=choice)
@@ -138,7 +138,7 @@ def build_provider(
     env: Mapping[str, str] | None = None,
 ) -> Provider:
     """堅牢化済みの :class:`Provider` を生成する。"""
-    env = env if env is not None else os.environ
+    env = env if env is not None else ENVIRON
     resolved = expand_model_name(model)
     policy = _policy(config)
     primary = _with_retry(build_bare(config, resolved, env), config, policy)

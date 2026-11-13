@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tomllib
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -12,6 +11,7 @@ from typing import Any
 
 from satsumaestro.i18n.schema import FALLBACK, catalog
 from satsumaestro.i18n.state import LanguageState, locale_language
+from satsumaestro.util.environ import ENVIRON
 
 _MESSAGES = Path(__file__).with_name("messages")
 PLURAL_FORMS = frozenset({"one", "other"})
@@ -43,7 +43,7 @@ def ui_language() -> str:
         return _owner.ui_language
     if _screen is not None:
         return _screen
-    return locale_language(os.environ)
+    return locale_language(ENVIRON)
 
 
 @cache

@@ -342,6 +342,10 @@ outside git). `.satsuma/policy.md` files are stacked instead: the rules of every
 git root down to the working directory apply, so a Deny at the root still holds in a subdirectory.
 The base mode comes from the nearest file that sets `mode:`.
 
+`.env` values are written into the process environment, so bash, hooks and LSP servers see them too.
+Set `dotenv.into_environ` to `false` to use them only for SATSUMAESTRO's own settings and keys;
+values that libraries read on their own, such as proxy settings, then work only from the shell.
+
 Session records, plans, the search index and other local state are written under `.satsuma/`. The
 first time SATSUMAESTRO writes there, it adds `.satsuma/.gitignore` so that this state is not
 committed; `settings.json`, `policy.md`, `memory.md` and `skills/` stay shareable.

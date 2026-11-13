@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol
@@ -15,6 +14,7 @@ from satsumaestro.cli.commands import SLASH_COMMANDS, argument_choices, command_
 from satsumaestro.engine.context_fit import list_models
 from satsumaestro.providers.choice import current_choice
 from satsumaestro.providers.registry import MODEL_SHORTHANDS
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import SatsumaError
 
 if TYPE_CHECKING:
@@ -68,14 +68,14 @@ class ModelNames:
         found = self._names if self._fetched_for == self._target() else ()
         choices = [(name, "") for name in found]
         provider, model = self._rt.config.provider, self._rt.session.model
-        if current_choice(provider, model, os.environ) == "anthropic":
+        if current_choice(provider, model, ENVIRON) == "anthropic":
             choices += [(short, f"→ {full}") for short, full in sorted(MODEL_SHORTHANDS.items())]
         return choices
 
     async def _fetch(self, target: tuple[str, str, str]) -> None:
         try:
             names = await list_models(
-                self._rt.config, target[2], os.environ, timeout_s=self._timeout_s
+                self._rt.config, target[2], ENVIRON, timeout_s=self._timeout_s
             )
         except SatsumaError:
             names = None

@@ -13,12 +13,14 @@ from pydantic import ValidationError
 
 from satsumaestro.config.models import (
     ChosenProvider,
+    DotenvConfig,
     LanguageConfig,
     ProviderConfig,
     ProviderProfile,
     RuntimeConfig,
 )
 from satsumaestro.i18n.text import ui
+from satsumaestro.util.environ import ENVIRON, forget_dotenv, hold_dotenv
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.jsonl import write_text_atomic
 from satsumaestro.util.paths import (
@@ -49,7 +51,7 @@ _WEB_SEARCH_PROVIDERS = frozenset({"duckduckgo", "searxng", "generic", "none"})
 
 def _env_bool(name: str) -> bool | None:
     """環境変数を真偽値として読む。"""
-    raw = os.environ.get(name, "").strip().lower()
+    raw = ENVIRON.get(name, "").strip().lower()
     if not raw:
         return None
     if raw in _ENV_TRUE:
@@ -223,10 +225,22 @@ class ConfigLoader:
             raise ConfigError(_invalid(exc)) from exc
 
     def load_env(self) -> None:
-        """信頼した作業場所の ``.env`` を環境変数に読む（``OLLAMA_*`` 以外はシェルの値が勝つ）。"""
+        """信頼した作業場所の ``.env`` を読む（``OLLAMA_*`` 以外はシェルの値が勝つ）。"""
+        self._read_env(self._merge_layers())
+
+    def _read_env(self, merged: dict[str, Any]) -> None:
+        """``dotenv.into_environ`` が偽なら、``.env`` を ``os.environ`` に書かずに持つ。"""
         if not self.trusted:
             return
+        try:
+            section = DotenvConfig.model_validate(merged.get("dotenv") or {})
+        except ValidationError as exc:
+            raise ConfigError(_invalid(exc)) from exc
         dotenv = find_project_file(self.cwd, ".env")
+        if not section.into_environ:
+            hold_dotenv(dotenv_values(dotenv) if dotenv is not None else {})
+            return
+        forget_dotenv()
         if dotenv is not None:
             load_dotenv(dotenv)
             prefer_dotenv_ollama(dotenv)
@@ -264,24 +278,24 @@ class ConfigLoader:
 
     def _overlay_env(self, merged: dict[str, Any]) -> dict[str, Any]:
         """.env を読み、明示値が無い項目のみ環境依存値で補完する。"""
-        self.load_env()
+        self._read_env(merged)
         provider = dict(merged.get("provider") or {})
         rag = dict(merged.get("rag") or {})
         kind = provider.get("kind", "auto")
 
-        host = os.environ.get("OLLAMA_HOST")
+        host = ENVIRON.get("OLLAMA_HOST")
         if host and kind == "auto" and not provider.get("base_url"):
             provider["base_url"] = ollama_host_url(host)
 
-        model = os.environ.get("OLLAMA_MODEL")
+        model = ENVIRON.get("OLLAMA_MODEL")
         if model and kind in ("auto", "ollama") and not provider.get("default_model"):
             provider["default_model"] = model
 
-        embed_base = os.environ.get("SATSUMA_EMBED_BASE_URL")
+        embed_base = ENVIRON.get("SATSUMA_EMBED_BASE_URL")
         if embed_base and not rag.get("embed_base_url"):
             rag["embed_base_url"] = embed_base
 
-        embed_model = os.environ.get("SATSUMA_EMBED_MODEL")
+        embed_model = ENVIRON.get("SATSUMA_EMBED_MODEL")
         if embed_model and "embed_model" not in rag:
             rag["embed_model"] = embed_model
 
@@ -295,7 +309,7 @@ class ConfigLoader:
             decomposition["enabled"] = decomp_flag
 
         web_search = dict(merged.get("web_search") or {})
-        ws_provider = os.environ.get("SATSUMA_WEB_SEARCH_PROVIDER", "").strip().lower()
+        ws_provider = ENVIRON.get("SATSUMA_WEB_SEARCH_PROVIDER", "").strip().lower()
         if ws_provider and "provider" not in web_search:
             if ws_provider not in _WEB_SEARCH_PROVIDERS:
                 names = "/".join(sorted(_WEB_SEARCH_PROVIDERS))
@@ -307,7 +321,7 @@ class ConfigLoader:
                     )
                 )
             web_search["provider"] = None if ws_provider == "none" else ws_provider
-        ws_base = os.environ.get("SATSUMA_WEB_SEARCH_BASE_URL")
+        ws_base = ENVIRON.get("SATSUMA_WEB_SEARCH_BASE_URL")
         if ws_base and not web_search.get("base_url"):
             web_search["base_url"] = ws_base
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from satsumaestro.util.environ import ENVIRON
 
 AGENT_DIRNAME = ".satsuma"
 
@@ -15,8 +16,8 @@ def in_state_dir(relative: Path) -> bool:
 
 def default_config_home() -> Path:
     """ユーザー設定の置き場所（``SATSUMA_CONFIG_HOME`` → ``~/.satsuma``）。"""
-    if os.environ.get("SATSUMA_CONFIG_HOME"):
-        return Path(os.environ["SATSUMA_CONFIG_HOME"])
+    if ENVIRON.get("SATSUMA_CONFIG_HOME"):
+        return Path(ENVIRON["SATSUMA_CONFIG_HOME"])
     return Path.home() / AGENT_DIRNAME
 
 

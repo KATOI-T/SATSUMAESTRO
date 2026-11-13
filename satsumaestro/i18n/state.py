@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from satsumaestro.i18n.schema import FALLBACK, catalog
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.lang import resolve_turn_language
 
@@ -53,7 +53,7 @@ class LanguageState:
         cls, settings: LanguageConfig, environ: Mapping[str, str] | None = None
     ) -> LanguageState:
         """設定と環境の言語から作る（会話の頭で 1 回）。"""
-        return cls(settings, startup=locale_language(os.environ if environ is None else environ))
+        return cls(settings, startup=locale_language(ENVIRON if environ is None else environ))
 
     @property
     def mode(self) -> str:
