@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from satsumaestro.config.models import SandboxConfig
 from satsumaestro.security.secret_env import strip_secret_env
@@ -34,6 +35,7 @@ class Isolation:
     filesystem_mode: FilesystemMode = FilesystemMode.WORKSPACE_ONLY
     isolate_network: bool = False
     allowed_mounts: tuple[str, ...] = ()
+    env_mode: Literal["strip", "allow-list"] = "strip"
     env_strip: tuple[str, ...] = ()
     env_keep: tuple[str, ...] = ()
 
@@ -54,6 +56,7 @@ def isolation_for(
         filesystem_mode=mode,
         isolate_network=config.isolate_network if isolate_network is None else isolate_network,
         allowed_mounts=mounts,
+        env_mode=config.env_mode,
         env_strip=tuple(config.env_strip),
         env_keep=tuple(config.env_keep),
     )
@@ -73,7 +76,12 @@ def bash_environment(
     base: Mapping[str, str], *, isolation: Isolation, mounts: Sequence[Path] = ()
 ) -> dict[str, str]:
     """bash の子プロセスへ渡す環境変数。"""
-    env = strip_secret_env(base, extra_strip=isolation.env_strip, keep=isolation.env_keep)
+    env = strip_secret_env(
+        base,
+        extra_strip=isolation.env_strip,
+        keep=isolation.env_keep,
+        allow_list=isolation.env_mode == "allow-list",
+    )
     if isolation.isolate_network:
         env.update(dict.fromkeys(_PROXY_VARS, _DEAD_END_PROXY))
         for name in _NO_PROXY_VARS:
@@ -86,10 +94,15 @@ def bash_environment(
 def child_environment(
     config: SandboxConfig | None = None, base: Mapping[str, str] | None = None
 ) -> dict[str, str]:
-    """フック・LSP サーバなど bash 以外の子プロセスへ渡す環境（鍵を外した ``os.environ``）。"""
+    """フック・LSP サーバなど bash 以外の子プロセスへ渡す環境（既定の元は ``os.environ``）。"""
     cfg = config if config is not None else SandboxConfig()
     source = base if base is not None else os.environ
-    return strip_secret_env(source, extra_strip=cfg.env_strip, keep=cfg.env_keep)
+    return strip_secret_env(
+        source,
+        extra_strip=cfg.env_strip,
+        keep=cfg.env_keep,
+        allow_list=cfg.env_mode == "allow-list",
+    )
 
 
 AUTO_ALLOWED_GIT_CONFIG: tuple[tuple[str, str], ...] = (

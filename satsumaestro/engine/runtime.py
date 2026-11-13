@@ -420,9 +420,12 @@ class ConversationRuntime:
         background: BackgroundProcessRegistry | None = None,
         lsp: object | None = None,
         language: LanguageState | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self.session = session
         self.provider = provider
+        if env is None and runtime_factory is not None:
+            env = runtime_factory.env
         if language is None:
             language = (
                 runtime_factory.language
@@ -489,6 +492,7 @@ class ConversationRuntime:
             registry=tools,
             lsp=lsp,
             reads=ReadLedger(),
+            env=env,
         )
         self.session.mode = self.session.mode.model_copy(update={"sub": self._base_mode()})
 
@@ -2360,7 +2364,8 @@ class ConversationRuntime:
         key = f"lsp:{language}"
         if key in self._first_use_cleared():
             return None
-        command = resolve_server_command(language, cfg.servers)
+        search_path = getattr(self._ctx.lsp, "search_path", None)
+        command = resolve_server_command(language, cfg.servers, path=search_path)
         if command is None:
             return None
         note = f"first {language} language server this session: {command[0]}"

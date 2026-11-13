@@ -25,12 +25,14 @@ def language_for_path(path: Path) -> str | None:
     return EXTENSION_LANGUAGES.get(path.suffix.lower())
 
 
-def resolve_server_command(language: str, overrides: dict[str, list[str]]) -> list[str] | None:
-    """言語のサーバ起動コマンドを解決する。"""
+def resolve_server_command(
+    language: str, overrides: dict[str, list[str]], *, path: str | None = None
+) -> list[str] | None:
+    """言語のサーバ起動コマンドを解決する（``path`` は探す PATH・既定は ``os.environ``）。"""
     override = overrides.get(language)
     if override:
-        return override if shutil.which(override[0]) else None
+        return override if shutil.which(override[0], path=path) else None
     for candidate in DEFAULT_SERVERS.get(language, ()):
-        if shutil.which(candidate[0]):
+        if shutil.which(candidate[0], path=path):
             return list(candidate)
     return None

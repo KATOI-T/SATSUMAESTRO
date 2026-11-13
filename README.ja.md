@@ -396,7 +396,10 @@ bash のコマンドと削除は確認が必要です。`repl`（対話）は確
 
 **鍵と記録**: SATSUMAESTRO が読むプロバイダの鍵（`ANTHROPIC_API_KEY`・`OPENAI_API_KEY`・`XAI_API_KEY`・
 `SATSUMA_EMBED_API_KEY`・`LM_API_TOKEN`・`LLAMA_API_KEY`）と `*_API_KEY` に合う名前は、子プロセス（bash・フック・LSP サーバ）の環境から
-外します（`sandbox.env_strip` / `sandbox.env_keep` で調整）。`config show` は `mcp_servers.*.env` の値を
+外します（`sandbox.env_strip` / `sandbox.env_keep` で調整）。`sandbox.env_mode` を `allow-list` にすると、子プロセスには
+基本の名前（`PATH`・`HOME`・`USER`・`LOGNAME`・`SHELL`・`TERM`・`COLORTERM`・`LANG`・`LANGUAGE`・`LC_*`・`TZ`・`TMPDIR`・
+`TMP`・`TEMP`・`XDG_*` と Windows のシステムの名前）と `sandbox.env_keep` の名前（`SSH_AUTH_SOCK`・プロキシなど）だけを渡します。
+`config show` は `mcp_servers.*.env` の値を
 伏せます。セッションの記録（`.satsuma/sessions/`）は、上の鍵の値・秘密らしい名前に渡した値
 （`API_KEY=…`・`password: …` など）・`Authorization:` のヘッダ・URL のクエリの鍵・鍵の形のトークン
 （`sk-…`・`ghp_…` など）を `[redacted]` に伏せて保存します。ツールの出力にあるそれ以外の秘密は、そのまま

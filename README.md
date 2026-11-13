@@ -427,7 +427,10 @@ are an extra layer of warnings; the real guards are the workspace jail and the p
 **Keys and records**: API keys that SATSUMAESTRO reads (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `XAI_API_KEY`, `SATSUMA_EMBED_API_KEY`, `LM_API_TOKEN`, `LLAMA_API_KEY`) and names matching `*_API_KEY` are removed from the
 environment of child processes (bash, hooks, LSP servers); adjust with `sandbox.env_strip` and
-`sandbox.env_keep`. `config show` masks `mcp_servers.*.env`. Session records (`.satsuma/sessions/`)
+`sandbox.env_keep`. With `sandbox.env_mode` set to `allow-list`, child processes get only basic
+names (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `COLORTERM`, `LANG`, `LANGUAGE`, `LC_*`,
+`TZ`, `TMPDIR`, `TMP`, `TEMP`, `XDG_*` and the Windows system ones) and the names in
+`sandbox.env_keep` (such as `SSH_AUTH_SOCK` or a proxy). `config show` masks `mcp_servers.*.env`. Session records (`.satsuma/sessions/`)
 are saved with these replaced by `[redacted]`: the values of the keys above, values given to
 secret-like names (such as `API_KEY=…` or `password: …`), `Authorization:` headers, keys in URL
 queries and key-shaped tokens (such as `sk-…` and `ghp_…`). Other secrets in tool output are saved as

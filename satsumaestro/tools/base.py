@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -55,6 +56,7 @@ class ToolContext(BaseModel):
     lsp: object | None = None
     reads: ReadLedger | None = None
     auto_allowed: bool = False
+    env: Mapping[str, str] | None = None
 
 
 @runtime_checkable

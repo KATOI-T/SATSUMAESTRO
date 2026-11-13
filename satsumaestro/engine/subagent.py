@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -118,6 +118,7 @@ class RuntimeFactory:
         background: BackgroundProcessRegistry | None = None,
         lsp: object | None = None,
         language: LanguageState | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -134,6 +135,7 @@ class RuntimeFactory:
         self.language = (
             language if language is not None else LanguageState.from_config(config.language)
         )
+        self.env = env
 
     def use_provider(self, provider: Provider, model: str) -> None:
         """切り替えたプロバイダとモデルを、これから作る子に使う。"""

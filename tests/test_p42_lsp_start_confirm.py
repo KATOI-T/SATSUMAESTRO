@@ -137,6 +137,22 @@ async def test_confirm_start_off_does_not_ask(tmp_path: Path) -> None:
     assert prompter.calls == [] and result.output == "ok a.py" and summary.lsp_start_asks == 0
 
 
+async def test_the_card_looks_on_the_child_path(tmp_path: Path) -> None:
+    bindir = tmp_path / "child-bin"
+    bindir.mkdir()
+    server = bindir / "child-only-ls"
+    server.write_text("#!/bin/sh\n", encoding="utf-8")
+    server.chmod(0o755)
+    servers = _FakeServers(tmp_path)
+    servers.search_path = str(bindir)
+    prompter = _Prompter(YES)
+    lsp = LspConfig(servers={"python": ["child-only-ls"]})
+    rt = _runtime(tmp_path, [_diag("a.py")], lsp=lsp, servers=servers)
+    _, [result] = await _run(rt, prompter)
+    assert prompter.calls == [("a.py", "first python language server this session: child-only-ls")]
+    assert result.output == "ok a.py"
+
+
 @pytest.mark.parametrize(
     ("inp", "lsp"),
     [
