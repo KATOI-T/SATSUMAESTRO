@@ -37,6 +37,7 @@ from satsumaestro.orchestration.worker import (
     combine_roots,
     receipt_mismatches,
 )
+from satsumaestro.providers.choice import HOST_ENV
 from satsumaestro.security.secret_env import PROVIDER_KEY_VARS
 from satsumaestro.util.environ import ENVIRON, WORKER_DOTENV_ENV
 from satsumaestro.util.errors import OrchestrationError
@@ -65,7 +66,13 @@ def _same_directory(a: str, b: str) -> bool:
         return a == b
 
 
-_HARNESS_NAMES: tuple[str, ...] = (*PROVIDER_KEY_VARS, "OPENAI_BASE_URL", "OLLAMA_*", "SATSUMA_*")
+_HARNESS_NAMES: tuple[str, ...] = (
+    *PROVIDER_KEY_VARS,
+    *HOST_ENV.values(),
+    "OPENAI_BASE_URL",
+    "OLLAMA_*",
+    "SATSUMA_*",
+)
 
 
 def worker_environment() -> dict[str, str]:

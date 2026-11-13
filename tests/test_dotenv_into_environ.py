@@ -22,6 +22,8 @@ _DOTENV = (
     "DOTENV_PROBE=from-dotenv\n"
     "SHARED_PROBE=from-dotenv\n"
     "OLLAMA_HOST=http://10.0.0.5:11434/v1\n"
+    "LMSTUDIO_HOST=http://10.0.0.6:1234\n"
+    "LLAMACPP_HOST=http://10.0.0.7:9931\n"
     "SATSUMA_EMBED_MODEL=embed-from-dotenv\n"
     f"ANTHROPIC_API_KEY={_KEY}\n"
 )
@@ -43,7 +45,14 @@ def _load(tmp_path: Path, settings: dict[str, object] | None = None) -> RuntimeC
 
 @pytest.fixture(autouse=True)
 def _clean_shell(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("DOTENV_PROBE", "SHARED_PROBE", "SATSUMA_EMBED_MODEL", "ANTHROPIC_API_KEY"):
+    for name in (
+        "DOTENV_PROBE",
+        "SHARED_PROBE",
+        "SATSUMA_EMBED_MODEL",
+        "ANTHROPIC_API_KEY",
+        "LMSTUDIO_HOST",
+        "LLAMACPP_HOST",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -148,6 +157,8 @@ def test_workers_get_only_the_names_the_harness_reads(tmp_path: Path) -> None:
     assert passed == {
         "ANTHROPIC_API_KEY": _KEY,
         "OLLAMA_HOST": "http://10.0.0.5:11434/v1",
+        "LMSTUDIO_HOST": "http://10.0.0.6:1234",
+        "LLAMACPP_HOST": "http://10.0.0.7:9931",
         "SATSUMA_EMBED_MODEL": "embed-from-dotenv",
     }
     assert "ANTHROPIC_API_KEY" not in env and "SATSUMA_EMBED_MODEL" not in env
