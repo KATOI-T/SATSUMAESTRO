@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from satsumaestro.cli.app import app
 from satsumaestro.config.loader import ConfigLoader
 from satsumaestro.config.models import RuntimeConfig, SandboxConfig
 from satsumaestro.orchestration.worker_supervisor import worker_environment
@@ -182,6 +184,17 @@ def test_a_worker_keeps_the_passed_values_out_of_its_children(
     env = child_environment(SandboxConfig())
     assert "SATSUMA_EMBED_MODEL" not in env and WORKER_DOTENV_ENV not in env
     assert env.get("OLLAMA_HOST") == os.environ.get("OLLAMA_HOST")
+
+
+def test_the_command_line_takes_the_passed_values_out_of_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(WORKER_DOTENV_ENV, json.dumps({"SATSUMA_EMBED_MODEL": "from-parent"}))
+    result = CliRunner().invoke(app, ["models"])
+    assert result.exit_code == 0
+    assert WORKER_DOTENV_ENV not in os.environ
+    assert ENVIRON["SATSUMA_EMBED_MODEL"] == "from-parent"
+    assert "SATSUMA_EMBED_MODEL" not in os.environ
 
 
 def test_the_key_from_dotenv_is_redacted_in_records(tmp_path: Path) -> None:
