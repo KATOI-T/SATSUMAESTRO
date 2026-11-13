@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import dotenv_values, load_dotenv
+from dotenv.main import DotEnv
 from pydantic import ValidationError
 
 from satsumaestro.config.models import (
@@ -191,13 +192,20 @@ def _keep_selection(merged: dict[str, Any], user: Mapping[str, Any]) -> dict[str
     return {**merged, "provider": {**provider, **picked}}
 
 
+def _dotenv_ollama(path: Path) -> dict[str, str]:
+    """``.env`` の空でない ``OLLAMA_*``（シェルの値より優先する分）。"""
+    if not path.is_file():
+        return {}
+    return {
+        key: value.strip()
+        for key, value in dotenv_values(path).items()
+        if key.startswith("OLLAMA_") and value and value.strip()
+    }
+
+
 def prefer_dotenv_ollama(path: Path) -> None:
     """``.env`` の ``OLLAMA_*`` を、シェルの環境変数より優先する（空の値は除く）。"""
-    if not path.is_file():
-        return
-    for key, value in dotenv_values(path).items():
-        if key.startswith("OLLAMA_") and value and value.strip():
-            os.environ[key] = value.strip()
+    os.environ.update(_dotenv_ollama(path))
 
 
 class ConfigLoader:
@@ -239,7 +247,12 @@ class ConfigLoader:
             raise ConfigError(_invalid(exc)) from exc
         dotenv = find_project_file(self.cwd, ".env")
         if not section.into_environ:
-            hold_dotenv(dotenv_values(dotenv) if dotenv is not None else {})
+            if dotenv is None:
+                hold_dotenv({}, {})
+                return
+            # load_dotenv と同じく、${...} はシェルの値を先に見て展開する
+            values = DotEnv(dotenv, encoding="utf-8", override=False).dict()
+            hold_dotenv(values, _dotenv_ollama(dotenv))
             return
         forget_dotenv()
         if dotenv is not None:

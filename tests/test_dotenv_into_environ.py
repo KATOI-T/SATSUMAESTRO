@@ -69,6 +69,26 @@ def test_the_shell_wins_except_for_ollama(tmp_path: Path, monkeypatch: pytest.Mo
     assert os.environ["OLLAMA_HOST"] == "http://192.0.2.10:11434"
 
 
+@pytest.mark.parametrize("into_environ", [True, False])
+def test_references_resolve_the_same_either_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, into_environ: bool
+) -> None:
+    monkeypatch.setenv("HOST_PROBE", "prod")
+    monkeypatch.setenv("OLLAMA_HOST", "http://shell:11434/v1")
+    monkeypatch.delenv("URL_PROBE", raising=False)
+    cwd = _project(tmp_path, {"dotenv": {"into_environ": into_environ}})
+    (cwd / ".env").write_text(
+        "HOST_PROBE=dev\n"
+        "URL_PROBE=https://${HOST_PROBE}/v1\n"
+        "OLLAMA_HOST=http://${HOST_PROBE}:11434/v1\n",
+        encoding="utf-8",
+    )
+    ConfigLoader(cwd, config_home=tmp_path / "home", trusted=True).load()
+    assert ENVIRON["HOST_PROBE"] == "prod"
+    assert ENVIRON["URL_PROBE"] == "https://prod/v1"
+    assert ENVIRON["OLLAMA_HOST"] == "http://dev:11434/v1"
+
+
 def test_the_user_settings_can_turn_it_off(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()

@@ -12,16 +12,11 @@ _LAST: dict[str, str] = {}
 ENVIRON: Mapping[str, str] = ChainMap(_FIRST, os.environ, _LAST)
 
 
-def hold_dotenv(values: Mapping[str, str | None]) -> None:
-    """``.env`` の値を ``os.environ`` に書かずに持つ（空でない ``OLLAMA_*`` はシェルより優先）。"""
+def hold_dotenv(values: Mapping[str, str | None], preferred: Mapping[str, str]) -> None:
+    """``.env`` の値を ``os.environ`` に書かずに持つ（``preferred`` はシェルより優先する）。"""
     forget_dotenv()
-    for name, value in values.items():
-        if value is None:
-            continue
-        if name.startswith("OLLAMA_") and value.strip():
-            _FIRST[name] = value.strip()
-        else:
-            _LAST[name] = value
+    _FIRST.update(preferred)
+    _LAST.update({name: value for name, value in values.items() if value is not None})
 
 
 def forget_dotenv() -> None:
