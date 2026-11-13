@@ -18,6 +18,7 @@ from satsumaestro.engine.trace import (
 )
 from satsumaestro.engine.turn import TurnSummary
 from satsumaestro.util.clock import now_ms
+from satsumaestro.util.environ import ENVIRON
 
 WIRE_REVISION = 1
 RECEIPT_ENV = "SATSUMA_WORKER_RECEIPT"
@@ -48,7 +49,7 @@ def emit_ready(session_id: str, cwd: Path) -> None:
             "session_id": session_id,
             "cwd": str(cwd.resolve()),
             "pid": os.getpid(),
-            "receipt": load_receipt(os.environ),
+            "receipt": load_receipt(ENVIRON),
             "emitted_at_ms": now_ms(),
         }
     )

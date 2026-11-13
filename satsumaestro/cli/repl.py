@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 from typing import Any
 
@@ -50,6 +49,7 @@ from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import PermissionOutcome
 from satsumaestro.security.remember_guard import blocker_note, remember_blocker
 from satsumaestro.telemetry.log import TraceLog
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import (
     SatsumaError,
     ToolCallingUnsupportedError,
@@ -264,7 +264,7 @@ def _prompt_session(
         key_bindings=bindings,
         completer=SlashCompleter(
             ModelNames(rt),
-            providers=lambda: provider_notes(rt.config.provider, rt.session.model, os.environ),
+            providers=lambda: provider_notes(rt.config.provider, rt.session.model, ENVIRON),
         ),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
         reserve_space_for_menu=MENU_ROWS + 1,

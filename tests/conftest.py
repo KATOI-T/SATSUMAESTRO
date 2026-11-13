@@ -14,6 +14,8 @@ from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.detect import reset_used_models
 from satsumaestro.providers.local.llamacpp import reset_llamacpp_state
 from satsumaestro.providers.local.lmstudio import reset_lmstudio_state
+from satsumaestro.util import environ
+from satsumaestro.util.environ import forget_dotenv
 
 _SESSION_CONFIG_HOME = "_satsuma_session_config_home"
 
@@ -80,6 +82,16 @@ def _hermetic_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """テストの中の git を、テストが作ったリポジトリだけに向ける。"""
     for key in _GIT_LOCAL_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_held_dotenv() -> Iterator[None]:
+    """``os.environ`` に書かずに持った ``.env`` の値を、テストごとに捨てる。"""
+    forget_dotenv()
+    environ._PASSED.clear()
+    yield
+    forget_dotenv()
+    environ._PASSED.clear()
 
 
 @pytest.fixture(autouse=True)

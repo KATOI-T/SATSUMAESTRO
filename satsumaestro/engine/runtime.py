@@ -8,7 +8,6 @@ import itertools
 import json
 import logging
 import math
-import os
 import re
 import signal
 import statistics
@@ -228,6 +227,7 @@ from satsumaestro.tools.lsp.servers import language_for_path, resolve_server_com
 from satsumaestro.tools.read_ledger import ReadLedger
 from satsumaestro.tools.registry import ToolRegistry
 from satsumaestro.util.clock import now_ms
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import (
     ContextOverflowError,
     ContextTruncatedError,
@@ -1846,7 +1846,7 @@ class ConversationRuntime:
         """接続先のローカルのサーバの種類（ローカルでなければ ``None``）。"""
         from satsumaestro.engine.context_fit import local_server_for
 
-        server = local_server_for(self.config, self.session.model, os.environ)
+        server = local_server_for(self.config, self.session.model, ENVIRON)
         return server.kind if server is not None else None
 
     async def window_breakdown(self) -> WindowBreakdown | None:
@@ -1913,7 +1913,7 @@ class ConversationRuntime:
         self.window_unconfirmed = False
         try:
             fit = await apply_context_fit(
-                self.config, self.session.model, os.environ if env is None else env
+                self.config, self.session.model, ENVIRON if env is None else env
             )
         except Exception:
             _log.debug("could not fit the context window to %s", self.session.model, exc_info=True)
@@ -1933,7 +1933,7 @@ class ConversationRuntime:
         from satsumaestro.engine.context_fit import refit_window
 
         try:
-            return await refit_window(self.config, self.session.model, os.environ)
+            return await refit_window(self.config, self.session.model, ENVIRON)
         except Exception:
             _log.debug("could not refit the context window", exc_info=True)
             return None

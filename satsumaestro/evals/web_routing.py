@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import tempfile
 import threading
@@ -30,6 +29,7 @@ from satsumaestro.session.models import TokenUsage, ToolUseBlock
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.tools import default_registry, unavailable_tools
 from satsumaestro.util.clock import now_ms
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import ConfigError
 
 _log = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ async def run_once(task: RoutingTask, model: str, port: int, workspace: Path) ->
     )
     tools = default_registry(core_override=cfg.tools.core, unavailable=unavailable_tools(cfg))
     resolved = expand_model_name(model)
-    provider = build_provider(cfg, resolved, os.environ)
+    provider = build_provider(cfg, resolved, ENVIRON)
     runtime = ConversationRuntime(
         session=new_session(workspace, resolved),
         provider=provider,

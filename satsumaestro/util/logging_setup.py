@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.paths import default_config_home
 
 LOGGER_NAME = "satsumaestro"
@@ -20,7 +20,7 @@ _MARK = "_satsuma_log_setup"
 
 def log_path(config_home: Path | None = None) -> Path | None:
     """ログファイルの場所（``SATSUMA_LOG_FILE=off`` なら None）。"""
-    override = os.environ.get("SATSUMA_LOG_FILE", "").strip()
+    override = ENVIRON.get("SATSUMA_LOG_FILE", "").strip()
     if override.lower() == "off":
         return None
     if override:
@@ -64,4 +64,4 @@ def configure_logging(*, stderr: bool = False, config_home: Path | None = None) 
 
 def wants_stderr(debug: bool) -> bool:
     """stderr にも出すか（``--debug`` か ``SATSUMA_LOG_STDERR=1``）。"""
-    return debug or os.environ.get("SATSUMA_LOG_STDERR", "").strip() in ("1", "true", "yes")
+    return debug or ENVIRON.get("SATSUMA_LOG_STDERR", "").strip() in ("1", "true", "yes")

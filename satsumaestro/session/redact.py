@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from typing import Any
@@ -11,6 +10,7 @@ from typing import Any
 import regex
 
 from satsumaestro.security.secret_env import PROVIDER_KEY_VARS
+from satsumaestro.util.environ import ENVIRON
 
 _log = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ _STRUCTURAL_KEYS = frozenset(
 
 def secret_values(env: Mapping[str, str] | None = None) -> tuple[str, ...]:
     """ハーネスが読む鍵の、いまの環境での値（伏せる対象。長さの下限未満は除く）。"""
-    source = env if env is not None else os.environ
+    source = env if env is not None else ENVIRON
     found = {
         value
         for name in PROVIDER_KEY_VARS

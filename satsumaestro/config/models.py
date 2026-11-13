@@ -169,6 +169,14 @@ class SandboxConfig(BaseModel):
     env_keep: list[str] = Field(default_factory=list)
 
 
+class DotenvConfig(BaseModel):
+    """作業場所の ``.env`` の読み方。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    into_environ: bool = True
+
+
 class McpServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -429,6 +437,7 @@ class RuntimeConfig(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     permission: PermissionConfig = Field(default_factory=PermissionConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    dotenv: DotenvConfig = Field(default_factory=DotenvConfig)
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
     rag: RagConfig = Field(default_factory=RagConfig)
     hooks: HookConfig = Field(default_factory=HookConfig)

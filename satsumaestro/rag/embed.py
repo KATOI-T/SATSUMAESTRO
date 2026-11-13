@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Protocol
 
 import httpx
 
+from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import RagError
 
 DEFAULT_EMBED_ENDPOINT = "http://localhost:11434/v1"
@@ -37,10 +37,10 @@ class Embedder:
         batch_size: int = DEFAULT_BATCH,
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        resolved = base_url or os.environ.get("SATSUMA_EMBED_BASE_URL") or DEFAULT_EMBED_ENDPOINT
+        resolved = base_url or ENVIRON.get("SATSUMA_EMBED_BASE_URL") or DEFAULT_EMBED_ENDPOINT
         self.base_url = resolved.rstrip("/")
         self.model = model
-        self.api_key = api_key if api_key is not None else os.environ.get("SATSUMA_EMBED_API_KEY")
+        self.api_key = api_key if api_key is not None else ENVIRON.get("SATSUMA_EMBED_API_KEY")
         self.timeout_s = timeout_s
         self.batch_size = max(1, batch_size)
         self._client: httpx.AsyncClient | None = client
