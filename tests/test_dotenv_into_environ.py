@@ -92,6 +92,15 @@ def test_an_untrusted_folder_reads_no_dotenv(tmp_path: Path) -> None:
     assert "DOTENV_PROBE" not in ENVIRON
 
 
+def test_an_untrusted_folder_does_not_reuse_the_previous_values(tmp_path: Path) -> None:
+    _load(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    cfg = ConfigLoader(other, config_home=tmp_path / "home", trusted=False).load()
+    assert "DOTENV_PROBE" not in ENVIRON and "ANTHROPIC_API_KEY" not in ENVIRON
+    assert cfg.rag.embed_model != "embed-from-dotenv"
+
+
 def test_a_removed_dotenv_is_forgotten(tmp_path: Path) -> None:
     cwd = _project(tmp_path, {"dotenv": {"into_environ": False}})
     loader = ConfigLoader(cwd, config_home=tmp_path / "home", trusted=True)

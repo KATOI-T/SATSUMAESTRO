@@ -231,6 +231,7 @@ class ConfigLoader:
     def _read_env(self, merged: dict[str, Any]) -> None:
         """``dotenv.into_environ`` が偽なら、``.env`` を ``os.environ`` に書かずに持つ。"""
         if not self.trusted:
+            forget_dotenv()
             return
         try:
             section = DotenvConfig.model_validate(merged.get("dotenv") or {})
