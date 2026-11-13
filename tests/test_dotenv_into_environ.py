@@ -14,7 +14,7 @@ from satsumaestro.orchestration.worker_supervisor import worker_environment
 from satsumaestro.providers.factory import build_bare
 from satsumaestro.security.sandbox import child_environment
 from satsumaestro.session.redact import secret_values
-from satsumaestro.util.environ import ENVIRON
+from satsumaestro.util.environ import ENVIRON, WORKER_DOTENV_ENV, adopt_passed_dotenv
 from satsumaestro.util.errors import ConfigError
 
 _KEY = "sk-ant-api03-dotenvonlyabcdefghijklmnopqrstuvwxyz"
@@ -144,11 +144,33 @@ def test_child_processes_do_not_get_the_values(tmp_path: Path) -> None:
 def test_workers_get_only_the_names_the_harness_reads(tmp_path: Path) -> None:
     _load(tmp_path)
     env = worker_environment()
-    assert env["ANTHROPIC_API_KEY"] == _KEY
-    assert env["OLLAMA_HOST"] == "http://10.0.0.5:11434/v1"
-    assert env["SATSUMA_EMBED_MODEL"] == "embed-from-dotenv"
-    assert "DOTENV_PROBE" not in env and "SHARED_PROBE" not in env
+    passed = json.loads(env[WORKER_DOTENV_ENV])
+    assert passed == {
+        "ANTHROPIC_API_KEY": _KEY,
+        "OLLAMA_HOST": "http://10.0.0.5:11434/v1",
+        "SATSUMA_EMBED_MODEL": "embed-from-dotenv",
+    }
+    assert "ANTHROPIC_API_KEY" not in env and "SATSUMA_EMBED_MODEL" not in env
+    assert env.get("OLLAMA_HOST") == os.environ.get("OLLAMA_HOST")
     assert env["PATH"] == os.environ["PATH"]
+
+
+def test_a_worker_keeps_the_passed_values_out_of_its_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _load(tmp_path)
+    monkeypatch.setenv(WORKER_DOTENV_ENV, worker_environment()[WORKER_DOTENV_ENV])
+    ConfigLoader(tmp_path, config_home=tmp_path / "home", trusted=False).load()
+    adopt_passed_dotenv()
+    assert WORKER_DOTENV_ENV not in os.environ
+    assert ENVIRON["ANTHROPIC_API_KEY"] == _KEY
+    assert ENVIRON["OLLAMA_HOST"] == "http://10.0.0.5:11434/v1"
+    cfg = ConfigLoader(tmp_path, config_home=tmp_path / "home", trusted=False).load()
+    assert cfg.provider.base_url == "http://10.0.0.5:11434/v1"
+    assert _KEY in secret_values()
+    env = child_environment(SandboxConfig())
+    assert "SATSUMA_EMBED_MODEL" not in env and WORKER_DOTENV_ENV not in env
+    assert env.get("OLLAMA_HOST") == os.environ.get("OLLAMA_HOST")
 
 
 def test_the_key_from_dotenv_is_redacted_in_records(tmp_path: Path) -> None:

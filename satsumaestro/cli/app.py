@@ -149,7 +149,7 @@ from satsumaestro.tools.lsp.servers import DEFAULT_SERVERS, resolve_server_comma
 from satsumaestro.tools.mcp_bridge import register_mcp_tools
 from satsumaestro.tools.registry import ToolRegistry
 from satsumaestro.util.clock import now_ms
-from satsumaestro.util.environ import ENVIRON
+from satsumaestro.util.environ import ENVIRON, adopt_passed_dotenv
 from satsumaestro.util.errors import (
     ConfigError,
     MaxIterationsError,
@@ -220,6 +220,7 @@ def main_callback(
     ),
 ) -> None:
     """SATSUMAESTRO ルートコマンド。"""
+    adopt_passed_dotenv()
     configure_logging(stderr=wants_stderr(debug))
 
 

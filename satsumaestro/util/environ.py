@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections import ChainMap
 from collections.abc import Mapping
 
+WORKER_DOTENV_ENV = "SATSUMA_WORKER_DOTENV"
+
 _FIRST: dict[str, str] = {}
+_PASSED: dict[str, str] = {}
 _LAST: dict[str, str] = {}
 
-ENVIRON: Mapping[str, str] = ChainMap(_FIRST, os.environ, _LAST)
+ENVIRON: Mapping[str, str] = ChainMap(_FIRST, _PASSED, os.environ, _LAST)
+
+
+def adopt_passed_dotenv() -> None:
+    """親から渡された ``.env`` の値を ``os.environ`` から外して持つ（子プロセスには渡さない）。"""
+    raw = os.environ.pop(WORKER_DOTENV_ENV, "")
+    try:
+        values = json.loads(raw) if raw else {}
+    except ValueError:
+        return
+    if isinstance(values, dict):
+        _PASSED.update({k: v for k, v in values.items() if isinstance(v, str)})
 
 
 def hold_dotenv(values: Mapping[str, str | None], preferred: Mapping[str, str]) -> None:

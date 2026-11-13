@@ -38,7 +38,7 @@ from satsumaestro.orchestration.worker import (
     receipt_mismatches,
 )
 from satsumaestro.security.secret_env import PROVIDER_KEY_VARS
-from satsumaestro.util.environ import ENVIRON
+from satsumaestro.util.environ import ENVIRON, WORKER_DOTENV_ENV
 from satsumaestro.util.errors import OrchestrationError
 from satsumaestro.util.proc import terminate_graceful
 
@@ -69,12 +69,16 @@ _HARNESS_NAMES: tuple[str, ...] = (*PROVIDER_KEY_VARS, "OPENAI_BASE_URL", "OLLAM
 
 
 def worker_environment() -> dict[str, str]:
-    """worker の環境（``os.environ`` と、持っている ``.env`` のうちハーネスが読む名前）。"""
-    return {
+    """worker の環境（持っている ``.env`` のうちハーネスが読む名前は、別の 1 変数で渡す）。"""
+    env = dict(os.environ)
+    held = {
         name: value
         for name, value in ENVIRON.items()
-        if name in os.environ or any(fnmatchcase(name, p) for p in _HARNESS_NAMES)
+        if env.get(name) != value and any(fnmatchcase(name, p) for p in _HARNESS_NAMES)
     }
+    if held:
+        env[WORKER_DOTENV_ENV] = json.dumps(held)
+    return env
 
 
 @dataclass(frozen=True)
