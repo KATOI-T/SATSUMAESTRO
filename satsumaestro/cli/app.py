@@ -518,7 +518,7 @@ async def _assemble_runtime(
         RichRenderer(
             _console,
             show_thinking=cfg.show_thinking,
-            stream_tool_args=cfg.stream_tool_args,
+            stream_tool_args=cfg.stream_tool_args and not cfg.redaction.live,
             loading_model=_unloaded_model(fit),
             local_server=_local_kind(cfg, rt.session.model),
             cwd=cwd,

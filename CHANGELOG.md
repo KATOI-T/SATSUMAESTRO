@@ -29,6 +29,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not get them, and orchestration workers get only the names SATSUMAESTRO reads. The default,
   `true`, works as before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+- `redaction.live: true` replaces secrets with `[redacted]` in tool results before they reach the
+  model and the screen, and in the tool input shown on the screen and in approval cards, the same
+  way as in session records. What runs is unchanged. The default, `false`, works as before.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
 
