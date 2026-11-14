@@ -438,7 +438,10 @@ names (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `COLORTERM`, `LANG`, 
 are saved with these replaced by `[redacted]`: the values of the keys above, values given to
 secret-like names (such as `API_KEY=…` or `password: …`), `Authorization:` headers, keys in URL
 queries and key-shaped tokens (such as `sk-…` and `ghp_…`). Other secrets in tool output are saved as
-they are.
+they are. Set `redaction.live` to `true` to replace the same values in tool results before the model
+and the screen see them, and in the tool input shown on the screen and in approval cards (tool
+arguments are then not shown while they stream). What runs is unchanged, but the model can no
+longer copy a key it has read.
 
 **Telemetry**: SATSUMAESTRO sends no usage data anywhere. `telemetry.enabled` (off by default) only
 counts turns and tool runs in memory for `/insights`, or in a local file set with

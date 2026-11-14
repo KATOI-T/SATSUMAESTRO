@@ -199,6 +199,7 @@ from satsumaestro.session.models import (
     WriteChunk,
     plan_file_relpath,
 )
+from satsumaestro.session.redact import redact_rows, redact_secrets, secret_values
 from satsumaestro.session.store import JSONLSessionStore
 from satsumaestro.tools import (
     edit_match,
@@ -2136,6 +2137,20 @@ class ConversationRuntime:
             and name not in self._expanded
         )
 
+    def _shown_call(self, call: ToolUse) -> ToolUse:
+        """画面と確認に出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
+        if not self.config.redaction.live:
+            return call
+        shown = redact_rows([dict(call.input)], values=secret_values())[0]
+        return call.model_copy(update={"input": shown})
+
+    def _shown_result(self, block: ToolResultBlock) -> ToolResultBlock:
+        """モデルと画面へ渡す結果（``redaction.live`` なら秘密を伏せた写し）。"""
+        if not self.config.redaction.live:
+            return block
+        output = redact_secrets(block.output, values=secret_values())
+        return block if output == block.output else block.model_copy(update={"output": output})
+
     def _unknown_tool_block(
         self, call: ToolUseBlock, counters: _TurnCounters | None
     ) -> ToolResultBlock:
@@ -2492,11 +2507,14 @@ class ConversationRuntime:
                         + f"\nnote: `{written}` is not a tool name; ran {canonical}."
                     }
                 )
+            block = self._shown_result(block)
             notify(ToolReturned(iteration, call.name, block.is_error))
             if quiet:
                 if block.is_error and block.output.startswith(PLAN_MODE_DENY_PREFIX):
                     return block
-                render.on_tool_start(ToolUse(id=call.id, name=call.name, input=call.input))
+                render.on_tool_start(
+                    self._shown_call(ToolUse(id=call.id, name=call.name, input=call.input))
+                )
             render.on_tool_result(block)
             return block
 
@@ -2504,7 +2522,7 @@ class ConversationRuntime:
             nonlocal delegated
             tool_use = ToolUse(id=call.id, name=call.name, input=call.input)
             if not quiet:
-                render.on_tool_start(tool_use)
+                render.on_tool_start(self._shown_call(tool_use))
 
             if self.tools.get(call.name) is None:
                 return self._unknown_tool_block(call, counters)
@@ -2718,7 +2736,8 @@ class ConversationRuntime:
                 if counters is not None and counters.user_denied is not None:
                     return _not_run_block(call, counters.user_denied)
                 with paused(render):
-                    outcome = prompter.decide(tool_use, required, warning=warning)
+                    shown = self._shown_call(tool_use)
+                    outcome = prompter.decide(shown, required, warning=warning)
                     if outcome.origin == DETAIL_REQUEST_ORIGIN and isinstance(
                         prompter, PermissionDetailPrompter
                     ):
@@ -2726,7 +2745,7 @@ class ConversationRuntime:
                             counters.permission_details += 1
                         with prompter.waiting_for_detail():
                             detail = await self._permission_detail(tool_use, input_dict, warning)
-                        outcome = prompter.decide_with_detail(tool_use, required, warning, detail)
+                        outcome = prompter.decide_with_detail(shown, required, warning, detail)
                 if outcome.decision == "ask":
                     outcome = PermissionOutcome(
                         decision="deny", reason="permission prompt returned no decision"
