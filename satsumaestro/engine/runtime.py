@@ -2141,7 +2141,7 @@ class ConversationRuntime:
         """画面と確認に出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
         if not self.config.redaction.live:
             return call
-        shown = redact_shown_input(call.input, values=secret_values())
+        shown = redact_shown_input(call.name, call.input, values=secret_values())
         return call.model_copy(update={"input": shown})
 
     def _shown_result(self, block: ToolResultBlock) -> ToolResultBlock:

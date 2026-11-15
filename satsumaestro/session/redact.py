@@ -48,8 +48,8 @@ _SHAPES = regex.compile(
     r"|xox[baprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35})"
 )
 
-_SHELL = regex.compile(r"[$`()&|;<>]")
-_MIN_SHOWN_HEAD = 4
+_RUNS_BARE = frozenset("$`()&|;<>")
+_RUNS_QUOTED = frozenset("$`")
 
 _STRUCTURAL_KEYS = frozenset(
     {"type", "role", "id", "tool_use_id", "tool_name", "name", "session_id", "model", "signature"}
@@ -75,37 +75,55 @@ def _sub(pattern: regex.Pattern[str], text: str, repl: Any) -> str:
         return text
 
 
-def _whole(value: str) -> str:
-    return REDACTED
+def _runs_from(text: str, start: int, end: int) -> int | None:
+    """``text[start:end]`` で、シェルが実行する最初の記号の位置（引用符と ``\\`` を見る）。"""
+    quote = ""
+    escaped = False
+    for i in range(end):
+        ch = text[i]
+        if escaped:
+            escaped = False
+        elif quote == "'":
+            if ch == "'":
+                quote = ""
+        elif ch == "\\":
+            escaped = True
+        elif quote and ch == quote:
+            quote = ""
+        elif not quote and ch in "'\"":
+            quote = ch
+        elif i >= start and ch in (_RUNS_QUOTED if quote else _RUNS_BARE):
+            return i
+    return None
 
 
-def _before_shell(value: str) -> str:
-    """値の、最初のシェルの記号から後ろは実行される物なので残す（前が短ければ伏せない）。"""
-    cut = _SHELL.search(value)
+def _hide(m: regex.Match[str], command: bool) -> str:
+    """値を伏せる（コマンドでは、実行される記号から後ろを残す。値がそこから始まれば残す）。"""
+    if not command:
+        return REDACTED
+    cut = _runs_from(m.string, m.start("value"), m.end("value"))
     if cut is None:
         return REDACTED
-    head = value[: cut.start()]
-    if len(head) < _MIN_SHOWN_HEAD or head.lower() in _PLACEHOLDERS:
-        return value
-    return REDACTED + value[cut.start() :]
+    if cut == m.start("value"):
+        return m.group("value")
+    return REDACTED + m.string[cut : m.end("value")]
 
 
-def _assign_repl(m: regex.Match[str], hide: Callable[[str], str]) -> str:
+def _assign_repl(m: regex.Match[str], command: bool) -> str:
     if m.group("value").lower() in _PLACEHOLDERS:
         return m.group(0)
-    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{hide(m.group('value'))}"
+    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{_hide(m, command)}"
 
 
 @lru_cache(maxsize=4096)
-def _redact_cached(text: str, values: tuple[str, ...], shown: bool = False) -> str:
-    hide = _before_shell if shown else _whole
+def _redact_cached(text: str, values: tuple[str, ...], command: bool = False) -> str:
     out = text
     for value in values:
         out = out.replace(value, REDACTED)
     out = _sub(_PEM, out, REDACTED)
-    out = _sub(_ASSIGN, out, lambda m: _assign_repl(m, hide))
-    out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{hide(m.group('value'))}")
-    out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{hide(m.group('value'))}")
+    out = _sub(_ASSIGN, out, lambda m: _assign_repl(m, command))
+    out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{_hide(m, command)}")
+    out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{_hide(m, command)}")
     return _sub(_SHAPES, out, REDACTED)
 
 
@@ -119,32 +137,38 @@ def redact_secrets(text: str, *, values: Iterable[str] = ()) -> str:
     return _redact_cached(text, _value_key(values))
 
 
-def redact_shown(text: str, *, values: Iterable[str] = ()) -> str:
-    """画面と確認に出す文字列を伏せる（秘密らしい名前の値でもシェルの記号から後ろは残す）。"""
-    return _redact_cached(text, _value_key(values), True)
+def redact_command(command: str, *, values: Iterable[str] = ()) -> str:
+    """画面と確認に出す bash のコマンドを伏せる（実行される記号から後ろは残す）。"""
+    return _redact_cached(command, _value_key(values), True)
 
 
 def screen_redactor(live: bool) -> Callable[[str], str] | None:
     """``redaction.live`` なら、画面に出す文字列を呼んだ時点の鍵の値で伏せる関数。"""
     if not live:
         return None
-    return lambda text: redact_shown(text, values=secret_values())
+    return lambda text: redact_secrets(text, values=secret_values())
 
 
-def redact_shown_input(payload: Mapping[str, Any], *, values: Iterable[str] = ()) -> dict[str, Any]:
+def redact_shown_input(
+    tool: str, payload: Mapping[str, Any], *, values: Iterable[str] = ()
+) -> dict[str, Any]:
     """画面と確認に出すツールの入力を伏せた写し（キーの名前では飛ばさない）。"""
     vals = tuple(values)
 
     def walk(node: Any) -> Any:
         if isinstance(node, str):
-            return redact_shown(node, values=vals)
+            return redact_secrets(node, values=vals)
         if isinstance(node, Mapping):
             return {k: walk(v) for k, v in node.items()}
         if isinstance(node, list):
             return [walk(v) for v in node]
         return node
 
-    return {k: walk(v) for k, v in payload.items()}
+    shown = {k: walk(v) for k, v in payload.items()}
+    command = payload.get("command")
+    if tool == "bash" and isinstance(command, str):
+        shown["command"] = redact_command(command, values=vals)
+    return shown
 
 
 def redact_rows(rows: list[dict[str, Any]], *, values: Iterable[str] = ()) -> list[dict[str, Any]]:
