@@ -129,9 +129,12 @@ def _detail_panel(detail: PermissionDetail) -> Panel:
 class InteractivePrompter:
     """``ask`` を実行内容カード＋``[y/n/a/d]`` で解決する対話プロンプタ。"""
 
-    def __init__(self, console: Console | None = None, *, plan_steps: bool = False) -> None:
+    def __init__(
+        self, console: Console | None = None, *, plan_steps: bool = False, redact: bool = False
+    ) -> None:
         self.console = console or Console()
         self._plan_steps = plan_steps
+        self._redact = redact
         self._plan_budget: tuple[PlanBudget, Sequence[PlanStep], BudgetVerdict | None] | None = None
 
     def set_plan_budget(
@@ -145,7 +148,9 @@ class InteractivePrompter:
     def decide(
         self, call: ToolUse, required: PermissionMode, warning: str | None = None
     ) -> PermissionOutcome:
-        self.console.print(action_preview(call, required.value, warning=warning))
+        self.console.print(
+            action_preview(call, required.value, warning=warning, redact=self._redact)
+        )
         blocker = remember_blocker(call.name, call.input)
         if blocker is not None:
             self.console.print(Text(blocker_note(blocker), style="dim"))
@@ -169,7 +174,10 @@ class InteractivePrompter:
         """d の後: 説明（取れなければ代わりの事実）と詳細を出し、y / n / a で受ける。"""
         self.console.print(_detail_panel(detail))
         if call.name in _FULL_DETAIL_TOOLS:
-            self.console.print(action_preview(call, required.value, detailed=True, warning=warning))
+            card = action_preview(
+                call, required.value, detailed=True, warning=warning, redact=self._redact
+            )
+            self.console.print(card)
         blocker = remember_blocker(call.name, call.input)
         prompt = _permission_prompt(detail=False, always=blocker is None)
         while True:

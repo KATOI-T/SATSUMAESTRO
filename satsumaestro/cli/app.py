@@ -503,7 +503,9 @@ async def _assemble_runtime(
         )
         rt.fit_base = fit_base
         prompter: PermissionPrompter = (
-            InteractivePrompter(_console, plan_steps=cfg.guidance.plan_steps)
+            InteractivePrompter(
+                _console, plan_steps=cfg.guidance.plan_steps, redact=cfg.redaction.live
+            )
             if interactive
             else DenyPrompter()
         )

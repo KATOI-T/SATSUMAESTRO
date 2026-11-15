@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
+from satsumaestro.cli.repl import InteractivePrompter
 from satsumaestro.config.models import HookConfig, RedactionConfig, RuntimeConfig
 from satsumaestro.engine.events import AssistantEvent, MessageStop, TextDelta, ToolUse
 from satsumaestro.engine.runtime import ConversationRuntime
@@ -108,53 +111,37 @@ async def test_tool_results_stay_as_they_are_when_off(ws: Path) -> None:
     assert _TOKEN in render.results[0]
 
 
-async def test_the_card_gets_the_input_redacted_and_the_renderer_the_real_call(ws: Path) -> None:
-    rt = _runtime(ws, [_CURL], live=True)
+_PASSWORD = ToolUse(
+    id="b3", name="bash", input={"command": "PASSWORD='ab$private12345' ./login.sh"}
+)
+
+
+@pytest.mark.parametrize("live", [True, False])
+@pytest.mark.parametrize("call", [_CURL, _PASSWORD], ids=["bearer", "quoted-password"])
+async def test_the_prompter_and_the_renderer_get_the_real_call(
+    ws: Path, live: bool, call: ToolUse
+) -> None:
+    rt = _runtime(ws, [call], live=live)
     render, prompter = _Render(), _Prompter()
     await rt.run_turn("go", prompter=prompter, render=render)  # type: ignore[arg-type]
-    [card] = prompter.shown
-    assert _BEARER not in str(card["command"]) and "Bearer [redacted]" in str(card["command"])
-    assert render.started == [_CURL.input]
-    assert _BEARER in str(rt.session.messages[1].blocks[0].model_dump())
+    assert prompter.shown == [call.input]
+    assert render.started == [call.input]
+    assert call.input["command"] in str(rt.session.messages[1].blocks[0].model_dump())
 
 
-async def test_the_approval_card_shows_the_input_as_it_is_when_off(ws: Path) -> None:
-    rt = _runtime(ws, [_CURL], live=False)
-    prompter = _Prompter()
-    await rt.run_turn("go", prompter=prompter)  # type: ignore[arg-type]
-    assert _BEARER in str(prompter.shown[0]["command"])
-
-
-async def test_the_approval_card_shows_what_runs(ws: Path) -> None:
-    command = "API_KEY=$(./payload.sh) make test"
-    rt = _runtime(ws, [ToolUse(id="b2", name="bash", input={"command": command})], live=True)
-    prompter = _Prompter()
-    await rt.run_turn("go", prompter=prompter)  # type: ignore[arg-type]
-    assert prompter.shown == [{"command": command}]
-
-
-class _Allow(_Prompter):
-    def decide(
-        self, call: ToolUse, required: PermissionMode, warning: str | None = None
-    ) -> PermissionOutcome:
-        self.shown.append(dict(call.input))
-        return PermissionOutcome(decision="allow", reason="yes")
-
-
-async def test_the_approval_card_hides_a_quoted_password(ws: Path) -> None:
-    command = "PASSWORD='ab$private12345' ./login.sh"
-    rt = _runtime(ws, [ToolUse(id="b3", name="bash", input={"command": command})], live=True)
-    prompter = _Prompter()
-    await rt.run_turn("go", prompter=prompter)  # type: ignore[arg-type]
-    assert prompter.shown == [{"command": "PASSWORD='[redacted]' ./login.sh"}]
-
-
-async def test_the_command_runs_with_the_real_value(ws: Path) -> None:
+@pytest.mark.parametrize("live", [True, False])
+async def test_the_card_hides_the_password_and_the_command_runs_with_it(
+    ws: Path, monkeypatch: pytest.MonkeyPatch, live: bool
+) -> None:
     tail = " sh -c 'printf %s \"$PASSWORD\" | wc -c'"
     command = "PASSWORD='ab$private12345'" + tail
-    rt = _runtime(ws, [ToolUse(id="b4", name="bash", input={"command": command})], live=True)
-    prompter = _Allow()
-    await rt.run_turn("go", prompter=prompter)  # type: ignore[arg-type]
-    assert prompter.shown == [{"command": "PASSWORD='[redacted]'" + tail}]
+    rt = _runtime(ws, [ToolUse(id="b4", name="bash", input={"command": command})], live=live)
+    buf = StringIO()
+    prompter = InteractivePrompter(Console(file=buf, width=200), redact=live)
+    monkeypatch.setattr(prompter.console, "input", lambda *a, **k: "y")
+    await rt.run_turn("go", prompter=prompter)
+    shown = "PASSWORD='[redacted]'" if live else "PASSWORD='ab$private12345'"
+    assert shown + tail in buf.getvalue()
+    assert ("private12345" in buf.getvalue()) is not live
     [result] = _results(rt)
     assert "15" in result.output.split()

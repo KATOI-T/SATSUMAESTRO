@@ -199,7 +199,7 @@ from satsumaestro.session.models import (
     WriteChunk,
     plan_file_relpath,
 )
-from satsumaestro.session.redact import redact_secrets, redact_shown_input, secret_values
+from satsumaestro.session.redact import redact_secrets, secret_values
 from satsumaestro.session.store import JSONLSessionStore
 from satsumaestro.tools import (
     edit_match,
@@ -2137,13 +2137,6 @@ class ConversationRuntime:
             and name not in self._expanded
         )
 
-    def _shown_call(self, call: ToolUse) -> ToolUse:
-        """確認のカードに出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
-        if not self.config.redaction.live:
-            return call
-        shown = redact_shown_input(call.name, call.input, values=secret_values())
-        return call.model_copy(update={"input": shown})
-
     def _shown_result(self, block: ToolResultBlock) -> ToolResultBlock:
         """モデルと画面へ渡す結果（``redaction.live`` なら秘密を伏せた写し）。"""
         if not self.config.redaction.live:
@@ -2734,8 +2727,7 @@ class ConversationRuntime:
                 if counters is not None and counters.user_denied is not None:
                     return _not_run_block(call, counters.user_denied)
                 with paused(render):
-                    shown = self._shown_call(tool_use)
-                    outcome = prompter.decide(shown, required, warning=warning)
+                    outcome = prompter.decide(tool_use, required, warning=warning)
                     if outcome.origin == DETAIL_REQUEST_ORIGIN and isinstance(
                         prompter, PermissionDetailPrompter
                     ):
@@ -2743,7 +2735,7 @@ class ConversationRuntime:
                             counters.permission_details += 1
                         with prompter.waiting_for_detail():
                             detail = await self._permission_detail(tool_use, input_dict, warning)
-                        outcome = prompter.decide_with_detail(shown, required, warning, detail)
+                        outcome = prompter.decide_with_detail(tool_use, required, warning, detail)
                 if outcome.decision == "ask":
                     outcome = PermissionOutcome(
                         decision="deny", reason="permission prompt returned no decision"

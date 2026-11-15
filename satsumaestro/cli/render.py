@@ -291,16 +291,9 @@ class RichRenderer:
         elif isinstance(event, MessageStop):
             self._close_message()
 
-    def _shown(self, call: ToolUse) -> ToolUse:
-        """画面に出す呼び出し（``redact`` なら入力の秘密を伏せた写し）。"""
-        if not self._redact:
-            return call
-        shown = redact_shown_input(call.name, call.input, values=secret_values())
-        return call.model_copy(update={"input": shown})
-
     def on_tool_start(self, call: ToolUse) -> None:
         self._finalize_segment()
-        shown = self._shown(call)
+        shown = _redacted_call(call) if self._redact else call
         display = describe(shown)
         self._running[call.id] = (shown, display, time.monotonic())
         if display.at_start:
@@ -957,14 +950,28 @@ def _bash_output_panel(output: str) -> RenderableType:
 
 
 def action_preview(
-    call: ToolUse, required: str, detailed: bool = False, warning: str | None = None
+    call: ToolUse,
+    required: str,
+    detailed: bool = False,
+    warning: str | None = None,
+    *,
+    redact: bool = False,
 ) -> RenderableType:
-    """権限確認カード: 「何を実行するか」をツール別に整形する。"""
+    """権限確認カード: 「何を実行するか」をツール別に整形する（``redact`` なら出す所を伏せる）。"""
     title = ui("cli.render.permission", name=call.name, required=required)
-    body = _preview_body(call, detailed)
+    if redact:
+        body = _preview_body(_redacted_call(call), detailed, real=call, split=_shown_lines)
+    else:
+        body = _preview_body(call, detailed)
     if warning is not None:
         body = Group(Text(f"⚠ {warning}", style="yellow bold"), body)
     return Panel(body, title=title, border_style="yellow", expand=False)
+
+
+def _redacted_call(call: ToolUse) -> ToolUse:
+    """入力の秘密を、描く時点の鍵の値で伏せた写し。"""
+    shown = redact_shown_input(call.name, call.input, values=secret_values())
+    return call.model_copy(update={"input": shown})
 
 
 def change_preview(
@@ -1141,18 +1148,26 @@ def _diff_stats(old: str, new: str) -> tuple[int, int]:
     return add, rm
 
 
-def _preview_body(call: ToolUse, detailed: bool) -> RenderableType:
+def _preview_body(
+    call: ToolUse,
+    detailed: bool,
+    *,
+    real: ToolUse | None = None,
+    split: Callable[[str], list[str]] = str.splitlines,
+) -> RenderableType:
+    """カードの本文（``real`` があれば、ファイルの変更の差分と行数は元の値で数える）。"""
     inp = call.input
+    raw = (real or call).input
     if call.name == "bash":
         return Syntax(str(inp.get("command", "")), "bash", theme="ansi_dark", word_wrap=True)
     if call.name == "edit_file":
         path, old, new = (
             str(inp.get("path", "")),
-            str(inp.get("old", "")),
-            str(inp.get("new", "")),
+            str(raw.get("old", "")),
+            str(raw.get("new", "")),
         )
         if detailed:
-            return _diff_preview(path, old, new, True)
+            return _diff_preview(path, old, new, True, split)
         add, rm = _diff_stats(old, new)
         return Text.assemble(
             (f"{path}  ", "bold"),
@@ -1164,9 +1179,9 @@ def _preview_body(call: ToolUse, detailed: bool) -> RenderableType:
             ),
         )
     if call.name in ("write_file", "append_file"):
-        path, content = str(inp.get("path", "")), str(inp.get("content", ""))
+        path, content = str(inp.get("path", "")), str(raw.get("content", ""))
         if detailed:
-            return _write_preview(path, content, True)
+            return _write_preview(path, content, True, split)
         append = call.name == "append_file"
         n, size = len(content.splitlines()), len(content)
         return Text.assemble(
