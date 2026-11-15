@@ -20,6 +20,7 @@ from satsumaestro.security.policy import PermissionOutcome, default_policy
 from satsumaestro.session.models import ToolResultBlock
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.tools import default_registry
+from satsumaestro.util.proc import BackgroundProcessRegistry
 from tests.fixtures.mock_provider import ScriptedFailureProvider
 
 _TOKEN = "ghp_" + "a1B2c3D4e5" * 3 + "f6G7h8"
@@ -59,7 +60,13 @@ def ws(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _runtime(ws: Path, calls: list[ToolUse], *, live: bool) -> ConversationRuntime:
+def _runtime(
+    ws: Path,
+    calls: list[ToolUse],
+    *,
+    live: bool,
+    background: BackgroundProcessRegistry | None = None,
+) -> ConversationRuntime:
     steps: list[BaseException | list[AssistantEvent | BaseException]] = [
         [call, MessageStop()] for call in calls
     ]
@@ -73,6 +80,7 @@ def _runtime(ws: Path, calls: list[ToolUse], *, live: bool) -> ConversationRunti
         store=JSONLSessionStore(),
         hooks=HookRunner(HookConfig(), ws),
         config=RuntimeConfig(max_iterations=8, redaction=RedactionConfig(live=live)),
+        background=background,
     )
 
 
@@ -145,3 +153,34 @@ async def test_the_card_hides_the_password_and_the_command_runs_with_it(
     assert ("private12345" in buf.getvalue()) is not live
     [result] = _results(rt)
     assert "15" in result.output.split()
+
+
+async def _finished(ws: Path, command: str) -> BackgroundProcessRegistry:
+    registry = BackgroundProcessRegistry(ws / ".satsuma" / "background" / "sess")
+    task = await registry.spawn(command, cwd=ws, env={})
+    assert task.waiter is not None
+    await task.waiter
+    return registry
+
+
+_GLOB = ToolUse(id="g1", name="glob_search", input={"pattern": "*.none"})
+
+
+@pytest.mark.parametrize("live", [True, False])
+@pytest.mark.parametrize(
+    ("command", "secret"),
+    [(f"API_TOKEN={_BEARER} true", _BEARER), (f"echo {_KEY}", _KEY)],
+    ids=["assignment", "provider-key"],
+)
+async def test_background_completion_notes_follow_the_setting(
+    ws: Path, live: bool, command: str, secret: str
+) -> None:
+    registry = await _finished(ws, command)
+    rt = _runtime(ws, [_GLOB], live=live, background=registry)
+    await rt.run_turn("go")
+    [result] = _results(rt)
+    _, note = result.output.split("<system-reminder>", 1)
+    assert "bg-1" in note and "exited with code 0" in note
+    assert (secret in note) is not live
+    assert ("[redacted]" in note) is live
+    await registry.aclose()
