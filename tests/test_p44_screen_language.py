@@ -197,6 +197,7 @@ def _choose(
 
 @pytest.mark.usefixtures("_unpinned")
 def test_the_first_start_asks_and_records(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("LC_ALL", raising=False)
     monkeypatch.setenv("LC_MESSAGES", "ja_JP.UTF-8")
     printed = _choose(monkeypatch, tmp_path, ["9", "2"])
     assert printed.startswith("画面の言語を選んでください / Choose the screen language\n")
@@ -212,6 +213,7 @@ def test_the_first_start_asks_and_records(monkeypatch: pytest.MonkeyPatch, tmp_p
 def test_answering_auto_follows_the_conversation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.delenv("LC_ALL", raising=False)
     monkeypatch.setenv("LC_MESSAGES", "ja_JP.UTF-8")
     printed = _choose(monkeypatch, tmp_path, ["auto"])
     assert "画面の言語: auto（" in printed
