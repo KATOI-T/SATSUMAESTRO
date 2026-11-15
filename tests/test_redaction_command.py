@@ -82,8 +82,34 @@ _OTHERS = [
     (f"echo {_KEY}>out", "echo [redacted]>out"),
     (f"echo '{_KEY}'", "echo '[redacted]'"),
 ]
-_CASES = [*_UNQUOTED, *_SINGLE, *_DOUBLE, *_OTHERS, *[(run, run) for run in _RUNS]]
-_KEEPS_SYNTAX = [*_UNQUOTED, *_OTHERS[:1], *[(run, run) for run in _RUNS]]
+_EXPANSIONS = [
+    ('PASSWORD="${PREFIX}private12345" ./login.sh', 'PASSWORD="${PREFIX}[redacted]" ./login.sh'),
+    ("PASSWORD=$PREFIX-private12345 ./login.sh", "PASSWORD=$PREFIX[redacted] ./login.sh"),
+    ("PASSWORD=abcd${X}efgh ./login.sh", "PASSWORD=[redacted]${X}[redacted] ./login.sh"),
+    ("PASSWORD=$(cat x)private12345 ./login.sh", "PASSWORD=$(cat x)[redacted] ./login.sh"),
+    ("PASSWORD=`cat x`private12345 ./login.sh", "PASSWORD=`cat x`[redacted] ./login.sh"),
+    ("MY_TOKEN=$(a b)cdef ./run.sh", "MY_TOKEN=$(a b)[redacted] ./run.sh"),
+    ('PASSWORD="$(echo ")")private12345"', 'PASSWORD="$(echo ")")[redacted]"'),
+    ("PASSWORD=${A:-$(x y)}private12345", "PASSWORD=${A:-$(x y)}[redacted]"),
+    ("PASSWORD='${PREFIX}private12345' ./login.sh", "PASSWORD='[redacted]' ./login.sh"),
+    ("PASSWORD=ab\\${X}cd1234 ./login.sh", "PASSWORD=[redacted] ./login.sh"),
+    ("PASSWORD=${A}private12345&&rm x", "PASSWORD=${A}[redacted]&&rm x"),
+    ("PASSWORD=$(cat x) ./login.sh", "PASSWORD=$(cat x) ./login.sh"),
+    ("PASSWORD=$(cat key private12345", "PASSWORD=$([redacted]"),
+    ("PASSWORD=`cat key private12345", "PASSWORD=`[redacted]"),
+    ('PASSWORD="${A private12345"', 'PASSWORD="${[redacted]"'),
+    (
+        'curl -H "Authorization: Bearer ${T}abcdef123456" https://example.invalid',
+        'curl -H "Authorization: Bearer ${T}[redacted]" https://example.invalid',
+    ),
+    (
+        'curl "https://example.invalid/?token=${T}abcdef123456&x=1"',
+        'curl "https://example.invalid/?token=${T}[redacted]&x=1"',
+    ),
+]
+_ONE_PIECE = [*_UNQUOTED, *_SINGLE, *_DOUBLE, *_OTHERS, *[(run, run) for run in _RUNS]]
+_CASES = [*_ONE_PIECE, *_EXPANSIONS]
+_KEEPS_SYNTAX = [*_UNQUOTED, *_OTHERS[:1], *_EXPANSIONS, *[(run, run) for run in _RUNS]]
 _SYNTAX = ("$(", "&&", "||", "|", ";", "<", ">", "`")
 
 
@@ -112,7 +138,7 @@ def test_keys_never_stay(command: str, expected: str) -> None:
     assert _TOKEN not in shown and _KEY not in shown
 
 
-@pytest.mark.parametrize(("command", "expected"), _CASES)
+@pytest.mark.parametrize(("command", "expected"), _ONE_PIECE)
 def test_records_hide_at_least_as_much(command: str, expected: str) -> None:
     record = redact_secrets(command, values=(_KEY,))
     assert record.count("[redacted]") >= redact_command(command, values=(_KEY,)).count("[redacted]")
@@ -182,3 +208,9 @@ def test_every_field_is_hidden_whatever_its_key() -> None:
     assert "abcd1234" not in str(shown)
     assert (shown["count"], shown["flag"], shown["none"]) == (3, True, None)
     assert payload == before
+
+
+def test_every_value_in_a_long_heredoc_is_hidden() -> None:
+    lines = [f"APP{i}_TOKEN=value{i:08d}" for i in range(5000)]
+    shown = redact_command("cat > .env <<'EOF'\n" + "\n".join(lines) + "\nEOF")
+    assert shown.count("[redacted]") == 5000 and "value00004999" not in shown

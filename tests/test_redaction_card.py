@@ -44,6 +44,14 @@ _CARDS = [
         ("private12345",),
     ),
     _Card(
+        "bash-after-an-expansion",
+        "bash",
+        {"command": 'PASSWORD="${PREFIX}private12345" ./login.sh'},
+        ('PASSWORD="${PREFIX}[redacted]" ./login.sh',),
+        ('PASSWORD="${PREFIX}[redacted]" ./login.sh',),
+        ("private12345",),
+    ),
+    _Card(
         "bash-what-runs",
         "bash",
         {"command": "API_KEY=$(./payload.sh) make test"},

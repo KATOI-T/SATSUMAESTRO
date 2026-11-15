@@ -31,8 +31,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 - `redaction.live: true` replaces secrets with `[redacted]` in tool results before they reach the
   model and the screen, in the tool input shown on the screen and in approval cards, and in change
-  previews, the same way as in session records. Shell syntax that runs in a bash command stays
-  visible. What runs is unchanged. The default, `false`, works as
+  previews, the same way as in session records. Expansions and shell syntax that runs in a bash
+  command stay visible. What runs is unchanged. The default, `false`, works as
   before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 

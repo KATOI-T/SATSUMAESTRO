@@ -26,22 +26,17 @@ _PLACEHOLDERS = frozenset(
 _PEM = regex.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", regex.DOTALL
 )
-_ASSIGN = regex.compile(
+_ASSIGN_HEAD = (
     r"(?P<name>\b(?:[A-Za-z0-9]+_)*(?:API_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN|REFRESH_?TOKEN|"
     r"CLIENT_?SECRET|SECRET_?KEY|PRIVATE_?KEY|PASSWORD|PASSWD)\b"
     r"|\b(?:[A-Za-z0-9]+_)+(?:TOKEN|SECRET)\b)"
-    r"(?P<sep>[\"']?\s*[=:]\s*)(?P<quote>[\"']?)(?P<value>[^\s\"'`,;]{4,})",
-    regex.IGNORECASE,
+    r"(?P<sep>[\"']?\s*[=:]\s*)(?P<quote>[\"']?)"
 )
-_AUTH = regex.compile(
-    r"(?P<prefix>\bAuthorization\s*[:=]\s*(?:Bearer|Basic|Token)\s+)(?P<value>[^\s\"']+)",
-    regex.IGNORECASE,
-)
-_QUERY = regex.compile(
-    r"(?P<prefix>[?&](?:token|key|api_key|apikey|access_token|secret|password)=)"
-    r"(?P<value>[^&\s\"'#]+)",
-    regex.IGNORECASE,
-)
+_AUTH_HEAD = r"(?P<prefix>\bAuthorization\s*[:=]\s*(?:Bearer|Basic|Token)\s+)"
+_QUERY_HEAD = r"(?P<prefix>[?&](?:token|key|api_key|apikey|access_token|secret|password)=)"
+_ASSIGN = regex.compile(_ASSIGN_HEAD + r"(?P<value>[^\s\"'`,;]{4,})", regex.IGNORECASE)
+_AUTH = regex.compile(_AUTH_HEAD + r"(?P<value>[^\s\"']+)", regex.IGNORECASE)
+_QUERY = regex.compile(_QUERY_HEAD + r"(?P<value>[^&\s\"'#]+)", regex.IGNORECASE)
 _SHAPES = regex.compile(
     r"\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-[A-Za-z0-9_\-]{20,}|xai-[A-Za-z0-9_\-]{20,}"
     r"|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|AKIA[0-9A-Z]{16}"
@@ -49,8 +44,13 @@ _SHAPES = regex.compile(
 )
 
 _ROW = regex.compile("[^\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+")
-_RUNS_BARE = frozenset("$`()&|;<>")
-_RUNS_QUOTED = frozenset("$`")
+_VARIABLE = regex.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])")
+_RUNS_BARE = frozenset("&|;<>()")
+_COMMAND_VALUES = (
+    (regex.compile(_ASSIGN_HEAD + r"(?=[^\s\"',;])", regex.IGNORECASE), "\"',;`", 4, True),
+    (regex.compile(_AUTH_HEAD + r"(?=[^\s\"'])", regex.IGNORECASE), "\"'", 1, False),
+    (regex.compile(_QUERY_HEAD + r"(?=[^&\s\"'#])", regex.IGNORECASE), "&\"'#", 1, False),
+)
 
 _STRUCTURAL_KEYS = frozenset(
     {"type", "role", "id", "tool_use_id", "tool_name", "name", "session_id", "model", "signature"}
@@ -76,12 +76,11 @@ def _sub(pattern: regex.Pattern[str], text: str, repl: Any) -> str:
         return text
 
 
-def _runs_from(text: str, start: int, end: int) -> int | None:
-    """``text[start:end]`` で、シェルが実行する最初の記号の位置（引用符と ``\\`` を見る）。"""
-    quote = ""
-    escaped = False
-    for i in range(end):
-        ch = text[i]
+def _read_quotes(
+    text: str, start: int, end: int, quote: str = "", escaped: bool = False
+) -> tuple[str, bool]:
+    """``text[start:end]`` を読んだ後の、開いている引用符と ``\\`` の続き。"""
+    for ch in text[start:end]:
         if escaped:
             escaped = False
         elif quote == "'":
@@ -93,27 +92,101 @@ def _runs_from(text: str, start: int, end: int) -> int | None:
             quote = ""
         elif not quote and ch in "'\"":
             quote = ch
-        elif i >= start and ch in (_RUNS_QUOTED if quote else _RUNS_BARE):
-            return i
+    return quote, escaped
+
+
+def _closing(text: str, i: int, closer: str, opener: str = "") -> int | None:
+    """開き記号の直後 ``i`` から、対応する閉じ記号の直後の位置（閉じていなければ ``None``）。"""
+    depth, quote = 1, ""
+    while i < len(text):
+        ch = text[i]
+        if quote == "'":
+            if ch == "'":
+                quote = ""
+        elif ch == "\\":
+            i += 1
+        elif quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        elif ch == opener:
+            depth += 1
+        i += 1
     return None
 
 
-def _hide(m: regex.Match[str], command: bool) -> str:
-    """値を伏せる（コマンドでは、実行される記号から後ろを残す。値がそこから始まれば残す）。"""
-    if not command:
-        return REDACTED
-    cut = _runs_from(m.string, m.start("value"), m.end("value"))
-    if cut is None:
-        return REDACTED
-    if cut == m.start("value"):
-        return m.group("value")
-    return REDACTED + m.string[cut : m.end("value")]
+def _expansion(text: str, i: int) -> tuple[int, int | None] | None:
+    """``text[i]`` からの展開の、開き記号の終わりと全体の終わり（閉じなければ ``None``）。"""
+    for opener, closer, nest in (("$(", ")", "("), ("${", "}", "{"), ("`", "`", "")):
+        if text.startswith(opener, i):
+            return i + len(opener), _closing(text, i + len(opener), closer, nest)
+    m = _VARIABLE.match(text, i)
+    return (m.end(), m.end()) if m else None
 
 
-def _assign_repl(m: regex.Match[str], command: bool) -> str:
+def _shown_value(text: str, start: int, stops: str, quote: str) -> tuple[str, int]:
+    """コマンドの値を、展開は残して文字だけを伏せた形と、値の終わりの位置で返す。"""
+    parts: list[str] = []
+    i = head = start
+    while i < len(text):
+        ch = text[i]
+        found = None if quote == "'" else _expansion(text, i)
+        if found is not None:
+            opened, end = found
+            if i > head:
+                parts.append(REDACTED)
+            if end is None:
+                rest = text[opened:].rstrip("\"'")
+                parts += [text[i:opened], REDACTED if rest else "", text[opened + len(rest) :]]
+                return "".join(parts), len(text)
+            parts.append(text[i:end])
+            i = head = end
+        elif ch.isspace() or ch in stops or (not quote and ch in _RUNS_BARE):
+            break
+        else:
+            i += 2 if ch == "\\" and quote != "'" else 1
+    i = min(i, len(text))
+    if i > head:
+        parts.append(REDACTED)
+    return "".join(parts), i
+
+
+def _hide_values(
+    pattern: regex.Pattern[str], text: str, stops: str, shortest: int, placeholders: bool
+) -> str:
+    """コマンドの中の値を伏せる（展開と実行される記号は残す）。"""
+    try:
+        matches = list(pattern.finditer(text, timeout=_TIMEOUT_S))
+    except TimeoutError:
+        _log.warning("secret redaction timed out: %s", pattern.pattern[:40])
+        return text
+    parts: list[str] = []
+    last = read = 0
+    state = ("", False)
+    for m in matches:
+        start = m.end()
+        if m.start() < last:
+            continue
+        state = _read_quotes(text, read, start, *state)
+        read = start
+        shown, end = _shown_value(text, start, stops, state[0])
+        raw = text[start:end]
+        if len(raw) < shortest or (placeholders and raw.lower() in _PLACEHOLDERS):
+            continue
+        parts += [text[last:start], shown]
+        last = end
+    return "".join(parts) + text[last:]
+
+
+def _assign_repl(m: regex.Match[str]) -> str:
     if m.group("value").lower() in _PLACEHOLDERS:
         return m.group(0)
-    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{_hide(m, command)}"
+    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{REDACTED}"
 
 
 @lru_cache(maxsize=4096)
@@ -122,9 +195,13 @@ def _redact_cached(text: str, values: tuple[str, ...], command: bool = False) ->
     for value in values:
         out = out.replace(value, REDACTED)
     out = _sub(_PEM, out, REDACTED)
-    out = _sub(_ASSIGN, out, lambda m: _assign_repl(m, command))
-    out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{_hide(m, command)}")
-    out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{_hide(m, command)}")
+    if command:
+        for pattern, stops, shortest, placeholders in _COMMAND_VALUES:
+            out = _hide_values(pattern, out, stops, shortest, placeholders)
+    else:
+        out = _sub(_ASSIGN, out, _assign_repl)
+        out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{REDACTED}")
+        out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{REDACTED}")
     return _sub(_SHAPES, out, REDACTED)
 
 
@@ -139,7 +216,7 @@ def redact_secrets(text: str, *, values: Iterable[str] = ()) -> str:
 
 
 def redact_command(command: str, *, values: Iterable[str] = ()) -> str:
-    """画面と確認に出す bash のコマンドを伏せる（実行される記号から後ろは残す）。"""
+    """画面と確認に出す bash のコマンドを伏せる（展開と実行される記号は残す）。"""
     return _redact_cached(command, _value_key(values), True)
 
 
