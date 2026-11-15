@@ -18,6 +18,7 @@ REDACTED = "[redacted]"
 
 _TIMEOUT_S = 1.0
 _MIN_VALUE_LEN = 8
+_PIECE_MIN = 4
 
 _PLACEHOLDERS = frozenset(
     {"not", "unset", "none", "null", "missing", "required", "redacted", REDACTED}
@@ -44,6 +45,7 @@ _SHAPES = regex.compile(
 )
 
 _ROW = regex.compile("[^\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+")
+_ALNUM = regex.compile("[A-Za-z0-9]+")
 _VARIABLE = regex.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])")
 _RUNS_BARE = frozenset("&|;<>()")
 _COMMAND_VALUES = (
@@ -251,6 +253,55 @@ def redact_shown_input(
     if tool == "bash" and isinstance(command, str):
         shown["command"] = redact_command(command, values=vals)
     return shown
+
+
+def _hidden_pieces(real: str, shown: str) -> list[str]:
+    """``shown`` が ``[redacted]`` で隠した ``real`` の部分（各行と、長い英数字の並びも）。"""
+    parts = shown.split(REDACTED)
+    head, tail = parts[0], parts[-1]
+    pos, stop = len(head), len(real) - len(tail)
+    if len(parts) == 1 or stop < pos or not (real.startswith(head) and real.endswith(tail)):
+        return []
+    pieces: list[str] = []
+    for part in parts[1:-1]:
+        at = real.find(part, pos + 1, stop)
+        if at < 0:
+            break
+        pieces.append(real[pos:at])
+        pos = at + len(part)
+    pieces.append(real[pos:stop])
+    lines = [p for piece in pieces for p in (piece, *piece.splitlines()) if len(p) >= _PIECE_MIN]
+    words = [w for piece in pieces for w in _ALNUM.findall(piece) if len(w) >= _MIN_VALUE_LEN]
+    return lines + words
+
+
+def shown_input_pieces(
+    tool: str, payload: Mapping[str, Any], *, values: Iterable[str] = ()
+) -> list[str]:
+    """画面と確認でツールの入力から伏せた部分（同じ値を説明の文からも伏せるため）。"""
+    pieces: list[str] = []
+
+    def walk(real: Any, shown: Any) -> None:
+        if isinstance(real, str) and isinstance(shown, str):
+            pieces.extend(_hidden_pieces(real, shown))
+        elif isinstance(real, Mapping) and isinstance(shown, Mapping):
+            for key, value in real.items():
+                walk(value, shown.get(key))
+        elif isinstance(real, list) and isinstance(shown, list):
+            for value, seen in zip(real, shown, strict=False):
+                walk(value, seen)
+
+    walk(payload, redact_shown_input(tool, payload, values=values))
+    return pieces
+
+
+def redact_pieces(text: str, pieces: Iterable[str], *, values: Iterable[str] = ()) -> str:
+    """``text`` から ``pieces``（英数字の語の途中は除く）と秘密を伏せる。"""
+    for piece in sorted(set(pieces), key=len, reverse=True):
+        before = "(?<![A-Za-z0-9])" if _ALNUM.match(piece[0]) else ""
+        after = "(?![A-Za-z0-9])" if _ALNUM.match(piece[-1]) else ""
+        text = _sub(regex.compile(before + regex.escape(piece) + after), text, REDACTED)
+    return redact_secrets(text, values=values)
 
 
 def redact_rows(rows: list[dict[str, Any]], *, values: Iterable[str] = ()) -> list[dict[str, Any]]:

@@ -277,3 +277,66 @@ def test_the_always_answer_is_offered_as_without_redaction(
     on = _prompts(monkeypatch, _call(card), redact=True)
     off = _prompts(monkeypatch, _call(card), redact=False)
     assert on == off
+
+
+def _secret_parts(card: _Card) -> list[str]:
+    return [s for s in card.hidden if s != "PRIVATE KEY"]
+
+
+def _explained(
+    monkeypatch: pytest.MonkeyPatch, call: ToolUse, detail: PermissionDetail, *, redact: bool
+) -> str:
+    prompter, buf = _prompter(redact=redact)
+    monkeypatch.setattr(prompter.console, "input", lambda *a, **k: "n")
+    prompter.decide_with_detail(call, _REQUIRED, None, detail)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("redact", [True, False])
+@pytest.mark.parametrize("card", [c for c in _CARDS if _secret_parts(c)], ids=lambda c: c.id)
+def test_the_explanation_after_d_hides_what_the_card_hides(
+    monkeypatch: pytest.MonkeyPatch, card: _Card, redact: bool
+) -> None:
+    said = "It uses " + ", ".join(f"`{s}`" for s in _secret_parts(card)) + " and stops."
+    out = _explained(monkeypatch, _call(card), PermissionDetail(said, None), redact=redact)
+    shown = [s for s in _secret_parts(card) if s in out]
+    assert shown == ([] if redact else _secret_parts(card))
+    assert ("It uses" in out and "and stops." in out) is True
+
+
+def test_the_explanation_keeps_the_expansion_it_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    [card] = [c for c in _CARDS if c.id == "bash-after-an-expansion"]
+    said = "It sets PASSWORD to `${PREFIX}private12345` and runs login.sh."
+    out = _explained(monkeypatch, _call(card), PermissionDetail(said, None), redact=True)
+    assert "`${PREFIX}[redacted]`" in out and "private12345" not in out
+
+
+def test_the_explanation_hides_a_value_after_a_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    call = ToolUse(id="c", name="bash", input={"command": "PASSWORD=$PREFIX-private12345 ./x"})
+    said = "It sets PASSWORD to $PREFIX-private12345."
+    out = _explained(monkeypatch, call, PermissionDetail(said, None), redact=True)
+    assert "$PREFIX[redacted]." in out and "private12345" not in out
+
+
+def test_short_hidden_pieces_do_not_cut_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    call = ToolUse(id="c", name="bash", input={"command": "PASSWORD=ab$(x) ./run"})
+    said = "It runs x about the abc file."
+    out = _explained(monkeypatch, call, PermissionDetail(said, None), redact=True)
+    assert said in out
+
+
+@pytest.mark.parametrize("redact", [True, False])
+def test_the_facts_without_an_explanation_hide_it_too(
+    monkeypatch: pytest.MonkeyPatch, redact: bool
+) -> None:
+    [card] = [c for c in _CARDS if c.id == "bash-quoted-password"]
+    detail = PermissionDetail(
+        explanation=None,
+        failure="timeout",
+        model_text="I will log in with ab$private12345 now.",
+        step=(1, 2, f"use {_KEY}"),
+        user_request="the password is ab$private12345",
+    )
+    out = _explained(monkeypatch, _call(card), detail, redact=redact)
+    assert ("private12345" in out) is not redact
+    assert (_KEY in out) is not redact
