@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import lru_cache
 from typing import Any
 
@@ -48,6 +48,9 @@ _SHAPES = regex.compile(
     r"|xox[baprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35})"
 )
 
+_SHELL = regex.compile(r"[$`()&|;<>]")
+_MIN_SHOWN_HEAD = 4
+
 _STRUCTURAL_KEYS = frozenset(
     {"type", "role", "id", "tool_use_id", "tool_name", "name", "session_id", "model", "signature"}
 )
@@ -72,28 +75,69 @@ def _sub(pattern: regex.Pattern[str], text: str, repl: Any) -> str:
         return text
 
 
-def _assign_repl(m: regex.Match[str]) -> str:
+def _whole(value: str) -> str:
+    return REDACTED
+
+
+def _before_shell(value: str) -> str:
+    """値の、最初のシェルの記号から後ろは実行される物なので残す（前が短ければ伏せない）。"""
+    cut = _SHELL.search(value)
+    if cut is None:
+        return REDACTED
+    head = value[: cut.start()]
+    if len(head) < _MIN_SHOWN_HEAD or head.lower() in _PLACEHOLDERS:
+        return value
+    return REDACTED + value[cut.start() :]
+
+
+def _assign_repl(m: regex.Match[str], hide: Callable[[str], str]) -> str:
     if m.group("value").lower() in _PLACEHOLDERS:
         return m.group(0)
-    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{REDACTED}"
+    return f"{m.group('name')}{m.group('sep')}{m.group('quote')}{hide(m.group('value'))}"
 
 
 @lru_cache(maxsize=4096)
-def _redact_cached(text: str, values: tuple[str, ...]) -> str:
+def _redact_cached(text: str, values: tuple[str, ...], shown: bool = False) -> str:
+    hide = _before_shell if shown else _whole
     out = text
     for value in values:
         out = out.replace(value, REDACTED)
     out = _sub(_PEM, out, REDACTED)
-    out = _sub(_ASSIGN, out, _assign_repl)
-    out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{REDACTED}")
-    out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{REDACTED}")
+    out = _sub(_ASSIGN, out, lambda m: _assign_repl(m, hide))
+    out = _sub(_AUTH, out, lambda m: f"{m.group('prefix')}{hide(m.group('value'))}")
+    out = _sub(_QUERY, out, lambda m: f"{m.group('prefix')}{hide(m.group('value'))}")
     return _sub(_SHAPES, out, REDACTED)
+
+
+def _value_key(values: Iterable[str]) -> tuple[str, ...]:
+    key = {v for v in values if len(v) >= _MIN_VALUE_LEN}
+    return tuple(sorted(key, key=len, reverse=True))
 
 
 def redact_secrets(text: str, *, values: Iterable[str] = ()) -> str:
     """``text`` の秘密を ``[redacted]`` に置き換えた文字列を返す。"""
-    key = tuple(v for v in values if len(v) >= _MIN_VALUE_LEN)
-    return _redact_cached(text, tuple(sorted(set(key), key=len, reverse=True)))
+    return _redact_cached(text, _value_key(values))
+
+
+def redact_shown(text: str, *, values: Iterable[str] = ()) -> str:
+    """画面と確認に出す文字列を伏せる（秘密らしい名前の値でもシェルの記号から後ろは残す）。"""
+    return _redact_cached(text, _value_key(values), True)
+
+
+def redact_shown_input(payload: Mapping[str, Any], *, values: Iterable[str] = ()) -> dict[str, Any]:
+    """画面と確認に出すツールの入力を伏せた写し（キーの名前では飛ばさない）。"""
+    vals = tuple(values)
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            return redact_shown(node, values=vals)
+        if isinstance(node, Mapping):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    return {k: walk(v) for k, v in payload.items()}
 
 
 def redact_rows(rows: list[dict[str, Any]], *, values: Iterable[str] = ()) -> list[dict[str, Any]]:

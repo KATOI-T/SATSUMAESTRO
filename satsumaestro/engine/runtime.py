@@ -199,7 +199,7 @@ from satsumaestro.session.models import (
     WriteChunk,
     plan_file_relpath,
 )
-from satsumaestro.session.redact import redact_rows, redact_secrets, secret_values
+from satsumaestro.session.redact import redact_secrets, redact_shown_input, secret_values
 from satsumaestro.session.store import JSONLSessionStore
 from satsumaestro.tools import (
     edit_match,
@@ -2141,7 +2141,7 @@ class ConversationRuntime:
         """画面と確認に出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
         if not self.config.redaction.live:
             return call
-        shown = redact_rows([dict(call.input)], values=secret_values())[0]
+        shown = redact_shown_input(call.input, values=secret_values())
         return call.model_copy(update={"input": shown})
 
     def _shown_result(self, block: ToolResultBlock) -> ToolResultBlock:
