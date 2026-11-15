@@ -33,9 +33,14 @@ _ASSIGN_HEAD = (
     r"|\b(?:[A-Za-z0-9]+_)+(?:TOKEN|SECRET)\b)"
     r"(?P<sep>[\"']?\s*[=:]\s*)(?P<quote>[\"']?)"
 )
+_ASSIGN_STARTS = r"(?:(?<=\")(?=[^\"\n])|(?<=')(?=[^'\n])|(?<![\"'])(?=[^\s\"',;]))"
 _AUTH_HEAD = r"(?P<prefix>\bAuthorization\s*[:=]\s*(?:Bearer|Basic|Token)\s+)"
 _QUERY_HEAD = r"(?P<prefix>[?&](?:token|key|api_key|apikey|access_token|secret|password)=)"
-_ASSIGN = regex.compile(_ASSIGN_HEAD + r"(?P<value>[^\s\"'`,;]{4,})", regex.IGNORECASE)
+_ASSIGN = regex.compile(
+    _ASSIGN_HEAD + r"(?:(?<=\")(?P<value>(?:\\.|[^\"\\\n]){4,})|(?<=')(?P<value>[^'\n]{4,})"
+    r"|(?<![\"'])(?P<value>[^\s\"'`,;]{4,}))",
+    regex.IGNORECASE,
+)
 _AUTH = regex.compile(_AUTH_HEAD + r"(?P<value>[^\s\"']+)", regex.IGNORECASE)
 _QUERY = regex.compile(_QUERY_HEAD + r"(?P<value>[^&\s\"'#]+)", regex.IGNORECASE)
 _SHAPES = regex.compile(
@@ -49,7 +54,7 @@ _ALNUM = regex.compile("[A-Za-z0-9]+")
 _VARIABLE = regex.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])")
 _RUNS_BARE = frozenset("&|;<>()")
 _COMMAND_VALUES = (
-    (regex.compile(_ASSIGN_HEAD + r"(?=[^\s\"',;])", regex.IGNORECASE), "\"',;`", 4, True),
+    (regex.compile(_ASSIGN_HEAD + _ASSIGN_STARTS, regex.IGNORECASE), "\"',;`", 4, True),
     (regex.compile(_AUTH_HEAD + r"(?=[^\s\"'])", regex.IGNORECASE), "\"'", 1, False),
     (regex.compile(_QUERY_HEAD + r"(?=[^&\s\"'#])", regex.IGNORECASE), "&\"'#", 1, False),
 )
@@ -131,8 +136,16 @@ def _expansion(text: str, i: int) -> tuple[int, int | None] | None:
     return (m.end(), m.end()) if m else None
 
 
-def _shown_value(text: str, start: int, stops: str, quote: str) -> tuple[str, int]:
+def _value_ends(ch: str, stops: str, quote: str, own: str) -> bool:
+    """値がここで終わるか（値を囲む引用符 ``own`` の中は、閉じる引用符と改行だけで終わる）。"""
+    if own:
+        return ch == own or ch in "\n\r"
+    return ch.isspace() or ch in stops or (not quote and ch in _RUNS_BARE)
+
+
+def _shown_value(text: str, start: int, stops: str, quote: str, own: str) -> tuple[str, int]:
     """コマンドの値を、展開は残して文字だけを伏せた形と、値の終わりの位置で返す。"""
+    quote = own or quote
     parts: list[str] = []
     i = head = start
     while i < len(text):
@@ -148,7 +161,7 @@ def _shown_value(text: str, start: int, stops: str, quote: str) -> tuple[str, in
                 return "".join(parts), len(text)
             parts.append(text[i:end])
             i = head = end
-        elif ch.isspace() or ch in stops or (not quote and ch in _RUNS_BARE):
+        elif _value_ends(ch, stops, quote, own):
             break
         else:
             i += 2 if ch == "\\" and quote != "'" else 1
@@ -176,7 +189,8 @@ def _hide_values(
             continue
         state = _read_quotes(text, read, start, *state)
         read = start
-        shown, end = _shown_value(text, start, stops, state[0])
+        own = m.groupdict().get("quote") or ""
+        shown, end = _shown_value(text, start, stops, state[0], own)
         raw = text[start:end]
         if len(raw) < shortest or (placeholders and raw.lower() in _PLACEHOLDERS):
             continue

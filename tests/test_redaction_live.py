@@ -110,6 +110,18 @@ async def test_tool_results_go_to_the_model_and_the_screen_redacted(ws: Path) ->
         assert "[redacted]" in text and "plain line" in text
 
 
+async def test_a_quoted_passphrase_reaches_the_model_redacted(ws: Path) -> None:
+    (ws / "settings.txt").write_text(
+        "DB_PASSWORD='correct horse battery staple'\n", encoding="utf-8"
+    )
+    read = ToolUse(id="r2", name="read_file", input={"path": "settings.txt"})
+    rt = _runtime(ws, [read], live=True)
+    await rt.run_turn("go")
+    [result] = _results(rt)
+    assert "DB_PASSWORD='[redacted]'" in result.output
+    assert "horse" not in result.output and "staple" not in result.output
+
+
 async def test_tool_results_stay_as_they_are_when_off(ws: Path) -> None:
     rt = _runtime(ws, [_READ], live=False)
     render = _Render()

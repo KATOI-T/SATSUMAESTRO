@@ -95,6 +95,8 @@ _EXPANSIONS = [
     ("PASSWORD=ab\\${X}cd1234 ./login.sh", "PASSWORD=[redacted] ./login.sh"),
     ("PASSWORD=${A}private12345&&rm x", "PASSWORD=${A}[redacted]&&rm x"),
     ("PASSWORD=$(cat x) ./login.sh", "PASSWORD=$(cat x) ./login.sh"),
+    ('PASSWORD="ab cd$(x) private12345" ./x', 'PASSWORD="[redacted]$(x)[redacted]" ./x'),
+    ('PASSWORD="ab ${X} cd12" ./x', 'PASSWORD="[redacted]${X}[redacted]" ./x'),
     ("PASSWORD=$(cat key private12345", "PASSWORD=$([redacted]"),
     ("PASSWORD=`cat key private12345", "PASSWORD=`[redacted]"),
     ('PASSWORD="${A private12345"', 'PASSWORD="${[redacted]"'),
@@ -107,7 +109,26 @@ _EXPANSIONS = [
         'curl "https://example.invalid/?token=${T}[redacted]&x=1"',
     ),
 ]
-_ONE_PIECE = [*_UNQUOTED, *_SINGLE, *_DOUBLE, *_OTHERS, *[(run, run) for run in _RUNS]]
+_QUOTED_SPACES = [
+    ("PASSWORD='ab private12345' ./login.sh", "PASSWORD='[redacted]' ./login.sh"),
+    ("PASSWORD='abcd private12345' ./login.sh", "PASSWORD='[redacted]' ./login.sh"),
+    ("export DB_PASSWORD='correct horse battery staple'", "export DB_PASSWORD='[redacted]'"),
+    ('export DB_PASSWORD="correct horse battery staple"', 'export DB_PASSWORD="[redacted]"'),
+    ("PASSWORD='ab, cd; ef' ./x", "PASSWORD='[redacted]' ./x"),
+    ("PASSWORD=' ab cd12' ./x", "PASSWORD='[redacted]' ./x"),
+    ('PASSWORD="ab \\" cd" ./x', 'PASSWORD="[redacted]" ./x'),
+    ("PASSWORD='ab cd\nnext line", "PASSWORD='[redacted]\nnext line"),
+    ('sh -c "PASSWORD=abcd1234 ./x"', 'sh -c "PASSWORD=[redacted] ./x"'),
+    ('echo "PASSWORD=abcd1234 is wrong"', 'echo "PASSWORD=[redacted] is wrong"'),
+]
+_ONE_PIECE = [
+    *_UNQUOTED,
+    *_SINGLE,
+    *_DOUBLE,
+    *_OTHERS,
+    *_QUOTED_SPACES,
+    *[(run, run) for run in _RUNS],
+]
 _CASES = [*_ONE_PIECE, *_EXPANSIONS]
 _KEEPS_SYNTAX = [*_UNQUOTED, *_OTHERS[:1], *_EXPANSIONS, *[(run, run) for run in _RUNS]]
 _SYNTAX = ("$(", "&&", "||", "|", ";", "<", ">", "`")
@@ -150,6 +171,13 @@ def test_records_hide_at_least_as_much(command: str, expected: str) -> None:
         ("API_KEY=$(./payload.sh) make test", "API_KEY=[redacted] make test"),
         ("MY_TOKEN=abcd1234&&rm x", "MY_TOKEN=[redacted] x"),
         ("PASSWORD='ab$cd1234' ./login.sh", "PASSWORD='[redacted]' ./login.sh"),
+        ("PASSWORD='ab private12345' ./login.sh", "PASSWORD='[redacted]' ./login.sh"),
+        ('DB_PASSWORD="correct horse battery staple"', 'DB_PASSWORD="[redacted]"'),
+        ('{"api_key": "ab cd ef gh", "name": "x"}', '{"api_key": "[redacted]", "name": "x"}'),
+        ('PASSWORD="ab \\" cd" ./x', 'PASSWORD="[redacted]" ./x'),
+        ("PASSWORD='ab cd\nnext line", "PASSWORD='[redacted]\nnext line"),
+        ('sh -c "PASSWORD=abcd1234 ./x"', 'sh -c "PASSWORD=[redacted] ./x"'),
+        ('PASSWORD="none" ./x', 'PASSWORD="none" ./x'),
     ],
 )
 def test_records_still_hide_the_whole_value(command: str, record: str) -> None:

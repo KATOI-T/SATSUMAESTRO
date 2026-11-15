@@ -56,6 +56,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   follows each message. To fix it, start with `--lang ja|en` or set `language.mode` to `fixed`.
   ([#27](https://github.com/KATOI-T/SATSUMAESTRO/issues/27))
 
+### Fixed
+
+- A quoted value given to a secret-like name, such as `DB_PASSWORD='correct horse battery staple'`,
+  is now replaced whole in session records. Before, the part after the first space was kept.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+
 ## [0.5.1] - 2026-11-09
 
 ### OpenAI models ([#2](https://github.com/KATOI-T/SATSUMAESTRO/pull/2))
