@@ -2138,7 +2138,7 @@ class ConversationRuntime:
         )
 
     def _shown_call(self, call: ToolUse) -> ToolUse:
-        """画面と確認に出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
+        """確認のカードに出す呼び出し（``redaction.live`` なら入力の秘密を伏せた写し）。"""
         if not self.config.redaction.live:
             return call
         shown = redact_shown_input(call.name, call.input, values=secret_values())
@@ -2512,9 +2512,7 @@ class ConversationRuntime:
             if quiet:
                 if block.is_error and block.output.startswith(PLAN_MODE_DENY_PREFIX):
                     return block
-                render.on_tool_start(
-                    self._shown_call(ToolUse(id=call.id, name=call.name, input=call.input))
-                )
+                render.on_tool_start(ToolUse(id=call.id, name=call.name, input=call.input))
             render.on_tool_result(block)
             return block
 
@@ -2522,7 +2520,7 @@ class ConversationRuntime:
             nonlocal delegated
             tool_use = ToolUse(id=call.id, name=call.name, input=call.input)
             if not quiet:
-                render.on_tool_start(self._shown_call(tool_use))
+                render.on_tool_start(tool_use)
 
             if self.tools.get(call.name) is None:
                 return self._unknown_tool_block(call, counters)

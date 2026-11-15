@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from typing import Any
 
@@ -48,6 +48,7 @@ _SHAPES = regex.compile(
     r"|xox[baprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35})"
 )
 
+_ROW = regex.compile("[^\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+")
 _RUNS_BARE = frozenset("$`()&|;<>")
 _RUNS_QUOTED = frozenset("$`")
 
@@ -142,11 +143,15 @@ def redact_command(command: str, *, values: Iterable[str] = ()) -> str:
     return _redact_cached(command, _value_key(values), True)
 
 
-def screen_redactor(live: bool) -> Callable[[str], str] | None:
-    """``redaction.live`` なら、画面に出す文字列を呼んだ時点の鍵の値で伏せる関数。"""
-    if not live:
-        return None
-    return lambda text: redact_secrets(text, values=secret_values())
+def redact_lines(text: str, *, values: Iterable[str] = ()) -> list[str]:
+    """伏せた文字列を、元と同じ数の行で返す（複数行にわたる秘密は各行を伏せる）。"""
+    masked = text
+    for value in _value_key(values):
+        masked = masked.replace(value, _ROW.sub(REDACTED, value))
+    masked = _sub(_PEM, masked, lambda m: _ROW.sub(REDACTED, m.group(0)))
+    rows = masked.splitlines()
+    lines = redact_secrets(masked).splitlines()
+    return lines if len(lines) == len(rows) else [redact_secrets(row) for row in rows]
 
 
 def redact_shown_input(
