@@ -439,10 +439,12 @@ are saved with these replaced by `[redacted]`: the values of the keys above, val
 secret-like names (such as `API_KEY=…` or `password: …`), `Authorization:` headers, keys in URL
 queries and key-shaped tokens (such as `sk-…` and `ghp_…`). Other secrets in tool output are saved as
 they are. Set `redaction.live` to `true` to replace the same values in tool results before the model
-and the screen see them, and in the tool input shown on the screen and in approval cards (tool
-arguments are then not shown while they stream). Shell syntax such as `$(…)` after a secret-like
-name stays visible in the shown input, because it runs. What runs is unchanged, but the model can no
-longer copy a key it has read.
+and the screen see them, in the tool input shown on the screen and in approval cards, and in the
+current file contents shown in change previews (tool arguments are then not shown while they
+stream). Shell syntax such as `$(…)` after a secret-like name stays visible in the shown input,
+because it runs. What runs is unchanged, but the model can no longer copy a key it has read. It
+reads such a key as `[redacted]`, so rewriting a whole file that holds one can put `[redacted]` in
+the file.
 
 **Telemetry**: SATSUMAESTRO sends no usage data anywhere. `telemetry.enabled` (off by default) only
 counts turns and tool runs in memory for `/insights`, or in a local file set with

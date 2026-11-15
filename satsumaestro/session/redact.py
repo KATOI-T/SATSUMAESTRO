@@ -124,6 +124,13 @@ def redact_shown(text: str, *, values: Iterable[str] = ()) -> str:
     return _redact_cached(text, _value_key(values), True)
 
 
+def screen_redactor(live: bool) -> Callable[[str], str] | None:
+    """``redaction.live`` なら、画面に出す文字列を呼んだ時点の鍵の値で伏せる関数。"""
+    if not live:
+        return None
+    return lambda text: redact_shown(text, values=secret_values())
+
+
 def redact_shown_input(payload: Mapping[str, Any], *, values: Iterable[str] = ()) -> dict[str, Any]:
     """画面と確認に出すツールの入力を伏せた写し（キーの名前では飛ばさない）。"""
     vals = tuple(values)

@@ -170,9 +170,11 @@ class RichRenderer:
         local_server: LocalKind = "ollama",
         cwd: Path | None = None,
         context_limit: int | Callable[[], int] = 0,
+        redact: Callable[[str], str] | None = None,
     ) -> None:
         self.console = console or Console()
         self._cwd = cwd
+        self._redact = redact
         self._context_limit = context_limit
         self._loading_model = loading_model
         self._local_server: LocalKind = local_server
@@ -196,7 +198,7 @@ class RichRenderer:
         self._phase_label: str | None = None
         self._phase_since = time.monotonic()
         self._spinner = Spinner("dots", style="cyan")
-        self._stream_tool_args = stream_tool_args
+        self._stream_tool_args = stream_tool_args and redact is None
         self._tool_args: dict[int, str] = {}
         self._tool_arg_names: dict[int, str] = {}
         self._tool_arg_active: int | None = None
@@ -290,7 +292,7 @@ class RichRenderer:
         if display.at_start:
             self._emit_tool(display.label, [_tool_item(d) for d in display.items])
             if self._tty:
-                preview = change_preview(call, self._cwd)
+                preview = change_preview(call, self._cwd, self._redact)
                 if preview is not None:
                     self._emit(Padding(preview, (0, 0, 0, _ITEM_INDENT)), separated=False)
         self.on_phase(display.status())
@@ -951,13 +953,15 @@ def action_preview(
     return Panel(body, title=title, border_style="yellow", expand=False)
 
 
-def change_preview(call: ToolUse, cwd: Path | None = None) -> RenderableType | None:
-    """ファイル変更ツールの「これから何を変えるか」。"""
+def change_preview(
+    call: ToolUse, cwd: Path | None = None, redact: Callable[[str], str] | None = None
+) -> RenderableType | None:
+    """ファイル変更ツールの「これから何を変えるか」（``redact`` は今の内容にもかける）。"""
     inp = call.input
     path = str(inp.get("path", ""))
     if call.name == "edit_file":
         old, new = str(inp.get("old", "")), str(inp.get("new", ""))
-        current = _read_current(cwd, path)
+        current = _read_current(cwd, path, redact)
         if isinstance(current, str) and old and old in current:
             after = (
                 current.replace(old, new)
@@ -974,7 +978,7 @@ def change_preview(call: ToolUse, cwd: Path | None = None) -> RenderableType | N
         return _delete_preview(path, cwd)
     if call.name == "write_file":
         content = str(inp.get("content", ""))
-        current = _read_current(cwd, path)
+        current = _read_current(cwd, path, redact)
         if current is _MISSING:
             return _numbered_new_file(content)
         if isinstance(current, str):
@@ -982,7 +986,7 @@ def change_preview(call: ToolUse, cwd: Path | None = None) -> RenderableType | N
         return _write_preview(path, content, False)
     if call.name == "append_file":
         content = str(inp.get("content", ""))
-        current = _read_current(cwd, path)
+        current = _read_current(cwd, path, redact)
         if current is _MISSING:
             return _numbered_new_file(content)
         if isinstance(current, str):
@@ -995,7 +999,9 @@ _PREVIEW_READ_LIMIT = 1_000_000
 _MISSING = object()
 
 
-def _read_current(cwd: Path | None, path: str) -> str | object | None:
+def _read_current(
+    cwd: Path | None, path: str, redact: Callable[[str], str] | None = None
+) -> str | object | None:
     """変更前の内容。"""
     if cwd is None or not path:
         return None
@@ -1007,9 +1013,10 @@ def _read_current(cwd: Path | None, path: str) -> str | object | None:
             return _MISSING
         if not target.is_file() or target.stat().st_size > _PREVIEW_READ_LIMIT:
             return None
-        return target.read_text(encoding="utf-8")
+        text = target.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+    return text if redact is None else redact(text)
 
 
 def _numbered_diff(before: str, after: str) -> RenderableType:

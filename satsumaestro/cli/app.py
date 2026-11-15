@@ -137,6 +137,7 @@ from satsumaestro.security.policy import default_policy
 from satsumaestro.security.policy_markdown import ParsedPolicy, load_policies
 from satsumaestro.security.trust import TrustStore, trust_root
 from satsumaestro.session.models import WriteChunk, resolve_initial_mode
+from satsumaestro.session.redact import screen_redactor
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.skill.resolver import SkillMeta, list_skills
 from satsumaestro.telemetry.log import TraceLog
@@ -518,11 +519,12 @@ async def _assemble_runtime(
         RichRenderer(
             _console,
             show_thinking=cfg.show_thinking,
-            stream_tool_args=cfg.stream_tool_args and not cfg.redaction.live,
+            stream_tool_args=cfg.stream_tool_args,
             loading_model=_unloaded_model(fit),
             local_server=_local_kind(cfg, rt.session.model),
             cwd=cwd,
             context_limit=lambda: cfg.compact_token_threshold,
+            redact=screen_redactor(cfg.redaction.live),
         ),
     )
 
