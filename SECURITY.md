@@ -52,7 +52,8 @@ vulnerability:
 - **Keys and records**: provider API keys reach child processes (bash, hooks, LSP servers), or keys
   and tokens are written unredacted to session records
 - **Web fetch**: `web_fetch` reaches a private, loopback or cloud metadata address while
-  `allow_private_hosts` is off (including through redirects), or runs without being enabled
+  `allow_private_hosts` is off, or a host outside a non-empty `allowed_hosts` (both including
+  through redirects), or runs without being enabled
 - **Self-invocation**: the agent starts another copy of itself from bash despite the guard
 
 ## Out of scope

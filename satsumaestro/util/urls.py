@@ -39,3 +39,9 @@ def openai_base(url: str) -> str:
     if not urlparse(trimmed).path:
         return trimmed + "/v1"
     return trimmed
+
+
+def host_matches(host: str, domain: str) -> bool:
+    """``host`` が ``domain`` かそのサブドメインか（大文字・小文字と両端の ``.`` は見ない）。"""
+    host, domain = host.lower().strip("."), domain.lower().strip(".")
+    return host == domain or host.endswith(f".{domain}")

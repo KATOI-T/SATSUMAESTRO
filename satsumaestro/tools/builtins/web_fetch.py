@@ -70,6 +70,11 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
     host = url.host
     if not host:
         return f"web_fetch refused: the URL has no host: {url}"
+    if cfg.allowed_hosts and not cfg.lists_host(host):
+        return (
+            f"web_fetch refused: {host} is not in web_fetch.allowed_hosts. Only the user can "
+            "add hosts, with the setting web_fetch.allowed_hosts (not a tool argument)."
+        )
     if cfg.allow_private_hosts:
         return None
     port = url.port or (443 if url.scheme == "https" else 80)

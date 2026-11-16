@@ -14,6 +14,7 @@ from satsumaestro.config.models import WebSearchConfig
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.tools.base import Tool, ToolContext, ToolResult, ToolSpec
 from satsumaestro.tools.schema import model_tool_schema
+from satsumaestro.util.urls import host_matches
 
 _DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/"
 TURNED_OFF = (
@@ -139,11 +140,6 @@ def engines_text(failed: list[tuple[str, str]]) -> str:
     return ", ".join(f"{name} ({reason})" if reason else name for name, reason in failed)
 
 
-def _host_matches(host: str, domain: str) -> bool:
-    domain = domain.lower().lstrip(".")
-    return host == domain or host.endswith(f".{domain}")
-
-
 def _filter_domains(
     results: list[tuple[str, str]], allowed: list[str], blocked: list[str]
 ) -> list[tuple[str, str]]:
@@ -153,9 +149,9 @@ def _filter_domains(
         host = (urllib.parse.urlparse(url).hostname or "").lower()
         if not host:
             continue
-        if allowed and not any(_host_matches(host, d) for d in allowed):
+        if allowed and not any(host_matches(host, d) for d in allowed):
             continue
-        if any(_host_matches(host, d) for d in blocked):
+        if any(host_matches(host, d) for d in blocked):
             continue
         kept.append((title, url))
     return kept
@@ -242,7 +238,7 @@ class WebSearch(Tool):
                 key=lambda tu: (
                     0
                     if any(
-                        _host_matches((urllib.parse.urlparse(tu[1]).hostname or "").lower(), d)
+                        host_matches((urllib.parse.urlparse(tu[1]).hostname or "").lower(), d)
                         for d in cfg.preferred_domains
                     )
                     else 1

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.util.paths import AGENT_DIRNAME
+from satsumaestro.util.urls import host_matches
 
 
 class RetryConfig(BaseModel):
@@ -271,6 +272,22 @@ class WebFetchConfig(BaseModel):
     max_bytes: int = Field(default=2_000_000, ge=1)
     max_redirects: int = Field(default=20, ge=0)
     confirm: Literal["first-use", "always", "never"] = "first-use"
+    allowed_hosts: list[str] = Field(default_factory=list)
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _host_names(cls, value: list[str]) -> list[str]:
+        for name in value:
+            if not name.strip() or "/" in name:
+                raise ValueError(
+                    "web_fetch.allowed_hosts takes host names such as example.com, "
+                    f"not URLs or paths: {name!r}"
+                )
+        return value
+
+    def lists_host(self, host: str) -> bool:
+        """``host`` が ``allowed_hosts`` の名前かそのサブドメインか。"""
+        return any(host_matches(host, name) for name in self.allowed_hosts)
 
 
 class HookConfig(BaseModel):

@@ -35,6 +35,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   command stay visible. What runs is unchanged. The default, `false`, works as
   before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+- `web_fetch.allowed_hosts` limits where `web_fetch` may go to the listed hosts and their
+  subdomains, also through redirects. Other hosts are refused before their names are looked up.
+  The default, an empty list, works as before.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
 
