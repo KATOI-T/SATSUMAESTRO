@@ -155,6 +155,7 @@ class PermissionConfig(BaseModel):
     secret_access: Literal["ask", "deny"] = "ask"
     secret_patterns: list[str] = Field(default_factory=list)
     secret_patterns_remove: list[str] = Field(default_factory=list)
+    confirm_after_external: bool = False
 
 
 class SandboxConfig(BaseModel):

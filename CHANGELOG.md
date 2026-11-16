@@ -39,6 +39,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   subdomains, also through redirects. Other hosts are refused before their names are looked up.
   The default, an empty list, works as before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+- `permission.confirm_after_external: true` asks again for the rest of a turn once `web_fetch`,
+  `web_search` or an MCP tool has returned content in it (also in a sub-agent): file writes, bash
+  commands, MCP tools, sub-agents and further web requests ask even when a rule, the mode or an
+  earlier "always" allows them. Provably read-only bash commands and `web_fetch` to a host in
+  `web_fetch.allowed_hosts` do not. A sub-agent started after such content is refused them, as it
+  cannot ask. The default, `false`, works as before.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
 

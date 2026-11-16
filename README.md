@@ -424,6 +424,14 @@ example `- read_file when path glob: .env`) or choose `a` on the card.
 mode and even when `## Allow` names the path, and `a` cannot remember them (refused in `prompt`).
 The same holds for bash commands that write these files.
 
+**After web or MCP content**: with `"permission": {"confirm_after_external": true}`, once
+`web_fetch`, `web_search` or an MCP tool has returned content in a turn, file writes, bash commands,
+MCP tools, sub-agents and further web requests ask for the rest of that turn, even when a rule, the
+mode or an earlier `a` allows them (refused in `prompt`). Provably read-only bash commands and
+`web_fetch` to a host in `web_fetch.allowed_hosts` still run without asking. Content a sub-agent
+read in the turn counts too. A sub-agent cannot ask, so one started after such content is refused
+these calls. The next message starts clean. It is off by default.
+
 **Limits of the sandbox**: bash runs with the workspace as its working directory, and redirections
 are confined to the workspace. There is no OS-level isolation (namespaces, seccomp). The bash checks
 are an extra layer of warnings; the real guards are the workspace jail and the permission policy.
