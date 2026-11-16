@@ -103,6 +103,19 @@ async def test_an_unlisted_host_is_refused_before_its_name_is_looked_up(
     assert server.resolved == [] and server.seen == []
 
 
+async def test_the_refusal_names_the_listed_hosts(tool_ctx: ToolContext, server: _Server) -> None:
+    ctx = _ctx(tool_ctx, allowed_hosts=["example.com", "docs.python.org"])
+    out, err = await _fetch(ctx, "https://other.example.org/p")
+    assert err and "allowed_hosts (example.com, docs.python.org)." in out
+
+
+async def test_a_long_list_is_cut_in_the_refusal(tool_ctx: ToolContext, server: _Server) -> None:
+    hosts = [f"h{i}.example.com" for i in range(12)]
+    out, err = await _fetch(_ctx(tool_ctx, allowed_hosts=hosts), "https://other.example.org/p")
+    assert err and f"({', '.join(hosts[:10])}, and 2 more)." in out
+    assert "h10.example.com" not in out
+
+
 async def test_the_list_applies_even_when_private_hosts_are_allowed(
     tool_ctx: ToolContext, server: _Server
 ) -> None:

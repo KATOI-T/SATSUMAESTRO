@@ -21,6 +21,7 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 _MIN_PART_TOKENS = 2_000
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+_LISTED_HOSTS = 10
 TURNED_OFF = (
     "web_fetch is turned off. Only the user can turn it on, with the setting "
     "web_fetch.enabled (not a tool argument)."
@@ -63,6 +64,13 @@ def is_local_address(ip: IPAddress) -> bool:
     return not ip.is_global or ip.is_multicast
 
 
+def _listed(hosts: list[str]) -> str:
+    """断る文に出す許可リスト（多ければ先頭だけ）。"""
+    shown = ", ".join(hosts[:_LISTED_HOSTS])
+    rest = len(hosts) - _LISTED_HOSTS
+    return f"{shown}, and {rest} more" if rest > 0 else shown
+
+
 async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
     """取りに行かない URL なら拒否の文。"""
     if url.scheme not in ("http", "https"):
@@ -72,8 +80,9 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
         return f"web_fetch refused: the URL has no host: {url}"
     if cfg.allowed_hosts and not cfg.lists_host(host):
         return (
-            f"web_fetch refused: {host} is not in web_fetch.allowed_hosts. Only the user can "
-            "add hosts, with the setting web_fetch.allowed_hosts (not a tool argument)."
+            f"web_fetch refused: {host} is not in web_fetch.allowed_hosts "
+            f"({_listed(cfg.allowed_hosts)}). Only the user can add hosts, with the setting "
+            "web_fetch.allowed_hosts (not a tool argument)."
         )
     if cfg.allow_private_hosts:
         return None
