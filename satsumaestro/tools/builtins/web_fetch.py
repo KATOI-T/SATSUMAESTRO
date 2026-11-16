@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
 from satsumaestro.security.enforcer import PermissionMode
+from satsumaestro.security.external_reads import FLAG_NOTHING_READ
 from satsumaestro.tools.base import Tool, ToolContext, ToolResult, ToolSpec
 from satsumaestro.tools.schema import model_tool_schema
 from satsumaestro.util.html_text import html_to_markdown
@@ -26,6 +27,11 @@ TURNED_OFF = (
     "web_fetch is turned off. Only the user can turn it on, with the setting "
     "tools.web_fetch.enabled (not a tool argument)."
 )
+
+
+def _read_nothing(output: str) -> ToolResult:
+    """外から何も受け取らずに終えた結果（外の内容に数えない）。"""
+    return ToolResult(output=output, is_error=True, flags=[FLAG_NOTHING_READ])
 
 
 def _make_client(timeout_s: float) -> httpx.AsyncClient:
@@ -191,23 +197,23 @@ class WebFetch(Tool):
         assert isinstance(inp, WebFetch.Input)
         cfg = ctx.config.tools.web_fetch
         if not cfg.enabled:
-            return ToolResult(output=TURNED_OFF, is_error=True)
+            return _read_nothing(TURNED_OFF)
         try:
             url = httpx.URL(inp.url)
         except httpx.InvalidURL as e:
-            return ToolResult(output=f"fetch failed: invalid URL: {e}", is_error=True)
+            return _read_nothing(f"fetch failed: invalid URL: {e}")
         try:
             async with _make_client(min(inp.timeout_s, MAX_TIMEOUT_S)) as client:
                 for _ in range(cfg.max_redirects + 1):
                     refusal = await _refusal(url, cfg)
                     if refusal is not None:
-                        return ToolResult(output=refusal, is_error=True)
+                        return _read_nothing(refusal)
                     async with client.stream("GET", url) as resp:
                         target = _redirect_target(resp)
                         if target is None:
                             read = await _read_body(resp, cfg.max_bytes)
                             if isinstance(read, str):
-                                return ToolResult(output=read, is_error=True)
+                                return _read_nothing(read)
                             data, truncated = read
                             text = data.decode(resp.encoding or "utf-8", errors="replace")
                             return _result(
@@ -264,10 +270,8 @@ def _result(
         text = html_to_markdown(body) or body
     part = _part(text, inp, 0 if is_error else inp.start, budget)
     if part is None:
-        return ToolResult(
-            output=f"web_fetch: start={inp.start} is past the end of the content "
-            f"({len(text)} characters).",
-            is_error=True,
+        return _read_nothing(
+            f"web_fetch: start={inp.start} is past the end of the content ({len(text)} characters)."
         )
     shown, more = part
     return ToolResult(output=f"HTTP {resp.status_code}\n\n{shown}{more}{note}", is_error=is_error)

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from satsumaestro.config.models import WebSearchConfig
 from satsumaestro.security.enforcer import PermissionMode
+from satsumaestro.security.external_reads import FLAG_NOTHING_READ
 from satsumaestro.tools.base import Tool, ToolContext, ToolResult, ToolSpec
 from satsumaestro.tools.schema import model_tool_schema
 from satsumaestro.util.urls import host_matches
@@ -192,6 +193,7 @@ class WebSearch(Tool):
                 output="web_search has no search backend configured "
                 "(see the tools.web_search.provider and tools.web_search.base_url settings).",
                 is_error=True,
+                flags=[FLAG_NOTHING_READ],
             )
         try:
             async with _make_client(cfg.timeout_s) as client:

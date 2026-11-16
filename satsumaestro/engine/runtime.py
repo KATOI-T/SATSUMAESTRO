@@ -2905,7 +2905,7 @@ class ConversationRuntime:
                     auto_allowed=auto_allowed,
                 )
             self._external_reads.note(
-                call.name, res.is_error, _external_label(call.name, effective_input)
+                call.name, res.flags, _external_label(call.name, effective_input)
             )
             if counters is not None:
                 if syntax_check.FLAG_REJECT in res.flags:
