@@ -71,6 +71,21 @@ def _listed(hosts: list[str]) -> str:
     return f"{shown}, and {rest} more" if rest > 0 else shown
 
 
+def _not_listed(host: str, hosts: list[str]) -> str:
+    """許可リストに無い宛先を断り、足すのは利用者に任せるようモデルに伝える文。"""
+    example = {"web_fetch": {"enabled": True, "allowed_hosts": [*hosts, host]}}
+    return (
+        f"web_fetch refused: {host} is not in web_fetch.allowed_hosts ({_listed(hosts)}). "
+        "Only the user can add hosts: web_fetch.allowed_hosts is a setting, not a tool "
+        "argument, and you cannot edit settings files. Do not offer to add the host yourself. "
+        f"Tell the user that {host} is not allowed, and that they can add it to the list in "
+        "the last of these files that sets it: ~/.satsuma/settings.json, .satsuma.json, "
+        ".satsuma/settings.json, .satsuma/settings.local.json (a list in a later file replaces "
+        "the earlier ones), keep the hosts already listed, and restart SATSUMAESTRO. "
+        f"Show them this example:\n{json.dumps(example)}"
+    )
+
+
 async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
     """取りに行かない URL なら拒否の文。"""
     if url.scheme not in ("http", "https"):
@@ -79,11 +94,7 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
     if not host:
         return f"web_fetch refused: the URL has no host: {url}"
     if cfg.allowed_hosts and not cfg.lists_host(host):
-        return (
-            f"web_fetch refused: {host} is not in web_fetch.allowed_hosts "
-            f"({_listed(cfg.allowed_hosts)}). Only the user can add hosts, with the setting "
-            "web_fetch.allowed_hosts (not a tool argument)."
-        )
+        return _not_listed(host, cfg.allowed_hosts)
     if cfg.allow_private_hosts:
         return None
     port = url.port or (443 if url.scheme == "https" else 80)

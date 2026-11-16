@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 from collections.abc import Callable
 
 import httpx
@@ -109,11 +110,38 @@ async def test_the_refusal_names_the_listed_hosts(tool_ctx: ToolContext, server:
     assert err and "allowed_hosts (example.com, docs.python.org)." in out
 
 
-async def test_a_long_list_is_cut_in_the_refusal(tool_ctx: ToolContext, server: _Server) -> None:
+async def test_the_refusal_leaves_adding_the_host_to_the_user(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    ctx = _ctx(tool_ctx, allowed_hosts=["example.com", "docs.example.com"])
+    out, err = await _fetch(ctx, "https://python.org/")
+    assert err and "you cannot edit settings files" in out
+    assert "Do not offer to add the host yourself." in out
+    assert "Tell the user that python.org is not allowed" in out
+    assert (
+        "~/.satsuma/settings.json, .satsuma.json, .satsuma/settings.json, "
+        ".satsuma/settings.local.json"
+    ) in out
+    assert "a list in a later file replaces the earlier ones" in out
+    assert "restart SATSUMAESTRO" in out
+    example = out.split("Show them this example:\n", 1)[1]
+    assert json.loads(example) == {
+        "web_fetch": {
+            "enabled": True,
+            "allowed_hosts": ["example.com", "docs.example.com", "python.org"],
+        }
+    }
+
+
+async def test_a_long_list_is_cut_in_the_refusal_but_not_in_the_example(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
     hosts = [f"h{i}.example.com" for i in range(12)]
     out, err = await _fetch(_ctx(tool_ctx, allowed_hosts=hosts), "https://other.example.org/p")
-    assert err and f"({', '.join(hosts[:10])}, and 2 more)." in out
-    assert "h10.example.com" not in out
+    text, example = out.split("Show them this example:\n", 1)
+    assert err and f"({', '.join(hosts[:10])}, and 2 more)." in text
+    assert "h10.example.com" not in text
+    assert json.loads(example)["web_fetch"]["allowed_hosts"] == [*hosts, "other.example.org"]
 
 
 async def test_the_list_applies_even_when_private_hosts_are_allowed(
