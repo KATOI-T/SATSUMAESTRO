@@ -105,8 +105,10 @@ def test_doctor_in_english(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
         json.dumps(
             {
                 "provider": {"default_model": "m", "base_url": f"{_ROOT}/v1"},
-                "web_fetch": {"enabled": True},
-                "web_search": {"provider": "duckduckgo"},
+                "tools": {
+                    "web_fetch": {"enabled": True},
+                    "web_search": {"provider": "duckduckgo"},
+                },
                 "mcp_servers": {"demo": {"transport": "stdio", "command": "echo"}},
                 "permission": {"bash_auto_allow": "off"},
             }

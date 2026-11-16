@@ -57,9 +57,9 @@ _BUILTINS: tuple[type[Tool], ...] = (
 def unavailable_tools(config: RuntimeConfig) -> dict[str, str]:
     """設定で使えない組み込みツールと、それでも名前で呼ばれたときに返す文。"""
     off: dict[str, str] = {}
-    if not config.web_fetch.enabled:
+    if not config.tools.web_fetch.enabled:
         off[WebFetch.spec.name] = web_fetch.TURNED_OFF
-    if not web_search.is_ready(config.web_search):
+    if not web_search.is_ready(config.tools.web_search):
         off[WebSearch.spec.name] = web_search.TURNED_OFF
     return off
 

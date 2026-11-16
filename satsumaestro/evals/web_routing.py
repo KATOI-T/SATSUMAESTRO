@@ -14,7 +14,13 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from satsumaestro.config.models import HookConfig, RuntimeConfig, WebFetchConfig, WebSearchConfig
+from satsumaestro.config.models import (
+    HookConfig,
+    RuntimeConfig,
+    ToolsConfig,
+    WebFetchConfig,
+    WebSearchConfig,
+)
 from satsumaestro.engine.runtime import ConversationRuntime
 from satsumaestro.evals.models import EvalReport, TaskResult
 from satsumaestro.hooks.runner import HookRunner
@@ -175,8 +181,12 @@ def _tools_used(runtime: ConversationRuntime) -> list[str]:
 
 async def run_once(task: RoutingTask, model: str, port: int, workspace: Path) -> RunOutcome:
     cfg = RuntimeConfig(
-        web_search=WebSearchConfig(provider="generic", base_url=f"http://127.0.0.1:{port}/search"),
-        web_fetch=WebFetchConfig(enabled=True, allow_private_hosts=True, confirm="never"),
+        tools=ToolsConfig(
+            web_search=WebSearchConfig(
+                provider="generic", base_url=f"http://127.0.0.1:{port}/search"
+            ),
+            web_fetch=WebFetchConfig(enabled=True, allow_private_hosts=True, confirm="never"),
+        )
     )
     tools = default_registry(core_override=cfg.tools.core, unavailable=unavailable_tools(cfg))
     resolved = expand_model_name(model)

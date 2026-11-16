@@ -35,7 +35,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   command stay visible. What runs is unchanged. The default, `false`, works as
   before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
-- `web_fetch.allowed_hosts` limits where `web_fetch` may go to the listed hosts and their
+- `tools.web_fetch.allowed_hosts` limits where `web_fetch` may go to the listed hosts and their
   subdomains, also through redirects. Other hosts are refused before their names are looked up.
   The default, an empty list, works as before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
@@ -43,12 +43,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `web_search` or an MCP tool has returned content in it (also in a sub-agent): file writes, bash
   commands, MCP tools, sub-agents and further web requests ask even when a rule, the mode or an
   earlier "always" allows them. Provably read-only bash commands and `web_fetch` to a host in
-  `web_fetch.allowed_hosts` do not. A sub-agent started after such content is refused them, as it
-  cannot ask. The default, `false`, works as before.
+  `tools.web_fetch.allowed_hosts` do not. A sub-agent started after such content is refused them,
+  as it cannot ask. The default, `false`, works as before.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 
 ### Changed
 
+- The `web_search` and `web_fetch` settings now go under `tools` (`tools.web_search` and
+  `tools.web_fetch`), next to the other tool settings. Settings at the top level are still read for
+  now, with a note at startup naming the file. The environment variables are unchanged.
+  ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 - A short message in English, such as `HELLO`, gets a reply in English. Before, a message needed 8
   letters to change the reply language from the one before. Two letters or fewer (`ok`) still keep
   it. The check of the reply still uses `language.min_chars`.

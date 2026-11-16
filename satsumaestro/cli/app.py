@@ -286,9 +286,17 @@ def _ask_trust(root: Path) -> str:
 
 def _load_config(cwd: Path, *, trusted: bool) -> RuntimeConfig:
     """設定を読み、会話の持ち主の居ない所の画面の言語を、設定の ``language.ui`` に合わせる。"""
-    cfg = ConfigLoader(cwd, trusted=trusted).load()
+    loader = ConfigLoader(cwd, trusted=trusted)
+    cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
+    _show_config_notes(loader)
     return cfg
+
+
+def _show_config_notes(loader: ConfigLoader) -> None:
+    """設定の書き方の知らせ（前の場所の設定など）を出す。"""
+    for note in loader.notes():
+        _err_console.print(Text(note, style="yellow"))
 
 
 def _stdin_is_terminal() -> bool:
@@ -377,6 +385,7 @@ async def _assemble_runtime(
     loader = ConfigLoader(cwd, trusted=trusted)
     cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
+    _show_config_notes(loader)
     resolved = expand_model_name(model or cfg.provider.default_model)
     connection = await connect(cfg, resolved, ENVIRON, build=build_provider)
     provider = connection.provider
@@ -2176,7 +2185,7 @@ def _lsp_rows(cfg: RuntimeConfig) -> list[tuple[str, str, str]]:
 
 def _web_fetch_row(cfg: RuntimeConfig) -> tuple[str, str, str]:
     """web_fetch の制限の doctor 行（設定だけを読む。ネットワークは使わない）。"""
-    wf = cfg.web_fetch
+    wf = cfg.tools.web_fetch
     if not wf.enabled:
         disabled = ui("cli.app.disabled_web_fetch_enabled_satsuma")
         return ("web fetch", "-", disabled)
@@ -2204,7 +2213,7 @@ def _web_search_rows(cfg: RuntimeConfig, *, probe: bool) -> list[tuple[str, str,
     """web_search プロバイダの設定・疎通の doctor 行。"""
     from satsumaestro.tools.builtins.web_search import _query_url
 
-    ws = cfg.web_search
+    ws = cfg.tools.web_search
     url = _query_url(ws, "satsumaestro")
     if url is None:
         if ws.provider is None:

@@ -7,7 +7,7 @@ import ipaddress
 import httpx
 import pytest
 
-from satsumaestro.config.models import RuntimeConfig, WebFetchConfig, WebSearchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig, WebSearchConfig
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
@@ -71,7 +71,7 @@ def test_html_to_markdown_empty_returns_empty() -> None:
 
 def _on(tool_ctx: ToolContext) -> ToolContext:
     """web_fetch を有効にした設定（既定は無効）。"""
-    cfg = RuntimeConfig(web_fetch=WebFetchConfig(enabled=True))
+    cfg = RuntimeConfig(tools=ToolsConfig(web_fetch=WebFetchConfig(enabled=True)))
     return tool_ctx.model_copy(update={"config": cfg})
 
 
@@ -162,10 +162,12 @@ async def test_preferred_domains_soft_boost(
         lambda timeout_s: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     cfg = RuntimeConfig(
-        web_search=WebSearchConfig(
-            provider="generic",
-            base_url="https://search.local",
-            preferred_domains=["python.org"],
+        tools=ToolsConfig(
+            web_search=WebSearchConfig(
+                provider="generic",
+                base_url="https://search.local",
+                preferred_domains=["python.org"],
+            )
         )
     )
     ctx = tool_ctx.model_copy(update={"config": cfg})
@@ -176,7 +178,7 @@ async def test_preferred_domains_soft_boost(
 
 
 def test_prompt_has_routing_guidance() -> None:
-    cfg = RuntimeConfig(web_search=WebSearchConfig(provider="duckduckgo"))
+    cfg = RuntimeConfig(tools=ToolsConfig(web_search=WebSearchConfig(provider="duckduckgo")))
     static = SystemPromptBuilder()._static_sections("m", cfg)
     assert "# Web search usage" in static and "time-sensitive" in static
 
@@ -187,6 +189,6 @@ def test_default_prompt_has_no_search_guidance() -> None:
 
 
 def test_prompt_omits_guidance_when_search_disabled() -> None:
-    cfg = RuntimeConfig(web_search=WebSearchConfig(provider=None))
+    cfg = RuntimeConfig(tools=ToolsConfig(web_search=WebSearchConfig(provider=None)))
     static = SystemPromptBuilder()._static_sections("m", cfg)
     assert "# Web search usage" not in static

@@ -10,6 +10,7 @@ import satsumaestro.cli.app as cli_app
 from satsumaestro.config.models import (
     HookConfig,
     RuntimeConfig,
+    ToolsConfig,
     WebFetchConfig,
     WebSearchConfig,
 )
@@ -38,7 +39,9 @@ def test_both_are_unavailable_by_default() -> None:
 
 
 def test_configured_tools_are_available() -> None:
-    cfg = RuntimeConfig(web_search=SEARXNG, web_fetch=WebFetchConfig(enabled=True))
+    cfg = RuntimeConfig(
+        tools=ToolsConfig(web_search=SEARXNG, web_fetch=WebFetchConfig(enabled=True))
+    )
     assert unavailable_tools(cfg) == {}
 
 
@@ -52,7 +55,9 @@ def test_configured_tools_are_available() -> None:
     ],
 )
 def test_web_search_needs_a_provider_and_its_base_url(search: WebSearchConfig, ready: bool) -> None:
-    assert ("web_search" not in unavailable_tools(RuntimeConfig(web_search=search))) is ready
+    assert (
+        "web_search" not in unavailable_tools(RuntimeConfig(tools=ToolsConfig(web_search=search)))
+    ) is ready
 
 
 def test_unavailable_tools_are_not_registered() -> None:

@@ -281,7 +281,7 @@ class WebFetchConfig(BaseModel):
         for name in value:
             if not name.strip() or "/" in name:
                 raise ValueError(
-                    "web_fetch.allowed_hosts takes host names such as example.com, "
+                    "tools.web_fetch.allowed_hosts takes host names such as example.com, "
                     f"not URLs or paths: {name!r}"
                 )
         return value
@@ -320,7 +320,7 @@ class TelemetryConfig(BaseModel):
 
 
 class ToolsConfig(BaseModel):
-    """ツール露出の設定。"""
+    """ツールの出し方と、ツールごとの設定。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -333,6 +333,8 @@ class ToolsConfig(BaseModel):
     overwrite_guard: bool = True
     related_code_notes: bool = True
     mkdir_hint: bool = True
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
 class GuidanceConfig(BaseModel):
@@ -472,8 +474,6 @@ class RuntimeConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
-    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
-    web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
     guidance: GuidanceConfig = Field(default_factory=GuidanceConfig)
     language: LanguageConfig = Field(default_factory=LanguageConfig)
     recovery: RecoveryConfig = Field(default_factory=RecoveryConfig)

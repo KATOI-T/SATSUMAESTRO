@@ -338,8 +338,8 @@ def test_doctor_web_search_offline_default(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--trust"])
     assert result.exit_code == 0, result.output
-    assert "無効（web_search.provider 未設定）" in result.output
-    assert "無効（web_fetch.enabled / SATSUMA_WEB_FETCH_ENABLED 未設定）" in result.output
+    assert "無効（tools.web_search.provider 未設定）" in result.output
+    assert "無効（tools.web_fetch.enabled / SATSUMA_WEB_FETCH_ENABLED 未設定）" in result.output
 
 
 def test_doctor_web_fetch_enabled(monkeypatch, tmp_path: Path) -> None:
@@ -347,7 +347,7 @@ def test_doctor_web_fetch_enabled(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("COLUMNS", "200")
     (tmp_path / ".satsuma").mkdir()
     (tmp_path / ".satsuma" / "settings.json").write_text(
-        '{"web_fetch": {"enabled": true}}', encoding="utf-8"
+        '{"tools": {"web_fetch": {"enabled": true}}}', encoding="utf-8"
     )
     result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--trust"])
     assert result.exit_code == 0, result.output
@@ -358,7 +358,7 @@ def test_doctor_web_search_duckduckgo_offline(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     (tmp_path / ".satsuma").mkdir()
     (tmp_path / ".satsuma" / "settings.json").write_text(
-        '{"web_search": {"provider": "duckduckgo"}}', encoding="utf-8"
+        '{"tools": {"web_search": {"provider": "duckduckgo"}}}', encoding="utf-8"
     )
     result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--trust"])
     assert result.exit_code == 0, result.output
@@ -370,7 +370,7 @@ def test_doctor_web_search_searxng_missing_base_url(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     (tmp_path / ".satsuma").mkdir()
     (tmp_path / ".satsuma" / "settings.json").write_text(
-        '{"web_search": {"provider": "searxng"}}', encoding="utf-8"
+        '{"tools": {"web_search": {"provider": "searxng"}}}', encoding="utf-8"
     )
     result = runner.invoke(cli_app.app, ["doctor", "--cwd", str(tmp_path), "--trust"])
     assert result.exit_code == 0, result.output
@@ -385,7 +385,7 @@ def test_doctor_probe_web_search_searxng(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     (tmp_path / ".satsuma").mkdir()
     (tmp_path / ".satsuma" / "settings.json").write_text(
-        '{"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}',
+        '{"tools": {"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}}',
         encoding="utf-8",
     )
     ok = httpx.Response(200, json={"results": [{"title": "t", "url": "https://e.com"}]})

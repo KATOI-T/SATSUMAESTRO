@@ -8,7 +8,7 @@ from satsumaestro.tools.builtins.web_search import WebSearch
 
 
 async def test_web_search_stub_is_error(tool_ctx: ToolContext) -> None:
-    tool_ctx.config.web_search.provider = None
+    tool_ctx.config.tools.web_search.provider = None
     result = await WebSearch().run(WebSearch.Input(query="anything"), tool_ctx)
     assert result.is_error is True
     assert "no search backend configured" in result.output

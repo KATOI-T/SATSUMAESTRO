@@ -24,7 +24,7 @@ _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 _LISTED_HOSTS = 10
 TURNED_OFF = (
     "web_fetch is turned off. Only the user can turn it on, with the setting "
-    "web_fetch.enabled (not a tool argument)."
+    "tools.web_fetch.enabled (not a tool argument)."
 )
 
 
@@ -73,10 +73,10 @@ def _listed(hosts: list[str]) -> str:
 
 def _not_listed(host: str, hosts: list[str]) -> str:
     """許可リストに無い宛先を断り、足すのは利用者に任せるようモデルに伝える文。"""
-    example = {"web_fetch": {"enabled": True, "allowed_hosts": [*hosts, host]}}
+    example = {"tools": {"web_fetch": {"enabled": True, "allowed_hosts": [*hosts, host]}}}
     return (
-        f"web_fetch refused: {host} is not in web_fetch.allowed_hosts ({_listed(hosts)}). "
-        "Only the user can add hosts: web_fetch.allowed_hosts is a setting, not a tool "
+        f"web_fetch refused: {host} is not in tools.web_fetch.allowed_hosts ({_listed(hosts)}). "
+        "Only the user can add hosts: tools.web_fetch.allowed_hosts is a setting, not a tool "
         "argument, and you cannot edit settings files. Do not offer to add the host yourself. "
         f"Tell the user that {host} is not allowed, and that they can add it to the list in "
         "the last of these files that sets it: ~/.satsuma/settings.json, .satsuma.json, "
@@ -109,7 +109,7 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
         return (
             f"web_fetch refused: {host} resolves to a private or local address ({local}). "
             "Only the user can allow these addresses, with the setting "
-            "web_fetch.allow_private_hosts (not a tool argument)."
+            "tools.web_fetch.allow_private_hosts (not a tool argument)."
         )
     return None
 
@@ -128,7 +128,7 @@ async def _read_body(resp: httpx.Response, limit: int) -> tuple[bytes, bool] | s
     if declared.isdigit() and int(declared) > limit:
         return (
             f"web_fetch refused: the response is {int(declared)} bytes, over the limit of "
-            f"{limit} bytes (the user's setting web_fetch.max_bytes). Nothing was read."
+            f"{limit} bytes (the user's setting tools.web_fetch.max_bytes). Nothing was read."
         )
     chunks: list[bytes] = []
     size = 0
@@ -189,7 +189,7 @@ class WebFetch(Tool):
 
     async def run(self, inp: BaseModel, ctx: ToolContext) -> ToolResult:
         assert isinstance(inp, WebFetch.Input)
-        cfg = ctx.config.web_fetch
+        cfg = ctx.config.tools.web_fetch
         if not cfg.enabled:
             return ToolResult(output=TURNED_OFF, is_error=True)
         try:
@@ -228,7 +228,7 @@ class WebFetch(Tool):
 
 def _cut_note(limit: int) -> str:
     """取得の上限で切ったときの注記。"""
-    return f"\n\n(truncated at {limit} bytes, the user's setting web_fetch.max_bytes)"
+    return f"\n\n(truncated at {limit} bytes, the user's setting tools.web_fetch.max_bytes)"
 
 
 def _part(text: str, inp: WebFetch.Input, start: int, budget: int) -> tuple[str, str] | None:

@@ -287,7 +287,7 @@ _SECRET_FILE_TOOLS = {
 }
 _FETCH_NONINTERACTIVE = (
     f"{NONINTERACTIVE_DENY_REASON}: web_fetch asks the user once per session before its first "
-    "fetch. Only the user can turn this off, with the setting web_fetch.confirm "
+    "fetch. Only the user can turn this off, with the setting tools.web_fetch.confirm "
     "(not a tool argument)."
 )
 
@@ -2365,8 +2365,8 @@ class ConversationRuntime:
         self, tool_name: str, inp: object, outcome: PermissionOutcome
     ) -> tuple[PermissionOutcome, str] | None:
         """確認なしで許可された web_fetch を、このセッションの最初の 1 回だけ確認に替える。"""
-        mode = self.config.web_fetch.confirm
-        if tool_name != "web_fetch" or mode == "never" or not self.config.web_fetch.enabled:
+        mode = self.config.tools.web_fetch.confirm
+        if tool_name != "web_fetch" or mode == "never" or not self.config.tools.web_fetch.enabled:
             return None
         if outcome.decision != "allow" or outcome.scoped:
             return None
@@ -2406,8 +2406,8 @@ class ConversationRuntime:
         return PermissionOutcome(decision="ask", reason=note, origin="external-confirm"), note
 
     def _fetch_to_listed_host(self, inp: object) -> bool:
-        """web_fetch の宛先が、空でない ``web_fetch.allowed_hosts`` に入っているか。"""
-        cfg = self.config.web_fetch
+        """web_fetch の宛先が、空でない ``tools.web_fetch.allowed_hosts`` に入っているか。"""
+        cfg = self.config.tools.web_fetch
         host = urlsplit(str(getattr(inp, "url", ""))).hostname
         return bool(cfg.allowed_hosts and host and cfg.lists_host(host))
 

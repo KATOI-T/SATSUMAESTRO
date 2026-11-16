@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from satsumaestro.config.models import RuntimeConfig, WebSearchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebSearchConfig
 from satsumaestro.security.jail import WorkspaceJail
 from satsumaestro.tools import default_registry
 from satsumaestro.tools.base import ToolContext
@@ -99,7 +99,9 @@ Handler = Callable[[httpx.Request], httpx.Response]
 
 def _web_ctx(tmp_path: Path, cfg: WebSearchConfig) -> ToolContext:
     jail = WorkspaceJail(tmp_path)
-    return ToolContext(workspace_root=jail.root, jail=jail, config=RuntimeConfig(web_search=cfg))
+    return ToolContext(
+        workspace_root=jail.root, jail=jail, config=RuntimeConfig(tools=ToolsConfig(web_search=cfg))
+    )
 
 
 def _install_mock(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:

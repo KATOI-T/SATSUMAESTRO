@@ -428,9 +428,9 @@ The same holds for bash commands that write these files.
 `web_fetch`, `web_search` or an MCP tool has returned content in a turn, file writes, bash commands,
 MCP tools, sub-agents and further web requests ask for the rest of that turn, even when a rule, the
 mode or an earlier `a` allows them (refused in `prompt`). Provably read-only bash commands and
-`web_fetch` to a host in `web_fetch.allowed_hosts` still run without asking. Content a sub-agent
-read in the turn counts too. A sub-agent cannot ask, so one started after such content is refused
-these calls. The next message starts clean. It is off by default.
+`web_fetch` to a host in `tools.web_fetch.allowed_hosts` still run without asking. Content a
+sub-agent read in the turn counts too. A sub-agent cannot ask, so one started after such content is
+refused these calls. The next message starts clean. It is off by default.
 
 **Limits of the sandbox**: bash runs with the workspace as its working directory, and redirections
 are confined to the workspace. There is no OS-level isolation (namespaces, seccomp). The bash checks
@@ -462,13 +462,15 @@ Found a vulnerability? Please report it privately, as described in [SECURITY.md]
 
 ## Web search and web fetch
 
-Both are **off by default** and are not shown to the model as tools.
+Both are **off by default** and are not shown to the model as tools. Their settings go under
+`tools` (`tools.web_search` and `tools.web_fetch`). Settings at the top level (`web_search` and
+`web_fetch`, as in 0.5) are still read for now, with a note at startup naming the file.
 
 **Web search** (`web_search`) sends search terms written by the model to a third-party service, so
 you choose the backend. A self-hosted [SearXNG](https://github.com/searxng/searxng) is recommended:
 
 ```json
-{"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}
+{"tools": {"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}}
 ```
 
 The repository has a ready-made Docker setup for SearXNG in
@@ -478,7 +480,7 @@ under its terms of use and bot detection, and may go silent after many requests.
 variables `SATSUMA_WEB_SEARCH_PROVIDER` and `SATSUMA_WEB_SEARCH_BASE_URL` work too.
 
 **Web fetch** (`web_fetch`) reads a page at a URL. Turn it on with
-`{"web_fetch": {"enabled": true}}` (or `SATSUMA_WEB_FETCH_ENABLED=true`). When on:
+`{"tools": {"web_fetch": {"enabled": true}}}` (or `SATSUMA_WEB_FETCH_ENABLED=true`). When on:
 
 - It asks before the first fetch in a session, showing the host (refused in `prompt`).
 - It never fetches non-public addresses (`localhost`, private ranges such as `10.x` and
@@ -486,7 +488,11 @@ variables `SATSUMA_WEB_SEARCH_PROVIDER` and `SATSUMA_WEB_SEARCH_BASE_URL` work t
 - It reads at most 2 MB of the body.
 
 ```json
-{"web_fetch": {"enabled": true, "confirm": "first-use", "allow_private_hosts": false, "max_bytes": 2000000}}
+{
+  "tools": {
+    "web_fetch": {"enabled": true, "confirm": "first-use", "allow_private_hosts": false, "max_bytes": 2000000}
+  }
+}
 ```
 
 `confirm` is `first-use` (default), `always` or `never`. Set `allow_private_hosts: true` only to read

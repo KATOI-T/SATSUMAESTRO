@@ -19,7 +19,7 @@ from satsumaestro.util.urls import host_matches
 _DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/"
 TURNED_OFF = (
     "web_search is turned off. Only the user can turn it on, with the settings "
-    "web_search.provider and web_search.base_url (not tool arguments)."
+    "tools.web_search.provider and tools.web_search.base_url (not tool arguments)."
 )
 _DESCRIPTION = (
     "Search the web and return results as a Markdown list of '- [title](url)' "
@@ -185,12 +185,12 @@ class WebSearch(Tool):
 
     async def run(self, inp: BaseModel, ctx: ToolContext) -> ToolResult:
         assert isinstance(inp, WebSearch.Input)
-        cfg = ctx.config.web_search
+        cfg = ctx.config.tools.web_search
         url = _query_url(cfg, inp.query)
         if url is None:
             return ToolResult(
                 output="web_search has no search backend configured "
-                "(see the web_search.provider and web_search.base_url settings).",
+                "(see the tools.web_search.provider and tools.web_search.base_url settings).",
                 is_error=True,
             )
         try:
@@ -203,7 +203,7 @@ class WebSearch(Tool):
         if cfg.provider == "duckduckgo" and resp.status_code == 202:
             return ToolResult(
                 output="The search engine is temporarily blocking this client as a bot "
-                "(HTTP 202). Try again later, or switch the web_search.provider setting."
+                "(HTTP 202). Try again later, or switch the tools.web_search.provider setting."
             )
         failed: list[tuple[str, str]] = []
         if cfg.provider == "duckduckgo":

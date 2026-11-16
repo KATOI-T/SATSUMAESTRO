@@ -124,10 +124,14 @@ def _config(
     return RuntimeConfig(
         max_iterations=12,
         permission=PermissionConfig(confirm_after_external=on),
-        web_fetch=WebFetchConfig(enabled=True, confirm="never", allowed_hosts=allowed_hosts or []),
-        web_search=web_search or WebSearchConfig(),
         subagent=SubagentConfig(default_model="mock-model"),
-        tools=ToolsConfig(deferred_tool_loading=False),
+        tools=ToolsConfig(
+            deferred_tool_loading=False,
+            web_fetch=WebFetchConfig(
+                enabled=True, confirm="never", allowed_hosts=allowed_hosts or []
+            ),
+            web_search=web_search or WebSearchConfig(),
+        ),
     )
 
 

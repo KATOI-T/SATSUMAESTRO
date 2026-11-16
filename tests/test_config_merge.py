@@ -156,27 +156,27 @@ def test_env_selects_web_search_provider(tmp_path: Path, monkeypatch: pytest.Mon
     home = tmp_path / "empty_home"
 
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_search.provider is None
+    assert cfg.tools.web_search.provider is None
 
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_PROVIDER", "SearXNG")
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_BASE_URL", "http://localhost:8081")
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_search.provider == "searxng"
-    assert cfg.web_search.base_url == "http://localhost:8081"
+    assert cfg.tools.web_search.provider == "searxng"
+    assert cfg.tools.web_search.base_url == "http://localhost:8081"
 
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_PROVIDER", "none")
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_search.provider is None
+    assert cfg.tools.web_search.provider is None
 
     _put_json(
         cwd / ".satsuma" / "settings.json",
-        {"web_search": {"provider": "duckduckgo", "base_url": "http://explicit:8080"}},
+        {"tools": {"web_search": {"provider": "duckduckgo", "base_url": "http://explicit:8080"}}},
     )
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_PROVIDER", "searxng")
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_BASE_URL", "http://env:9999")
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_search.provider == "duckduckgo"
-    assert cfg.web_search.base_url == "http://explicit:8080"
+    assert cfg.tools.web_search.provider == "duckduckgo"
+    assert cfg.tools.web_search.base_url == "http://explicit:8080"
 
     _put_json(cwd / ".satsuma" / "settings.json", {})
     monkeypatch.setenv("SATSUMA_WEB_SEARCH_PROVIDER", "duckduck")
@@ -190,19 +190,20 @@ def test_env_enables_web_fetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     cwd.mkdir()
     home = tmp_path / "empty_home"
 
-    assert ConfigLoader(cwd, config_home=home, trusted=True).load().web_fetch.enabled is False
+    assert ConfigLoader(cwd, config_home=home, trusted=True).load().tools.web_fetch.enabled is False
 
     monkeypatch.setenv("SATSUMA_WEB_FETCH_ENABLED", "true")
-    assert ConfigLoader(cwd, config_home=home, trusted=True).load().web_fetch.enabled is True
+    assert ConfigLoader(cwd, config_home=home, trusted=True).load().tools.web_fetch.enabled is True
 
     _put_json(
-        cwd / ".satsuma" / "settings.json", {"web_fetch": {"enabled": False, "max_bytes": 10}}
+        cwd / ".satsuma" / "settings.json",
+        {"tools": {"web_fetch": {"enabled": False, "max_bytes": 10}}},
     )
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_fetch.enabled is False and cfg.web_fetch.max_bytes == 10
-    _put_json(cwd / ".satsuma" / "settings.json", {"web_fetch": {"max_bytes": 10}})
+    assert cfg.tools.web_fetch.enabled is False and cfg.tools.web_fetch.max_bytes == 10
+    _put_json(cwd / ".satsuma" / "settings.json", {"tools": {"web_fetch": {"max_bytes": 10}}})
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
-    assert cfg.web_fetch.enabled is True and cfg.web_fetch.max_bytes == 10
+    assert cfg.tools.web_fetch.enabled is True and cfg.tools.web_fetch.max_bytes == 10
 
     monkeypatch.setenv("SATSUMA_WEB_FETCH_ENABLED", "ture")
     with pytest.raises(ConfigError, match="SATSUMA_WEB_FETCH_ENABLED"):

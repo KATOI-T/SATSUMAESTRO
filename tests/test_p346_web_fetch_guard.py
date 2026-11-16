@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
 from satsumaestro.tools.builtins.web_fetch import WebFetch, is_local_address
@@ -87,7 +87,8 @@ def server(monkeypatch: pytest.MonkeyPatch) -> _Server:
 
 def _ctx(tool_ctx: ToolContext, **web_fetch: object) -> ToolContext:
     """web_fetch を有効にした設定（既定は無効）。"""
-    cfg = RuntimeConfig(web_fetch=WebFetchConfig(enabled=True, **web_fetch))  # type: ignore[arg-type]
+    web = WebFetchConfig(enabled=True, **web_fetch)  # type: ignore[arg-type]
+    cfg = RuntimeConfig(tools=ToolsConfig(web_fetch=web))
     return tool_ctx.model_copy(update={"config": cfg})
 
 
@@ -191,7 +192,7 @@ async def test_declared_size_over_the_limit_is_not_read(
     out, err = await _fetch(_ctx(tool_ctx), "https://example.com/big")
     assert err and out == (
         "web_fetch refused: the response is 5000000 bytes, over the limit of 2000000 bytes "
-        "(the user's setting web_fetch.max_bytes). Nothing was read."
+        "(the user's setting tools.web_fetch.max_bytes). Nothing was read."
     )
 
 
@@ -214,7 +215,8 @@ async def test_stream_over_the_limit_is_cut(tool_ctx: ToolContext, server: _Serv
     out, err = await _fetch(_ctx(tool_ctx, max_bytes=10), "https://example.com/stream")
     assert not err
     assert out == (
-        "HTTP 200\n\naaaaaabbbb\n\n(truncated at 10 bytes, the user's setting web_fetch.max_bytes)"
+        "HTTP 200\n\naaaaaabbbb\n\n"
+        "(truncated at 10 bytes, the user's setting tools.web_fetch.max_bytes)"
     )
     assert body.sent == 2
 
@@ -243,6 +245,6 @@ async def test_disabled_by_default_does_not_connect(tool_ctx: ToolContext, serve
     out, err = await _fetch(tool_ctx, "https://example.com/page")
     assert err and out == (
         "web_fetch is turned off. Only the user can turn it on, with the setting "
-        "web_fetch.enabled (not a tool argument)."
+        "tools.web_fetch.enabled (not a tool argument)."
     )
     assert server.seen == []

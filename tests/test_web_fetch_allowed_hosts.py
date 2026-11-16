@@ -1,4 +1,4 @@
-"""web_fetch の送り先の許可リスト（web_fetch.allowed_hosts）。"""
+"""web_fetch の送り先の許可リスト（tools.web_fetch.allowed_hosts）。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
 from satsumaestro.tools.builtins.web_fetch import WebFetch
@@ -60,7 +60,8 @@ def server(monkeypatch: pytest.MonkeyPatch) -> _Server:
 
 
 def _ctx(tool_ctx: ToolContext, **web_fetch: object) -> ToolContext:
-    cfg = RuntimeConfig(web_fetch=WebFetchConfig(enabled=True, **web_fetch))  # type: ignore[arg-type]
+    web = WebFetchConfig(enabled=True, **web_fetch)  # type: ignore[arg-type]
+    cfg = RuntimeConfig(tools=ToolsConfig(web_fetch=web))
     return tool_ctx.model_copy(update={"config": cfg})
 
 
@@ -72,7 +73,7 @@ async def _fetch(ctx: ToolContext, url: str) -> tuple[str, bool]:
 def _refused_for(host: str) -> Callable[[str], bool]:
     def check(out: str) -> bool:
         return (
-            out.startswith(f"web_fetch refused: {host} is not in web_fetch.allowed_hosts")
+            out.startswith(f"web_fetch refused: {host} is not in tools.web_fetch.allowed_hosts")
             and "Only the user can add hosts" in out
             and "not a tool argument" in out
         )
@@ -126,9 +127,11 @@ async def test_the_refusal_leaves_adding_the_host_to_the_user(
     assert "restart SATSUMAESTRO" in out
     example = out.split("Show them this example:\n", 1)[1]
     assert json.loads(example) == {
-        "web_fetch": {
-            "enabled": True,
-            "allowed_hosts": ["example.com", "docs.example.com", "python.org"],
+        "tools": {
+            "web_fetch": {
+                "enabled": True,
+                "allowed_hosts": ["example.com", "docs.example.com", "python.org"],
+            }
         }
     }
 
@@ -141,7 +144,10 @@ async def test_a_long_list_is_cut_in_the_refusal_but_not_in_the_example(
     text, example = out.split("Show them this example:\n", 1)
     assert err and f"({', '.join(hosts[:10])}, and 2 more)." in text
     assert "h10.example.com" not in text
-    assert json.loads(example)["web_fetch"]["allowed_hosts"] == [*hosts, "other.example.org"]
+    assert json.loads(example)["tools"]["web_fetch"]["allowed_hosts"] == [
+        *hosts,
+        "other.example.org",
+    ]
 
 
 async def test_the_list_applies_even_when_private_hosts_are_allowed(
@@ -189,7 +195,7 @@ async def test_a_listed_host_still_needs_a_public_address(
 ) -> None:
     ctx = _ctx(tool_ctx, allowed_hosts=["intranet.example.com"])
     out, err = await _fetch(ctx, "https://intranet.example.com/wiki")
-    assert err and "(10.0.0.5)" in out and "web_fetch.allow_private_hosts" in out
+    assert err and "(10.0.0.5)" in out and "tools.web_fetch.allow_private_hosts" in out
     assert server.seen == []
 
 
