@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
 from satsumaestro.tools.builtins.web_fetch import WebFetch, part_budget, part_end
@@ -50,7 +50,7 @@ def pages(monkeypatch: pytest.MonkeyPatch) -> dict[str, httpx.Response]:
 def _ctx(tool_ctx: ToolContext, threshold: int = 120_000, **web_fetch: object) -> ToolContext:
     cfg = RuntimeConfig(
         compact_token_threshold=threshold,
-        web_fetch=WebFetchConfig(enabled=True, **web_fetch),
+        tools=ToolsConfig(web_fetch=WebFetchConfig(enabled=True, **web_fetch)),
     )
     return tool_ctx.model_copy(update={"config": cfg})
 
@@ -182,7 +182,7 @@ async def test_download_cut_note_follows_the_part_note(
     pages[_URL] = httpx.Response(200, stream=_Chunks([b"a" * 10_000] * 5))
     out, _ = await _fetch(_ctx(tool_ctx, threshold=8_000, max_bytes=40_000))
     assert out.endswith(
-        "start=8000)\n\n(truncated at 40000 bytes, the user's setting web_fetch.max_bytes)"
+        "start=8000)\n\n(truncated at 40000 bytes, the user's setting tools.web_fetch.max_bytes)"
     )
 
 

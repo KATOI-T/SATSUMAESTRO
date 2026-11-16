@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from satsumaestro.cli import app as cli_app
-from satsumaestro.config.models import RuntimeConfig, WebSearchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebSearchConfig
 from satsumaestro.security.jail import WorkspaceJail
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_search as web_search_mod
@@ -33,7 +33,9 @@ def _serve(monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> None:
 def _ctx(tmp_path: Path) -> ToolContext:
     jail = WorkspaceJail(tmp_path)
     cfg = WebSearchConfig(provider="searxng", base_url="http://searx.local")
-    return ToolContext(workspace_root=jail.root, jail=jail, config=RuntimeConfig(web_search=cfg))
+    return ToolContext(
+        workspace_root=jail.root, jail=jail, config=RuntimeConfig(tools=ToolsConfig(web_search=cfg))
+    )
 
 
 async def _search(tmp_path: Path, **kwargs: Any) -> Any:

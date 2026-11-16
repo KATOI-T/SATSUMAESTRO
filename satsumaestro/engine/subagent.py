@@ -18,6 +18,7 @@ from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers.base import Provider
 from satsumaestro.providers.registry import expand_model_name
 from satsumaestro.security.allowlist import PermissionResolver
+from satsumaestro.security.external_reads import ExternalReads
 from satsumaestro.security.policy import PermissionPolicy
 from satsumaestro.session.models import Session
 from satsumaestro.session.store import JSONLSessionStore, new_session
@@ -136,6 +137,7 @@ class RuntimeFactory:
             language if language is not None else LanguageState.from_config(config.language)
         )
         self.env = env
+        self.external_reads = ExternalReads()
 
     def use_provider(self, provider: Provider, model: str) -> None:
         """切り替えたプロバイダとモデルを、これから作る子に使う。"""

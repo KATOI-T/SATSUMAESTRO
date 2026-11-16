@@ -11,6 +11,7 @@ import pytest
 from satsumaestro.config.models import (
     HookConfig,
     RuntimeConfig,
+    ToolsConfig,
     WebFetchConfig,
     WebSearchConfig,
 )
@@ -91,7 +92,10 @@ def _runtime(
         prompt_builder=SystemPromptBuilder(),
         store=JSONLSessionStore(),
         hooks=HookRunner(HookConfig(), tmp_path),
-        config=RuntimeConfig(max_iterations=8, web_fetch=web_fetch or WebFetchConfig(enabled=True)),
+        config=RuntimeConfig(
+            max_iterations=8,
+            tools=ToolsConfig(web_fetch=web_fetch or WebFetchConfig(enabled=True)),
+        ),
     )
 
 
@@ -131,7 +135,7 @@ async def test_noninteractive_refuses_and_names_the_setting(tmp_path: Path) -> N
     summary, [result] = await _run(_runtime(tmp_path, [A]), DenyPrompter())
     assert result.is_error
     assert result.output.startswith("permission required but running non-interactively: ")
-    assert "web_fetch.confirm (not a tool argument)" in result.output
+    assert "tools.web_fetch.confirm (not a tool argument)" in result.output
     assert summary.first_fetch_asks == 1
 
 

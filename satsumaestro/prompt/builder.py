@@ -273,7 +273,7 @@ class SystemPromptBuilder:
             cfg.planning_guidance,
             cfg.parallel_guidance,
             cfg.guidance.reminders,
-            cfg.web_search.provider,
+            cfg.tools.web_search.provider,
         )
         cached = self._static_cache
         if cached is not None and cached[0] == key:
@@ -300,7 +300,7 @@ class SystemPromptBuilder:
         )
         if surface:
             sections = (*sections, surface)
-        if cfg.web_search.provider is not None:
+        if cfg.tools.web_search.provider is not None:
             sections = (*sections, _WEB_ROUTING_GUIDANCE)
         if self._tool_catalog:
             sections = (*sections, self._tool_catalog)

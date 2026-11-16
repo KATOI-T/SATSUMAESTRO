@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
 from satsumaestro.security.enforcer import PermissionMode
+from satsumaestro.security.external_reads import FLAG_NOTHING_READ
 from satsumaestro.tools.base import Tool, ToolContext, ToolResult, ToolSpec
 from satsumaestro.tools.schema import model_tool_schema
 from satsumaestro.util.html_text import html_to_markdown
@@ -21,10 +22,19 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 _MIN_PART_TOKENS = 2_000
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+_LISTED_HOSTS = 10
+_SETTINGS_FILES = (
+    "~/.satsuma/settings.json, .satsuma.json, .satsuma/settings.json, .satsuma/settings.local.json"
+)
 TURNED_OFF = (
     "web_fetch is turned off. Only the user can turn it on, with the setting "
-    "web_fetch.enabled (not a tool argument)."
+    "tools.web_fetch.enabled (not a tool argument)."
 )
+
+
+def _read_nothing(output: str) -> ToolResult:
+    """外から何も受け取らずに終えた結果（外の内容に数えない）。"""
+    return ToolResult(output=output, is_error=True, flags=[FLAG_NOTHING_READ])
 
 
 def _make_client(timeout_s: float) -> httpx.AsyncClient:
@@ -63,13 +73,57 @@ def is_local_address(ip: IPAddress) -> bool:
     return not ip.is_global or ip.is_multicast
 
 
-async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
-    """取りに行かない URL なら拒否の文。"""
+def _listed(hosts: list[str]) -> str:
+    """断る文に出す許可リスト（多ければ先頭だけ）。"""
+    shown = ", ".join(hosts[:_LISTED_HOSTS])
+    rest = len(hosts) - _LISTED_HOSTS
+    return f"{shown}, and {rest} more" if rest > 0 else shown
+
+
+def _not_listed(host: str, hosts: list[str]) -> str:
+    """許可リストに無い宛先を断り、足すのは利用者に任せるようモデルに伝える文。"""
+    example = {"tools": {"web_fetch": {"enabled": True, "allowed_hosts": [*hosts, host]}}}
+    return (
+        f"web_fetch refused: {host} is not in tools.web_fetch.allowed_hosts ({_listed(hosts)}). "
+        "Only the user can add hosts: tools.web_fetch.allowed_hosts is a setting, not a tool "
+        "argument, and you cannot edit settings files. Do not offer to add the host yourself. "
+        f"Tell the user that {host} is not allowed, and that they can add it to the list in "
+        f"the last of these files that sets it: {_SETTINGS_FILES} (a list in a later file "
+        "replaces the earlier ones), keep the hosts already listed, and restart SATSUMAESTRO. "
+        f"Show them this example:\n{json.dumps(example)}"
+    )
+
+
+def _private(host: str, local: IPAddress, cfg: WebFetchConfig, came_from: str | None) -> str:
+    """私有アドレスへの取得を断り、許可は利用者に任せるようモデルに伝える文。"""
+    where = f"{host}, reached by a redirect from {came_from}," if came_from else host
+    every = (
+        ""
+        if cfg.allowed_hosts
+        else " Also tell them that the setting lets web_fetch reach every private and local "
+        "address, unless tools.web_fetch.allowed_hosts lists the hosts it may go to."
+    )
+    example = {"tools": {"web_fetch": {"enabled": True, "allow_private_hosts": True}}}
+    return (
+        f"web_fetch refused: {where} resolves to a private or local address ({local}). "
+        "Only the user can allow these addresses: tools.web_fetch.allow_private_hosts is a "
+        "setting, not a tool argument, and you cannot edit settings files. Do not offer to "
+        f"change the setting yourself. Tell the user that {where} resolves to a private or local "
+        f"address, and that they can turn the setting on in one of these files: {_SETTINGS_FILES} "
+        f"(a later file overrides the earlier ones), and restart SATSUMAESTRO.{every} "
+        f"Show them this example:\n{json.dumps(example)}"
+    )
+
+
+async def _refusal(url: httpx.URL, cfg: WebFetchConfig, came_from: str | None) -> str | None:
+    """取りに行かない URL なら拒否の文（came_from はリダイレクトの元の host）。"""
     if url.scheme not in ("http", "https"):
         return f"web_fetch refused: only http and https URLs can be fetched: {url}"
     host = url.host
     if not host:
         return f"web_fetch refused: the URL has no host: {url}"
+    if cfg.allowed_hosts and not cfg.lists_host(host):
+        return _not_listed(host, cfg.allowed_hosts)
     if cfg.allow_private_hosts:
         return None
     port = url.port or (443 if url.scheme == "https" else 80)
@@ -81,11 +135,7 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
         return f"web_fetch refused: could not resolve {host}"
     local = next((a for a in addresses if is_local_address(a)), None)
     if local is not None:
-        return (
-            f"web_fetch refused: {host} resolves to a private or local address ({local}). "
-            "Only the user can allow these addresses, with the setting "
-            "web_fetch.allow_private_hosts (not a tool argument)."
-        )
+        return _private(host, local, cfg, came_from)
     return None
 
 
@@ -103,7 +153,7 @@ async def _read_body(resp: httpx.Response, limit: int) -> tuple[bytes, bool] | s
     if declared.isdigit() and int(declared) > limit:
         return (
             f"web_fetch refused: the response is {int(declared)} bytes, over the limit of "
-            f"{limit} bytes (the user's setting web_fetch.max_bytes). Nothing was read."
+            f"{limit} bytes (the user's setting tools.web_fetch.max_bytes). Nothing was read."
         )
     chunks: list[bytes] = []
     size = 0
@@ -164,25 +214,29 @@ class WebFetch(Tool):
 
     async def run(self, inp: BaseModel, ctx: ToolContext) -> ToolResult:
         assert isinstance(inp, WebFetch.Input)
-        cfg = ctx.config.web_fetch
+        cfg = ctx.config.tools.web_fetch
         if not cfg.enabled:
-            return ToolResult(output=TURNED_OFF, is_error=True)
+            return _read_nothing(TURNED_OFF)
         try:
             url = httpx.URL(inp.url)
         except httpx.InvalidURL as e:
-            return ToolResult(output=f"fetch failed: invalid URL: {e}", is_error=True)
+            return _read_nothing(f"fetch failed: invalid URL: {e}")
         try:
             async with _make_client(min(inp.timeout_s, MAX_TIMEOUT_S)) as client:
+                came_from: str | None = None
                 for _ in range(cfg.max_redirects + 1):
-                    refusal = await _refusal(url, cfg)
+                    refusal = await _refusal(url, cfg, came_from)
+                    if refusal is not None and came_from is None:
+                        return _read_nothing(refusal)
                     if refusal is not None:
+                        # 断る文の host はリダイレクトの応答から来たので、外の内容に数える
                         return ToolResult(output=refusal, is_error=True)
                     async with client.stream("GET", url) as resp:
                         target = _redirect_target(resp)
                         if target is None:
                             read = await _read_body(resp, cfg.max_bytes)
                             if isinstance(read, str):
-                                return ToolResult(output=read, is_error=True)
+                                return _read_nothing(read)
                             data, truncated = read
                             text = data.decode(resp.encoding or "utf-8", errors="replace")
                             return _result(
@@ -192,7 +246,7 @@ class WebFetch(Tool):
                                 note=_cut_note(cfg.max_bytes) if truncated else "",
                                 budget=part_budget(ctx.config),
                             )
-                    url = target
+                    came_from, url = url.host, target
         except httpx.HTTPError as e:
             return ToolResult(output=f"fetch failed: {e}", is_error=True)
         return ToolResult(
@@ -203,7 +257,7 @@ class WebFetch(Tool):
 
 def _cut_note(limit: int) -> str:
     """取得の上限で切ったときの注記。"""
-    return f"\n\n(truncated at {limit} bytes, the user's setting web_fetch.max_bytes)"
+    return f"\n\n(truncated at {limit} bytes, the user's setting tools.web_fetch.max_bytes)"
 
 
 def _part(text: str, inp: WebFetch.Input, start: int, budget: int) -> tuple[str, str] | None:
@@ -239,10 +293,8 @@ def _result(
         text = html_to_markdown(body) or body
     part = _part(text, inp, 0 if is_error else inp.start, budget)
     if part is None:
-        return ToolResult(
-            output=f"web_fetch: start={inp.start} is past the end of the content "
-            f"({len(text)} characters).",
-            is_error=True,
+        return _read_nothing(
+            f"web_fetch: start={inp.start} is past the end of the content ({len(text)} characters)."
         )
     shown, more = part
     return ToolResult(output=f"HTTP {resp.status_code}\n\n{shown}{more}{note}", is_error=is_error)

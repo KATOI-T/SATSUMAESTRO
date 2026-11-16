@@ -12,13 +12,15 @@ from pydantic import BaseModel, Field
 
 from satsumaestro.config.models import WebSearchConfig
 from satsumaestro.security.enforcer import PermissionMode
+from satsumaestro.security.external_reads import FLAG_NOTHING_READ
 from satsumaestro.tools.base import Tool, ToolContext, ToolResult, ToolSpec
 from satsumaestro.tools.schema import model_tool_schema
+from satsumaestro.util.urls import host_matches
 
 _DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/"
 TURNED_OFF = (
     "web_search is turned off. Only the user can turn it on, with the settings "
-    "web_search.provider and web_search.base_url (not tool arguments)."
+    "tools.web_search.provider and tools.web_search.base_url (not tool arguments)."
 )
 _DESCRIPTION = (
     "Search the web and return results as a Markdown list of '- [title](url)' "
@@ -139,11 +141,6 @@ def engines_text(failed: list[tuple[str, str]]) -> str:
     return ", ".join(f"{name} ({reason})" if reason else name for name, reason in failed)
 
 
-def _host_matches(host: str, domain: str) -> bool:
-    domain = domain.lower().lstrip(".")
-    return host == domain or host.endswith(f".{domain}")
-
-
 def _filter_domains(
     results: list[tuple[str, str]], allowed: list[str], blocked: list[str]
 ) -> list[tuple[str, str]]:
@@ -153,9 +150,9 @@ def _filter_domains(
         host = (urllib.parse.urlparse(url).hostname or "").lower()
         if not host:
             continue
-        if allowed and not any(_host_matches(host, d) for d in allowed):
+        if allowed and not any(host_matches(host, d) for d in allowed):
             continue
-        if any(_host_matches(host, d) for d in blocked):
+        if any(host_matches(host, d) for d in blocked):
             continue
         kept.append((title, url))
     return kept
@@ -189,13 +186,14 @@ class WebSearch(Tool):
 
     async def run(self, inp: BaseModel, ctx: ToolContext) -> ToolResult:
         assert isinstance(inp, WebSearch.Input)
-        cfg = ctx.config.web_search
+        cfg = ctx.config.tools.web_search
         url = _query_url(cfg, inp.query)
         if url is None:
             return ToolResult(
                 output="web_search has no search backend configured "
-                "(see the web_search.provider and web_search.base_url settings).",
+                "(see the tools.web_search.provider and tools.web_search.base_url settings).",
                 is_error=True,
+                flags=[FLAG_NOTHING_READ],
             )
         try:
             async with _make_client(cfg.timeout_s) as client:
@@ -207,7 +205,7 @@ class WebSearch(Tool):
         if cfg.provider == "duckduckgo" and resp.status_code == 202:
             return ToolResult(
                 output="The search engine is temporarily blocking this client as a bot "
-                "(HTTP 202). Try again later, or switch the web_search.provider setting."
+                "(HTTP 202). Try again later, or switch the tools.web_search.provider setting."
             )
         failed: list[tuple[str, str]] = []
         if cfg.provider == "duckduckgo":
@@ -242,7 +240,7 @@ class WebSearch(Tool):
                 key=lambda tu: (
                     0
                     if any(
-                        _host_matches((urllib.parse.urlparse(tu[1]).hostname or "").lower(), d)
+                        host_matches((urllib.parse.urlparse(tu[1]).hostname or "").lower(), d)
                         for d in cfg.preferred_domains
                     )
                     else 1

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import socket
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 
-from satsumaestro.config.models import RuntimeConfig, WebFetchConfig
+from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
 from satsumaestro.tools.builtins.web_fetch import WebFetch, is_local_address
@@ -87,7 +88,8 @@ def server(monkeypatch: pytest.MonkeyPatch) -> _Server:
 
 def _ctx(tool_ctx: ToolContext, **web_fetch: object) -> ToolContext:
     """web_fetch を有効にした設定（既定は無効）。"""
-    cfg = RuntimeConfig(web_fetch=WebFetchConfig(enabled=True, **web_fetch))  # type: ignore[arg-type]
+    web = WebFetchConfig(enabled=True, **web_fetch)  # type: ignore[arg-type]
+    cfg = RuntimeConfig(tools=ToolsConfig(web_fetch=web))
     return tool_ctx.model_copy(update={"config": cfg})
 
 
@@ -151,6 +153,44 @@ async def test_redirect_to_metadata_is_refused(tool_ctx: ToolContext, server: _S
     assert server.seen == ["https://example.com/go"]
 
 
+async def test_the_private_refusal_leaves_allowing_to_the_user(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    out, err = await _fetch(_ctx(tool_ctx), "https://intranet.example.com/wiki")
+    text, example = out.split("Show them this example:\n", 1)
+    assert err and "(10.0.0.5)" in text and "you cannot edit settings files" in text
+    assert "Do not offer to change the setting yourself." in text
+    assert "Tell the user that intranet.example.com resolves to a private or local address" in text
+    assert (
+        "~/.satsuma/settings.json, .satsuma.json, .satsuma/settings.json, "
+        ".satsuma/settings.local.json"
+    ) in text
+    assert "restart SATSUMAESTRO" in text
+    assert "reach every private and local address" in text
+    assert json.loads(example) == {
+        "tools": {"web_fetch": {"enabled": True, "allow_private_hosts": True}}
+    }
+
+
+async def test_with_a_host_list_the_private_refusal_does_not_warn_about_every_address(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    ctx = _ctx(tool_ctx, allowed_hosts=["intranet.example.com"])
+    out, err = await _fetch(ctx, "https://intranet.example.com/wiki")
+    assert err and "Show them this example:" in out
+    assert "every private and local address" not in out
+
+
+async def test_the_private_refusal_names_the_host_that_redirected(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    server.routes["https://example.com/go"] = httpx.Response(
+        302, headers={"location": "http://169.254.169.254/latest/meta-data/"}
+    )
+    out, err = await _fetch(_ctx(tool_ctx), "https://example.com/go")
+    assert err and "169.254.169.254, reached by a redirect from example.com," in out
+
+
 async def test_redirects_are_followed_with_relative_locations(
     tool_ctx: ToolContext, server: _Server
 ) -> None:
@@ -191,7 +231,7 @@ async def test_declared_size_over_the_limit_is_not_read(
     out, err = await _fetch(_ctx(tool_ctx), "https://example.com/big")
     assert err and out == (
         "web_fetch refused: the response is 5000000 bytes, over the limit of 2000000 bytes "
-        "(the user's setting web_fetch.max_bytes). Nothing was read."
+        "(the user's setting tools.web_fetch.max_bytes). Nothing was read."
     )
 
 
@@ -214,7 +254,8 @@ async def test_stream_over_the_limit_is_cut(tool_ctx: ToolContext, server: _Serv
     out, err = await _fetch(_ctx(tool_ctx, max_bytes=10), "https://example.com/stream")
     assert not err
     assert out == (
-        "HTTP 200\n\naaaaaabbbb\n\n(truncated at 10 bytes, the user's setting web_fetch.max_bytes)"
+        "HTTP 200\n\naaaaaabbbb\n\n"
+        "(truncated at 10 bytes, the user's setting tools.web_fetch.max_bytes)"
     )
     assert body.sent == 2
 
@@ -243,6 +284,6 @@ async def test_disabled_by_default_does_not_connect(tool_ctx: ToolContext, serve
     out, err = await _fetch(tool_ctx, "https://example.com/page")
     assert err and out == (
         "web_fetch is turned off. Only the user can turn it on, with the setting "
-        "web_fetch.enabled (not a tool argument)."
+        "tools.web_fetch.enabled (not a tool argument)."
     )
     assert server.seen == []

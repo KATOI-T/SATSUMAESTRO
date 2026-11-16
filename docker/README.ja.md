@@ -37,7 +37,7 @@ SATSUMA_WEB_SEARCH_BASE_URL=http://localhost:8080
 ```
 
 ```json
-{"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}
+{"tools": {"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}}
 ```
 
 ## ポートを変える

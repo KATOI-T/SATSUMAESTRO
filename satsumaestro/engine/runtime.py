@@ -175,6 +175,7 @@ from satsumaestro.security.deletion_guard import (
     path_targets,
 )
 from satsumaestro.security.enforcer import PermissionMode, classify, mode_le
+from satsumaestro.security.external_reads import WEB_TOOLS, ExternalReads
 from satsumaestro.security.jail import PATH_ESCAPE_PREFIX, WorkspaceJail
 from satsumaestro.security.policy import PermissionOutcome, PermissionPolicy
 from satsumaestro.security.self_invocation_guard import (
@@ -286,8 +287,23 @@ _SECRET_FILE_TOOLS = {
 }
 _FETCH_NONINTERACTIVE = (
     f"{NONINTERACTIVE_DENY_REASON}: web_fetch asks the user once per session before its first "
-    "fetch. Only the user can turn this off, with the setting web_fetch.confirm "
+    "fetch. Only the user can turn this off, with the setting tools.web_fetch.confirm "
     "(not a tool argument)."
+)
+
+
+def _external_label(tool_name: str, inp: object) -> str:
+    """外の内容を読んだツールの、カードに出す短い名前。"""
+    if tool_name == "web_fetch":
+        host = urlsplit(str(getattr(inp, "url", ""))).hostname
+        return f"web_fetch: {host}" if host else tool_name
+    return tool_name
+
+
+_EXTERNAL_NONINTERACTIVE = (
+    f"{NONINTERACTIVE_DENY_REASON}: web or MCP content was read earlier in this turn, and after "
+    "that the user confirms writes, commands, MCP tools and web requests. Only the user can turn "
+    "this off, with the setting permission.confirm_after_external (not a tool argument)."
 )
 _LSP_NONINTERACTIVE = (
     f"{NONINTERACTIVE_DENY_REASON}: lsp asks the user once per session before it starts a "
@@ -344,6 +360,7 @@ class _TurnCounters:
     no_change_reports: int = 0
     user_denied: str | None = None
     permission_details: int = 0
+    external_mark: int = 0
 
 
 _WINDOW_MARGIN = 1_000
@@ -443,6 +460,9 @@ class ConversationRuntime:
         self.config = config
         self._secret_matcher = SecretMatcher.from_config(config.permission)
         self._first_use_local: set[str] = set()
+        self._external_reads = (
+            runtime_factory.external_reads if runtime_factory is not None else ExternalReads()
+        )
         self.compactor = compactor or Compactor()
         self.mcp = mcp
         self.rag = rag
@@ -868,6 +888,7 @@ class ConversationRuntime:
         notify = guarded(observer)
 
         self.session.prompt_history.append(user_text)
+        external_mark = self._external_reads.begin_turn(top=self._ctx.depth == 0)
         self._missing_plan_nudges = 0
         self._plan_budget_sendbacks = 0
         self._plan_budget_verdicts = []
@@ -961,7 +982,7 @@ class ConversationRuntime:
         tools_while_stepping = 0
         step_retried: set[int] = set()
         repair = ToolCallRepairState(ToolCallRepairPolicy.from_config(self.config))
-        counters = _TurnCounters()
+        counters = _TurnCounters(external_mark=external_mark)
         step_open: tuple[int, int, int, int] | None = (0, 0, 0, 0) if stepping else None
         budget_lines_seen = self.session.plan_budget_lines if stepping else 0
 
@@ -2344,8 +2365,8 @@ class ConversationRuntime:
         self, tool_name: str, inp: object, outcome: PermissionOutcome
     ) -> tuple[PermissionOutcome, str] | None:
         """確認なしで許可された web_fetch を、このセッションの最初の 1 回だけ確認に替える。"""
-        mode = self.config.web_fetch.confirm
-        if tool_name != "web_fetch" or mode == "never" or not self.config.web_fetch.enabled:
+        mode = self.config.tools.web_fetch.confirm
+        if tool_name != "web_fetch" or mode == "never" or not self.config.tools.web_fetch.enabled:
             return None
         if outcome.decision != "allow" or outcome.scoped:
             return None
@@ -2358,6 +2379,37 @@ class ConversationRuntime:
         else:
             note = f"web_fetch: {host}"
         return PermissionOutcome(decision="ask", reason=note, origin="web-fetch-confirm"), note
+
+    def _hold_after_external(
+        self,
+        tool_name: str,
+        inp: object,
+        own: PermissionMode,
+        outcome: PermissionOutcome,
+        counters: _TurnCounters | None,
+    ) -> tuple[PermissionOutcome, str] | None:
+        """外の内容を読んだ後の書き込み・コマンド・送信を確認にする（own は policy の上書き前）。"""
+        reads = self._external_reads
+        if not self.config.permission.confirm_after_external or counters is None:
+            return None
+        if reads.count <= counters.external_mark or outcome.decision == "deny":
+            return None
+        if outcome.origin == "auto-allow":
+            return None
+        if mode_le(own, PermissionMode.READ_ONLY) and tool_name not in WEB_TOOLS:
+            return None
+        if tool_name == "web_fetch" and self._fetch_to_listed_host(inp):
+            return None
+        note = f"web or MCP content was read earlier in this turn ({reads.last})"
+        if outcome.decision == "ask":
+            return outcome, note
+        return PermissionOutcome(decision="ask", reason=note, origin="external-confirm"), note
+
+    def _fetch_to_listed_host(self, inp: object) -> bool:
+        """web_fetch の宛先が、空でない ``tools.web_fetch.allowed_hosts`` に入っているか。"""
+        cfg = self.config.tools.web_fetch
+        host = urlsplit(str(getattr(inp, "url", ""))).hostname
+        return bool(cfg.allowed_hosts and host and cfg.lists_host(host))
 
     def _hold_lsp_start(
         self, tool_name: str, inp: object, outcome: PermissionOutcome
@@ -2601,8 +2653,9 @@ class ConversationRuntime:
                 )
 
             required = classify(call.name, effective_input, self._spec_mode(call.name))
+            own = classify(call.name, effective_input, self._spec_mode(call.name, overrides=False))
             if self._plan_mode_active() and self._targets_plan_file(call.name, effective_input):
-                required = PermissionMode.READ_ONLY
+                required = own = PermissionMode.READ_ONLY
             outcome = self.policy.authorize(call.name, input_dict, required, override=hook.override)
             if (
                 outcome.decision != "deny"
@@ -2726,6 +2779,15 @@ class ConversationRuntime:
                     if counters is not None:
                         counters.mkdir_skips += 1
                     return _result_block(call, ToolResult(output=skipped))
+            after_external = self._hold_after_external(
+                call.name, effective_input, own, outcome, counters
+            )
+            external_held = False
+            if after_external is not None:
+                held_outcome, note = after_external
+                external_held = held_outcome is not outcome
+                outcome = held_outcome
+                warning = note if warning is None else f"{warning}; {note}"
             if outcome.decision == "ask":
                 if outputs_note is not None:
                     warning = outputs_note if warning is None else f"{outputs_note}\n{warning}"
@@ -2751,6 +2813,8 @@ class ConversationRuntime:
                     self._first_use_cleared().add("web_fetch")
                 elif first_fetch is not None and outcome.reason == NONINTERACTIVE_DENY_REASON:
                     outcome = outcome.model_copy(update={"reason": _FETCH_NONINTERACTIVE})
+                if external_held and outcome.reason == NONINTERACTIVE_DENY_REASON:
+                    outcome = outcome.model_copy(update={"reason": _EXTERNAL_NONINTERACTIVE})
                 if lsp_start_key is not None:
                     if outcome.decision == "allow":
                         self._first_use_cleared().add(lsp_start_key)
@@ -2841,6 +2905,9 @@ class ConversationRuntime:
                     notify,
                     auto_allowed=auto_allowed,
                 )
+            self._external_reads.note(
+                call.name, res.flags, _external_label(call.name, effective_input)
+            )
             if counters is not None:
                 if syntax_check.FLAG_REJECT in res.flags:
                     counters.syntax_rejects += 1
@@ -2977,9 +3044,9 @@ class ConversationRuntime:
         base = self.policy.base if isinstance(self.policy, PermissionResolver) else self.policy
         return base.mode
 
-    def _spec_mode(self, name: str) -> PermissionMode:
+    def _spec_mode(self, name: str, *, overrides: bool = True) -> PermissionMode:
         """classify に渡す既定必要モード（required_modes 上書き → spec → 未知既定）。"""
-        if name in self.policy.required_modes:
+        if overrides and name in self.policy.required_modes:
             return self.policy.required_modes[name]
         cls = self.tools.get(name)
         if cls is not None:

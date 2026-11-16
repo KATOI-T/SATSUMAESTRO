@@ -48,6 +48,18 @@ _ENV_TRUE = frozenset({"1", "true", "on", "yes"})
 _ENV_FALSE = frozenset({"0", "false", "off", "no"})
 
 _WEB_SEARCH_PROVIDERS = frozenset({"duckduckgo", "searxng", "generic", "none"})
+_UNDER_TOOLS = ("web_fetch", "web_search")
+
+
+def _moved_under_tools(data: dict[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """前の書き方（最上位の web_fetch・web_search）を tools の下へ移す。"""
+    old = tuple(key for key in _UNDER_TOOLS if key in data)
+    tools = data.get("tools", {})
+    if not old or not isinstance(tools, dict):
+        return data, ()
+    out = {key: value for key, value in data.items() if key not in old}
+    out["tools"] = deep_merge({key: data[key] for key in old}, tools)
+    return out, old
 
 
 def _env_bool(name: str) -> bool | None:
@@ -215,6 +227,19 @@ class ConfigLoader:
         self.cwd = cwd.resolve()
         self.config_home = config_home if config_home is not None else default_config_home()
         self.trusted = trusted
+        self._moved: list[tuple[Path, tuple[str, ...]]] = []
+
+    def notes(self) -> list[str]:
+        """前の書き方の設定を読んだファイルごとの知らせ（最後に読んだ時の分）。"""
+        return [
+            ui(
+                "config.loader.moved_under_tools",
+                path=path,
+                old=", ".join(old),
+                new=", ".join(f"tools.{key}" for key in old),
+            )
+            for path, old in self._moved
+        ]
 
     def load(self) -> RuntimeConfig:
         """4 層をマージ・検証し、.env で環境依存値を補完した設定を返す。"""
@@ -260,13 +285,20 @@ class ConfigLoader:
             prefer_dotenv_ollama(dotenv)
 
     def _merge_layers(self) -> dict[str, Any]:
-        user = _load_json(self.config_home / "settings.json")
+        self._moved = []
+        user = self._read_layer(self.config_home / "settings.json")
         if not self.trusted:
             return user
         merged = user
         for path in self._project_files():
-            merged = deep_merge(merged, _load_json(path))
+            merged = deep_merge(merged, self._read_layer(path))
         return _keep_selection(merged, user)
+
+    def _read_layer(self, path: Path) -> dict[str, Any]:
+        data, old = _moved_under_tools(_load_json(path))
+        if old:
+            self._moved.append((path, old))
+        return data
 
     def _project_files(self) -> list[Path]:
         files: list[Path] = []
@@ -322,7 +354,8 @@ class ConfigLoader:
         if decomp_flag is not None and "enabled" not in decomposition:
             decomposition["enabled"] = decomp_flag
 
-        web_search = dict(merged.get("web_search") or {})
+        tools = dict(merged.get("tools") or {})
+        web_search = dict(tools.get("web_search") or {})
         ws_provider = ENVIRON.get("SATSUMA_WEB_SEARCH_PROVIDER", "").strip().lower()
         if ws_provider and "provider" not in web_search:
             if ws_provider not in _WEB_SEARCH_PROVIDERS:
@@ -339,7 +372,7 @@ class ConfigLoader:
         if ws_base and not web_search.get("base_url"):
             web_search["base_url"] = ws_base
 
-        web_fetch = dict(merged.get("web_fetch") or {})
+        web_fetch = dict(tools.get("web_fetch") or {})
         wf_flag = _env_bool("SATSUMA_WEB_FETCH_ENABLED")
         if wf_flag is not None and "enabled" not in web_fetch:
             web_fetch["enabled"] = wf_flag
@@ -353,7 +386,9 @@ class ConfigLoader:
         if decomposition:
             merged["decomposition"] = decomposition
         if web_search:
-            merged["web_search"] = web_search
+            tools["web_search"] = web_search
         if web_fetch:
-            merged["web_fetch"] = web_fetch
+            tools["web_fetch"] = web_fetch
+        if tools:
+            merged["tools"] = tools
         return merged

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from satsumaestro.i18n.schema import catalog
 from satsumaestro.util.paths import AGENT_DIRNAME
+from satsumaestro.util.urls import host_matches
 
 
 class RetryConfig(BaseModel):
@@ -154,6 +155,7 @@ class PermissionConfig(BaseModel):
     secret_access: Literal["ask", "deny"] = "ask"
     secret_patterns: list[str] = Field(default_factory=list)
     secret_patterns_remove: list[str] = Field(default_factory=list)
+    confirm_after_external: bool = False
 
 
 class SandboxConfig(BaseModel):
@@ -271,6 +273,22 @@ class WebFetchConfig(BaseModel):
     max_bytes: int = Field(default=2_000_000, ge=1)
     max_redirects: int = Field(default=20, ge=0)
     confirm: Literal["first-use", "always", "never"] = "first-use"
+    allowed_hosts: list[str] = Field(default_factory=list)
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _host_names(cls, value: list[str]) -> list[str]:
+        for name in value:
+            if not name.strip() or "/" in name:
+                raise ValueError(
+                    "tools.web_fetch.allowed_hosts takes host names such as example.com, "
+                    f"not URLs or paths: {name!r}"
+                )
+        return value
+
+    def lists_host(self, host: str) -> bool:
+        """``host`` が ``allowed_hosts`` の名前かそのサブドメインか。"""
+        return any(host_matches(host, name) for name in self.allowed_hosts)
 
 
 class HookConfig(BaseModel):
@@ -302,7 +320,7 @@ class TelemetryConfig(BaseModel):
 
 
 class ToolsConfig(BaseModel):
-    """ツール露出の設定。"""
+    """ツールの出し方と、ツールごとの設定。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -315,6 +333,8 @@ class ToolsConfig(BaseModel):
     overwrite_guard: bool = True
     related_code_notes: bool = True
     mkdir_hint: bool = True
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
 class GuidanceConfig(BaseModel):
@@ -454,8 +474,6 @@ class RuntimeConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     lsp: LspConfig = Field(default_factory=LspConfig)
-    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
-    web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
     guidance: GuidanceConfig = Field(default_factory=GuidanceConfig)
     language: LanguageConfig = Field(default_factory=LanguageConfig)
     recovery: RecoveryConfig = Field(default_factory=RecoveryConfig)

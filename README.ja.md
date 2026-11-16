@@ -394,6 +394,14 @@ bash のコマンドと削除は確認が必要です。`repl`（対話）は確
 パスを名指ししていても、必ず確認になります。`a` では覚えられません（非対話では拒否）。これらのファイルに
 書く bash も同じです。
 
+**web や MCP の内容の後**: `"permission": {"confirm_after_external": true}` にすると、ターンの中で
+`web_fetch`・`web_search`・MCP のツールが内容を返した後は、そのターンの残りで、ファイルの書き込み・bash・
+MCP のツール・サブエージェント・さらなる web への問い合わせが確認になります。ルール・モード・前の `a` で
+許可していても確認です（非対話では拒否）。読むだけと確かめられる bash と、
+`tools.web_fetch.allowed_hosts` にあるホストへの `web_fetch` は、確認なしのままです。サブエージェントがそのターンに読んだ内容も数えます。
+サブエージェントは確認を出せないので、外の内容の後に動き出したサブエージェントでは、これらは拒否になります。
+次の発言で元に戻ります。既定はオフです。
+
 **サンドボックスの限界**: bash は作業場所を作業ディレクトリにして動き、リダイレクトの先は作業場所の中に
 限られます。OS のレベルの隔離（namespace・seccomp）はしません。bash の検証は補助の警告の層で、最後の守りは作業場所の制限（jail）と
 権限ポリシーです。
@@ -421,13 +429,15 @@ bash のコマンドと削除は確認が必要です。`repl`（対話）は確
 
 ## Web 検索と Web 取得
 
-どちらも**既定で無効**で、モデルにツールとして見せません。
+どちらも**既定で無効**で、モデルにツールとして見せません。設定は `tools` の下に書きます（`tools.web_search` と
+`tools.web_fetch`）。0.5 のように最上位に書いた設定（`web_search` と `web_fetch`）も当面は読み、起動時に
+そのファイルを示して知らせます。
 
 **Web 検索**（`web_search`）は、モデルが組み立てた検索語を第三者のサービスへ送るので、使う人が検索先を
 選びます。おすすめは [SearXNG](https://github.com/searxng/searxng) の自前ホストです。
 
 ```json
-{"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}
+{"tools": {"web_search": {"provider": "searxng", "base_url": "http://localhost:8080"}}}
 ```
 
 SearXNG の Docker の設定はリポジトリの
@@ -436,7 +446,7 @@ SearXNG の Docker の設定はリポジトリの
 利用規約と bot 判定の対象になり、連続して使うと検索が沈黙することがあります。環境変数
 `SATSUMA_WEB_SEARCH_PROVIDER` / `SATSUMA_WEB_SEARCH_BASE_URL` でも設定できます。
 
-**Web 取得**（`web_fetch`）は、URL のページを読みます。`{"web_fetch": {"enabled": true}}`（または
+**Web 取得**（`web_fetch`）は、URL のページを読みます。`{"tools": {"web_fetch": {"enabled": true}}}`（または
 `SATSUMA_WEB_FETCH_ENABLED=true`）で有効にします。有効にしたとき:
 
 - セッションで最初の取得の前に、宛先のホストを示して確認します（非対話では拒否）
@@ -445,11 +455,19 @@ SearXNG の Docker の設定はリポジトリの
 - 本文は 2 MB までしか読みません
 
 ```json
-{"web_fetch": {"enabled": true, "confirm": "first-use", "allow_private_hosts": false, "max_bytes": 2000000}}
+{
+  "tools": {
+    "web_fetch": {"enabled": true, "confirm": "first-use", "allow_private_hosts": false, "max_bytes": 2000000}
+  }
+}
 ```
 
 `confirm` は `first-use`（既定）/ `always`（毎回）/ `never`（確認なし）。手元のサーバを読ませるときだけ
-`allow_private_hosts: true` にします。URL を名指しした許可（`.satsuma/policy.md` の `## Allow` に
+`allow_private_hosts: true` にします。取りに行く先を絞るときは `allowed_hosts` にホストを並べます
+（例: `["docs.python.org", "example.com"]`）。並べたホストとそのサブドメインにだけ、リダイレクトの先も
+含めて取りに行きます。空のリスト（既定）なら、公開されている宛先はどこでも取りに行きます。
+許可リストと私有アドレスの拒否は `web_fetch` だけに効き、bash の `curl` などは制限されません（ルール・モード・前の
+`a` で許可していなければ、ほかのコマンドと同じく確認します）。URL を名指しした許可（`.satsuma/policy.md` の `## Allow` に
 `- web_fetch when url glob: https://docs.python.org/*`）は確認なしで通ります。
 
 ## 任意の機能

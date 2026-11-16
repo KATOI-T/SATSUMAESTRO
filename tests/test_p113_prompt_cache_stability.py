@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from satsumaestro.config.models import HookConfig, RuntimeConfig, WebSearchConfig
+from satsumaestro.config.models import HookConfig, RuntimeConfig, ToolsConfig, WebSearchConfig
 from satsumaestro.engine.events import MessageStop, TextDelta, ToolUse
 from satsumaestro.engine.runtime import ConversationRuntime
 from satsumaestro.hooks.runner import HookRunner
@@ -200,7 +200,9 @@ async def test_static_memo_rebuilds_on_model_or_config_change(tmp_path: Path) ->
 
     search = (
         await b.build(
-            tmp_path, "m", RuntimeConfig(web_search=WebSearchConfig(provider="duckduckgo"))
+            tmp_path,
+            "m",
+            RuntimeConfig(tools=ToolsConfig(web_search=WebSearchConfig(provider="duckduckgo"))),
         )
     ).static
     assert "# Web search usage" not in plain and "# Web search usage" in search
