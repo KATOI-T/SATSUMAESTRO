@@ -2384,11 +2384,11 @@ class ConversationRuntime:
         self,
         tool_name: str,
         inp: object,
-        required: PermissionMode,
+        own: PermissionMode,
         outcome: PermissionOutcome,
         counters: _TurnCounters | None,
     ) -> tuple[PermissionOutcome, str] | None:
-        """外の内容を読んだ後の書き込み・コマンド・送信を、このターンの間は確認にする。"""
+        """外の内容を読んだ後の書き込み・コマンド・送信を確認にする（own は policy の上書き前）。"""
         reads = self._external_reads
         if not self.config.permission.confirm_after_external or counters is None:
             return None
@@ -2396,7 +2396,7 @@ class ConversationRuntime:
             return None
         if outcome.origin == "auto-allow":
             return None
-        if mode_le(required, PermissionMode.READ_ONLY) and tool_name not in WEB_TOOLS:
+        if mode_le(own, PermissionMode.READ_ONLY) and tool_name not in WEB_TOOLS:
             return None
         if tool_name == "web_fetch" and self._fetch_to_listed_host(inp):
             return None
@@ -2653,8 +2653,9 @@ class ConversationRuntime:
                 )
 
             required = classify(call.name, effective_input, self._spec_mode(call.name))
+            own = classify(call.name, effective_input, self._spec_mode(call.name, overrides=False))
             if self._plan_mode_active() and self._targets_plan_file(call.name, effective_input):
-                required = PermissionMode.READ_ONLY
+                required = own = PermissionMode.READ_ONLY
             outcome = self.policy.authorize(call.name, input_dict, required, override=hook.override)
             if (
                 outcome.decision != "deny"
@@ -2779,7 +2780,7 @@ class ConversationRuntime:
                         counters.mkdir_skips += 1
                     return _result_block(call, ToolResult(output=skipped))
             after_external = self._hold_after_external(
-                call.name, effective_input, required, outcome, counters
+                call.name, effective_input, own, outcome, counters
             )
             external_held = False
             if after_external is not None:
@@ -3043,9 +3044,9 @@ class ConversationRuntime:
         base = self.policy.base if isinstance(self.policy, PermissionResolver) else self.policy
         return base.mode
 
-    def _spec_mode(self, name: str) -> PermissionMode:
+    def _spec_mode(self, name: str, *, overrides: bool = True) -> PermissionMode:
         """classify に渡す既定必要モード（required_modes 上書き → spec → 未知既定）。"""
-        if name in self.policy.required_modes:
+        if overrides and name in self.policy.required_modes:
             return self.policy.required_modes[name]
         cls = self.tools.get(name)
         if cls is not None:

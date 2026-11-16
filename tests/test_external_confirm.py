@@ -228,6 +228,21 @@ async def test_calls_that_change_or_send_ask_after_web_fetch(
     assert prompter.calls == [(call.name, f"{NOTE} (web_fetch: example.com)")]
 
 
+@pytest.mark.parametrize(
+    "call",
+    [_call("mcp__demo__echo", text="hi"), _call("agent", description="look", prompt="look around")],
+    ids=["mcp", "agent"],
+)
+async def test_a_read_only_requirement_in_the_policy_still_asks(
+    tmp_path: Path, call: ToolUse
+) -> None:
+    policy = _allowing(call.name)
+    policy.required_modes[call.name] = PermissionMode.READ_ONLY
+    prompter = _Prompter(NO)
+    await _run(_runtime(tmp_path, _steps(_fetch(), call), policy=policy), prompter)
+    assert prompter.calls == [(call.name, f"{NOTE} (web_fetch: example.com)")]
+
+
 @pytest.mark.parametrize("fail", [False, True], ids=["result", "error"])
 async def test_an_mcp_result_counts_even_when_it_is_an_error(tmp_path: Path, fail: bool) -> None:
     prompter = _Prompter(YES, NO)
