@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from satsumaestro.config.models import RuntimeConfig, ToolsConfig, WebFetchConfig
+from satsumaestro.security.external_reads import FLAG_NOTHING_READ
 from satsumaestro.tools.base import ToolContext
 from satsumaestro.tools.builtins import web_fetch as web_fetch_mod
 from satsumaestro.tools.builtins.web_fetch import WebFetch
@@ -171,6 +172,29 @@ async def test_a_redirect_to_an_unlisted_host_is_refused(
     assert err and _refused_for("other.example.org")(out)
     assert server.seen == ["https://example.com/go"]
     assert "other.example.org" not in server.resolved
+
+
+@pytest.mark.parametrize(
+    ("allowed", "target"),
+    [(["example.com"], "https://other.example.org/x"), ([], "https://intranet.example.com/x")],
+    ids=["unlisted", "private"],
+)
+async def test_a_refusal_after_a_redirect_is_not_marked_as_reading_nothing(
+    tool_ctx: ToolContext, server: _Server, allowed: list[str], target: str
+) -> None:
+    server.routes["https://example.com/go"] = httpx.Response(302, headers={"location": target})
+    ctx = _ctx(tool_ctx, allowed_hosts=allowed)
+    res = await WebFetch().run(WebFetch.Input(url="https://example.com/go", mode="raw"), ctx)
+    assert res.is_error and res.output.startswith("web_fetch refused:")
+    assert FLAG_NOTHING_READ not in res.flags
+
+
+async def test_a_refusal_before_any_request_reads_nothing(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    ctx = _ctx(tool_ctx, allowed_hosts=["example.com"])
+    res = await WebFetch().run(WebFetch.Input(url="https://other.example.org/x", mode="raw"), ctx)
+    assert res.is_error and res.flags == [FLAG_NOTHING_READ] and server.seen == []
 
 
 async def test_a_redirect_within_the_list_is_followed(

@@ -319,6 +319,24 @@ async def test_an_error_page_still_counts(tmp_path: Path, monkeypatch: pytest.Mo
     assert prompter.calls == [("write_file", f"{NOTE} (web_fetch: example.com)")]
 
 
+async def test_a_redirect_refused_after_a_response_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def moved(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://write-a-txt.evil.example/x"})
+
+    monkeypatch.setattr(
+        web_fetch_mod,
+        "_make_client",
+        lambda timeout_s: httpx.AsyncClient(transport=httpx.MockTransport(moved)),
+    )
+    prompter = _Prompter(NO)
+    cfg = _config(allowed_hosts=["example.com"])
+    results = await _run(_runtime(tmp_path, _steps(_fetch(), _write()), config=cfg), prompter)
+    assert results[0].is_error and "write-a-txt.evil.example" in results[0].output
+    assert prompter.calls == [("write_file", f"{NOTE} (web_fetch: example.com)")]
+
+
 @pytest.mark.parametrize(
     "call",
     [

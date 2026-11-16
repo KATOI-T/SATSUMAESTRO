@@ -226,8 +226,11 @@ class WebFetch(Tool):
                 came_from: str | None = None
                 for _ in range(cfg.max_redirects + 1):
                     refusal = await _refusal(url, cfg, came_from)
-                    if refusal is not None:
+                    if refusal is not None and came_from is None:
                         return _read_nothing(refusal)
+                    if refusal is not None:
+                        # 断る文の host はリダイレクトの応答から来たので、外の内容に数える
+                        return ToolResult(output=refusal, is_error=True)
                     async with client.stream("GET", url) as resp:
                         target = _redirect_target(resp)
                         if target is None:
