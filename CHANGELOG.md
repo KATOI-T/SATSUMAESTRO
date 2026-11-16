@@ -53,6 +53,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tools.web_fetch`), next to the other tool settings. Settings at the top level are still read for
   now, with a note at startup naming the file. The environment variables are unchanged.
   ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
+- When `web_fetch` refuses a private or local address, the model is told to leave
+  `tools.web_fetch.allow_private_hosts` to the user and to show where to set it, with an example and
+  the host that redirected there. Without `allowed_hosts`, it also says that the setting opens every
+  private and local address. ([#33](https://github.com/KATOI-T/SATSUMAESTRO/issues/33))
 - A short message in English, such as `HELLO`, gets a reply in English. Before, a message needed 8
   letters to change the reply language from the one before. Two letters or fewer (`ok`) still keep
   it. The check of the reply still uses `language.min_chars`.

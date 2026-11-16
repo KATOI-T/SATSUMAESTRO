@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import socket
 from collections.abc import AsyncIterator
 
@@ -150,6 +151,44 @@ async def test_redirect_to_metadata_is_refused(tool_ctx: ToolContext, server: _S
     out, err = await _fetch(_ctx(tool_ctx), "https://example.com/go")
     assert err and "(169.254.169.254)" in out
     assert server.seen == ["https://example.com/go"]
+
+
+async def test_the_private_refusal_leaves_allowing_to_the_user(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    out, err = await _fetch(_ctx(tool_ctx), "https://intranet.example.com/wiki")
+    text, example = out.split("Show them this example:\n", 1)
+    assert err and "(10.0.0.5)" in text and "you cannot edit settings files" in text
+    assert "Do not offer to change the setting yourself." in text
+    assert "Tell the user that intranet.example.com resolves to a private or local address" in text
+    assert (
+        "~/.satsuma/settings.json, .satsuma.json, .satsuma/settings.json, "
+        ".satsuma/settings.local.json"
+    ) in text
+    assert "restart SATSUMAESTRO" in text
+    assert "reach every private and local address" in text
+    assert json.loads(example) == {
+        "tools": {"web_fetch": {"enabled": True, "allow_private_hosts": True}}
+    }
+
+
+async def test_with_a_host_list_the_private_refusal_does_not_warn_about_every_address(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    ctx = _ctx(tool_ctx, allowed_hosts=["intranet.example.com"])
+    out, err = await _fetch(ctx, "https://intranet.example.com/wiki")
+    assert err and "Show them this example:" in out
+    assert "every private and local address" not in out
+
+
+async def test_the_private_refusal_names_the_host_that_redirected(
+    tool_ctx: ToolContext, server: _Server
+) -> None:
+    server.routes["https://example.com/go"] = httpx.Response(
+        302, headers={"location": "http://169.254.169.254/latest/meta-data/"}
+    )
+    out, err = await _fetch(_ctx(tool_ctx), "https://example.com/go")
+    assert err and "169.254.169.254, reached by a redirect from example.com," in out
 
 
 async def test_redirects_are_followed_with_relative_locations(

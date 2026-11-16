@@ -498,8 +498,11 @@ variables `SATSUMA_WEB_SEARCH_PROVIDER` and `SATSUMA_WEB_SEARCH_BASE_URL` work t
 `confirm` is `first-use` (default), `always` or `never`. Set `allow_private_hosts: true` only to read
 a server on your own network. To limit where it may go, list hosts in `allowed_hosts` (for example
 `["docs.python.org", "example.com"]`): only those hosts and their subdomains are fetched, also
-through redirects. An empty list (default) allows any public host. A rule naming the URL in `## Allow` of `.satsuma/policy.md` (for
-example `- web_fetch when url glob: https://docs.python.org/*`) passes without asking.
+through redirects. An empty list (default) allows any public host. The host list and the refusal of
+private addresses apply only to `web_fetch`: bash commands such as `curl` are not limited by them and
+ask like other commands, unless a rule, the mode or an earlier `a` allows them. A rule naming the URL
+in `## Allow` of `.satsuma/policy.md` (for example `- web_fetch when url glob: https://docs.python.org/*`)
+passes without asking.
 
 ## Optional features
 

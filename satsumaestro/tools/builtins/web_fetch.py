@@ -23,6 +23,9 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 _MIN_PART_TOKENS = 2_000
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 _LISTED_HOSTS = 10
+_SETTINGS_FILES = (
+    "~/.satsuma/settings.json, .satsuma.json, .satsuma/settings.json, .satsuma/settings.local.json"
+)
 TURNED_OFF = (
     "web_fetch is turned off. Only the user can turn it on, with the setting "
     "tools.web_fetch.enabled (not a tool argument)."
@@ -85,15 +88,35 @@ def _not_listed(host: str, hosts: list[str]) -> str:
         "Only the user can add hosts: tools.web_fetch.allowed_hosts is a setting, not a tool "
         "argument, and you cannot edit settings files. Do not offer to add the host yourself. "
         f"Tell the user that {host} is not allowed, and that they can add it to the list in "
-        "the last of these files that sets it: ~/.satsuma/settings.json, .satsuma.json, "
-        ".satsuma/settings.json, .satsuma/settings.local.json (a list in a later file replaces "
-        "the earlier ones), keep the hosts already listed, and restart SATSUMAESTRO. "
+        f"the last of these files that sets it: {_SETTINGS_FILES} (a list in a later file "
+        "replaces the earlier ones), keep the hosts already listed, and restart SATSUMAESTRO. "
         f"Show them this example:\n{json.dumps(example)}"
     )
 
 
-async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
-    """取りに行かない URL なら拒否の文。"""
+def _private(host: str, local: IPAddress, cfg: WebFetchConfig, came_from: str | None) -> str:
+    """私有アドレスへの取得を断り、許可は利用者に任せるようモデルに伝える文。"""
+    where = f"{host}, reached by a redirect from {came_from}," if came_from else host
+    every = (
+        ""
+        if cfg.allowed_hosts
+        else " Also tell them that the setting lets web_fetch reach every private and local "
+        "address, unless tools.web_fetch.allowed_hosts lists the hosts it may go to."
+    )
+    example = {"tools": {"web_fetch": {"enabled": True, "allow_private_hosts": True}}}
+    return (
+        f"web_fetch refused: {where} resolves to a private or local address ({local}). "
+        "Only the user can allow these addresses: tools.web_fetch.allow_private_hosts is a "
+        "setting, not a tool argument, and you cannot edit settings files. Do not offer to "
+        f"change the setting yourself. Tell the user that {where} resolves to a private or local "
+        f"address, and that they can turn the setting on in one of these files: {_SETTINGS_FILES} "
+        f"(a later file overrides the earlier ones), and restart SATSUMAESTRO.{every} "
+        f"Show them this example:\n{json.dumps(example)}"
+    )
+
+
+async def _refusal(url: httpx.URL, cfg: WebFetchConfig, came_from: str | None) -> str | None:
+    """取りに行かない URL なら拒否の文（came_from はリダイレクトの元の host）。"""
     if url.scheme not in ("http", "https"):
         return f"web_fetch refused: only http and https URLs can be fetched: {url}"
     host = url.host
@@ -112,11 +135,7 @@ async def _refusal(url: httpx.URL, cfg: WebFetchConfig) -> str | None:
         return f"web_fetch refused: could not resolve {host}"
     local = next((a for a in addresses if is_local_address(a)), None)
     if local is not None:
-        return (
-            f"web_fetch refused: {host} resolves to a private or local address ({local}). "
-            "Only the user can allow these addresses, with the setting "
-            "tools.web_fetch.allow_private_hosts (not a tool argument)."
-        )
+        return _private(host, local, cfg, came_from)
     return None
 
 
@@ -204,8 +223,9 @@ class WebFetch(Tool):
             return _read_nothing(f"fetch failed: invalid URL: {e}")
         try:
             async with _make_client(min(inp.timeout_s, MAX_TIMEOUT_S)) as client:
+                came_from: str | None = None
                 for _ in range(cfg.max_redirects + 1):
-                    refusal = await _refusal(url, cfg)
+                    refusal = await _refusal(url, cfg, came_from)
                     if refusal is not None:
                         return _read_nothing(refusal)
                     async with client.stream("GET", url) as resp:
@@ -223,7 +243,7 @@ class WebFetch(Tool):
                                 note=_cut_note(cfg.max_bytes) if truncated else "",
                                 budget=part_budget(ctx.config),
                             )
-                    url = target
+                    came_from, url = url.host, target
         except httpx.HTTPError as e:
             return ToolResult(output=f"fetch failed: {e}", is_error=True)
         return ToolResult(

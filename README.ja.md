@@ -465,7 +465,9 @@ SearXNG の Docker の設定はリポジトリの
 `confirm` は `first-use`（既定）/ `always`（毎回）/ `never`（確認なし）。手元のサーバを読ませるときだけ
 `allow_private_hosts: true` にします。取りに行く先を絞るときは `allowed_hosts` にホストを並べます
 （例: `["docs.python.org", "example.com"]`）。並べたホストとそのサブドメインにだけ、リダイレクトの先も
-含めて取りに行きます。空のリスト（既定）なら、公開されている宛先はどこでも取りに行きます。URL を名指しした許可（`.satsuma/policy.md` の `## Allow` に
+含めて取りに行きます。空のリスト（既定）なら、公開されている宛先はどこでも取りに行きます。
+許可リストと私有アドレスの拒否は `web_fetch` だけに効き、bash の `curl` などは制限されません（ルール・モード・前の
+`a` で許可していなければ、ほかのコマンドと同じく確認します）。URL を名指しした許可（`.satsuma/policy.md` の `## Allow` に
 `- web_fetch when url glob: https://docs.python.org/*`）は確認なしで通ります。
 
 ## 任意の機能
