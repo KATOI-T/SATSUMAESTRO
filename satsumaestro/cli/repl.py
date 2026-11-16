@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -48,6 +48,7 @@ from satsumaestro.orchestration.runner import Orchestrator
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import PermissionOutcome
 from satsumaestro.security.remember_guard import blocker_note, remember_blocker
+from satsumaestro.session.redact import redact_pieces, secret_values, shown_input_pieces
 from satsumaestro.telemetry.log import TraceLog
 from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import (
@@ -101,11 +102,22 @@ def _outcome(answer: str) -> PermissionOutcome:
     return PermissionOutcome(decision="deny", reason="denied by user", origin=USER_DENY_ORIGIN)
 
 
-def _detail_panel(detail: PermissionDetail) -> Panel:
-    """d で出すパネル: モデルの説明。"""
+def _as_is(text: str) -> str:
+    return text
+
+
+def _hider(call: ToolUse) -> Callable[[str], str]:
+    """カードで伏せた入力の値と秘密を、説明の文から伏せる関数。"""
+    values = secret_values()
+    pieces = shown_input_pieces(call.name, call.input, values=values)
+    return lambda text: redact_pieces(text, pieces, values=values)
+
+
+def _detail_panel(detail: PermissionDetail, hide: Callable[[str], str] = _as_is) -> Panel:
+    """d で出すパネル: モデルの説明（``hide`` で伏せる）。"""
     title = ui("cli.repl.what_it_is_about_to")
     if detail.explanation is not None:
-        text = detail.explanation
+        text = hide(detail.explanation)
         for question, broken in _CARD_QUESTIONS.items():
             text = text.replace(question, broken)
         return Panel(Text(text), title=title, border_style="cyan", expand=False)
@@ -116,22 +128,26 @@ def _detail_panel(detail: PermissionDetail) -> Panel:
     )
     if detail.model_text.strip():
         said = ui("cli.repl.what_the_model_said_just")
-        body.append(said, style="bold").append(detail.model_text.strip())
+        body.append(said, style="bold").append(hide(detail.model_text.strip()))
     if detail.step is not None:
         index, total, step_text = detail.step
         step = ui("cli.repl.current_step", index=index, total=total)
-        body.append(step, style="bold").append(step_text)
+        body.append(step, style="bold").append(hide(step_text))
     if detail.user_request.strip():
-        body.append(ui("cli.repl.request"), style="bold").append(detail.user_request.strip())
+        request = hide(detail.user_request.strip())
+        body.append(ui("cli.repl.request"), style="bold").append(request)
     return Panel(body, title=title, border_style="cyan", expand=False)
 
 
 class InteractivePrompter:
     """``ask`` を実行内容カード＋``[y/n/a/d]`` で解決する対話プロンプタ。"""
 
-    def __init__(self, console: Console | None = None, *, plan_steps: bool = False) -> None:
+    def __init__(
+        self, console: Console | None = None, *, plan_steps: bool = False, redact: bool = False
+    ) -> None:
         self.console = console or Console()
         self._plan_steps = plan_steps
+        self._redact = redact
         self._plan_budget: tuple[PlanBudget, Sequence[PlanStep], BudgetVerdict | None] | None = None
 
     def set_plan_budget(
@@ -145,7 +161,9 @@ class InteractivePrompter:
     def decide(
         self, call: ToolUse, required: PermissionMode, warning: str | None = None
     ) -> PermissionOutcome:
-        self.console.print(action_preview(call, required.value, warning=warning))
+        self.console.print(
+            action_preview(call, required.value, warning=warning, redact=self._redact)
+        )
         blocker = remember_blocker(call.name, call.input)
         if blocker is not None:
             self.console.print(Text(blocker_note(blocker), style="dim"))
@@ -167,9 +185,12 @@ class InteractivePrompter:
         detail: PermissionDetail,
     ) -> PermissionOutcome:
         """d の後: 説明（取れなければ代わりの事実）と詳細を出し、y / n / a で受ける。"""
-        self.console.print(_detail_panel(detail))
+        self.console.print(_detail_panel(detail, _hider(call) if self._redact else _as_is))
         if call.name in _FULL_DETAIL_TOOLS:
-            self.console.print(action_preview(call, required.value, detailed=True, warning=warning))
+            card = action_preview(
+                call, required.value, detailed=True, warning=warning, redact=self._redact
+            )
+            self.console.print(card)
         blocker = remember_blocker(call.name, call.input)
         prompt = _permission_prompt(detail=False, always=blocker is None)
         while True:

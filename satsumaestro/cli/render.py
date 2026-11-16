@@ -44,6 +44,12 @@ from satsumaestro.providers.detect import LocalKind
 from satsumaestro.providers.notices import ProviderNotice
 from satsumaestro.providers.notices import describe as describe_notice
 from satsumaestro.session.models import PlanStepRecord, TokenUsage, ToolResultBlock
+from satsumaestro.session.redact import (
+    redact_lines,
+    redact_secrets,
+    redact_shown_input,
+    secret_values,
+)
 from satsumaestro.tools import edit_match
 from satsumaestro.util.partial_json import partial_json_string
 
@@ -170,9 +176,11 @@ class RichRenderer:
         local_server: LocalKind = "ollama",
         cwd: Path | None = None,
         context_limit: int | Callable[[], int] = 0,
+        redact: bool = False,
     ) -> None:
         self.console = console or Console()
         self._cwd = cwd
+        self._redact = redact
         self._context_limit = context_limit
         self._loading_model = loading_model
         self._local_server: LocalKind = local_server
@@ -196,7 +204,7 @@ class RichRenderer:
         self._phase_label: str | None = None
         self._phase_since = time.monotonic()
         self._spinner = Spinner("dots", style="cyan")
-        self._stream_tool_args = stream_tool_args
+        self._stream_tool_args = stream_tool_args and not redact
         self._tool_args: dict[int, str] = {}
         self._tool_arg_names: dict[int, str] = {}
         self._tool_arg_active: int | None = None
@@ -285,12 +293,13 @@ class RichRenderer:
 
     def on_tool_start(self, call: ToolUse) -> None:
         self._finalize_segment()
-        display = describe(call)
-        self._running[call.id] = (call, display, time.monotonic())
+        shown = _redacted_call(call) if self._redact else call
+        display = describe(shown)
+        self._running[call.id] = (shown, display, time.monotonic())
         if display.at_start:
             self._emit_tool(display.label, [_tool_item(d) for d in display.items])
             if self._tty:
-                preview = change_preview(call, self._cwd)
+                preview = change_preview(call, self._cwd, redact=self._redact)
                 if preview is not None:
                     self._emit(Padding(preview, (0, 0, 0, _ITEM_INDENT)), separated=False)
         self.on_phase(display.status())
@@ -941,20 +950,38 @@ def _bash_output_panel(output: str) -> RenderableType:
 
 
 def action_preview(
-    call: ToolUse, required: str, detailed: bool = False, warning: str | None = None
+    call: ToolUse,
+    required: str,
+    detailed: bool = False,
+    warning: str | None = None,
+    *,
+    redact: bool = False,
 ) -> RenderableType:
-    """権限確認カード: 「何を実行するか」をツール別に整形する。"""
+    """権限確認カード: 「何を実行するか」をツール別に整形する（``redact`` なら出す所を伏せる）。"""
     title = ui("cli.render.permission", name=call.name, required=required)
-    body = _preview_body(call, detailed)
+    if redact:
+        body = _preview_body(_redacted_call(call), detailed, real=call, split=_shown_lines)
+    else:
+        body = _preview_body(call, detailed)
     if warning is not None:
         body = Group(Text(f"⚠ {warning}", style="yellow bold"), body)
     return Panel(body, title=title, border_style="yellow", expand=False)
 
 
-def change_preview(call: ToolUse, cwd: Path | None = None) -> RenderableType | None:
-    """ファイル変更ツールの「これから何を変えるか」。"""
+def _redacted_call(call: ToolUse) -> ToolUse:
+    """入力の秘密を、描く時点の鍵の値で伏せた写し。"""
+    shown = redact_shown_input(call.name, call.input, values=secret_values())
+    return call.model_copy(update={"input": shown})
+
+
+def change_preview(
+    call: ToolUse, cwd: Path | None = None, *, redact: bool = False
+) -> RenderableType | None:
+    """ファイル変更ツールの「これから何を変えるか」（``redact`` なら出す行だけを伏せる）。"""
     inp = call.input
     path = str(inp.get("path", ""))
+    split = _shown_lines if redact else str.splitlines
+    shown_path = redact_secrets(path, values=secret_values()) if redact else path
     if call.name == "edit_file":
         old, new = str(inp.get("old", "")), str(inp.get("new", ""))
         current = _read_current(cwd, path)
@@ -964,31 +991,42 @@ def change_preview(call: ToolUse, cwd: Path | None = None) -> RenderableType | N
                 if inp.get("replace_all")
                 else current.replace(old, new, 1)
             )
-            return _numbered_diff(current, after)
+            return _numbered_diff(current, after, split)
         if isinstance(current, str) and old:
             shifted = edit_match.reindent_edit(current, old, new)
             if shifted is not None:
-                return _numbered_diff(current, current.replace(shifted.old, shifted.new, 1))
-        return _diff_preview(path, old, new, False)
+                after = current.replace(shifted.old, shifted.new, 1)
+                return _numbered_diff(current, after, split)
+        return _diff_preview(shown_path, old, new, False, split)
     if call.name == "delete_path":
         return _delete_preview(path, cwd)
     if call.name == "write_file":
         content = str(inp.get("content", ""))
         current = _read_current(cwd, path)
         if current is _MISSING:
-            return _numbered_new_file(content)
+            return _numbered_new_file(content, split)
         if isinstance(current, str):
-            return _numbered_diff(current, content)
-        return _write_preview(path, content, False)
+            return _numbered_diff(current, content, split)
+        return _write_preview(shown_path, content, False, split)
     if call.name == "append_file":
         content = str(inp.get("content", ""))
         current = _read_current(cwd, path)
         if current is _MISSING:
-            return _numbered_new_file(content)
+            return _numbered_new_file(content, split)
         if isinstance(current, str):
-            return _numbered_diff(current, current + content)
-        return _write_preview(path, content, False)
+            return _numbered_diff(current, current + content, split)
+        return _write_preview(shown_path, content, False, split)
     return None
+
+
+def _shown_lines(text: str) -> list[str]:
+    """画面に出す行（行の数を変えずに秘密を伏せる）。"""
+    return redact_lines(text, values=secret_values())
+
+
+def _context(real: str, before: str, after: str) -> str:
+    """変わらない行は、前と後のうち伏せた方を出す。"""
+    return before if before != real else after
 
 
 _PREVIEW_READ_LIMIT = 1_000_000
@@ -1012,9 +1050,12 @@ def _read_current(cwd: Path | None, path: str) -> str | object | None:
         return None
 
 
-def _numbered_diff(before: str, after: str) -> RenderableType:
+def _numbered_diff(
+    before: str, after: str, split: Callable[[str], list[str]] = str.splitlines
+) -> RenderableType:
     """ファイル内の行番号付きで、変わる箇所（前後 2 行の文脈つき）だけを出す。"""
     a, b = before.splitlines(), after.splitlines()
+    sa, sb = split(before), split(after)
     width = len(str(max(len(a), len(b), 1)))
     rows: list[tuple[str, str]] = []
     matcher = difflib.SequenceMatcher(None, a, b)
@@ -1023,10 +1064,13 @@ def _numbered_diff(before: str, after: str) -> RenderableType:
             rows.append((" " * width + " ⋮", "dim"))
         for tag, i1, i2, j1, j2 in group:
             if tag == "equal":
-                rows.extend((f"{i + 1:>{width}}   {a[i]}", "dim") for i in range(i1, i2))
+                rows.extend(
+                    (f"{i + 1:>{width}}   {_context(a[i], sa[i], sb[j])}", "dim")
+                    for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
+                )
                 continue
-            rows.extend((f"{i + 1:>{width}} - {a[i]}", "red") for i in range(i1, i2))
-            rows.extend((f"{j + 1:>{width}} + {b[j]}", "green") for j in range(j1, j2))
+            rows.extend((f"{i + 1:>{width}} - {sa[i]}", "red") for i in range(i1, i2))
+            rows.extend((f"{j + 1:>{width}} + {sb[j]}", "green") for j in range(j1, j2))
     if not rows:
         return Text(ui("cli.render.no_changes"), style="dim")
     text = Text()
@@ -1079,9 +1123,11 @@ def _delete_preview(path: str, cwd: Path | None) -> RenderableType | None:
     return text
 
 
-def _numbered_new_file(content: str) -> RenderableType:
+def _numbered_new_file(
+    content: str, split: Callable[[str], list[str]] = str.splitlines
+) -> RenderableType:
     """新規ファイルは先頭を行番号付きで出す。"""
-    lines = content.splitlines()
+    lines = split(content)
     width = len(str(max(min(len(lines), _WRITE_PREVIEW_LINES), 1)))
     text = Text(ui("cli.render.new_file"), style="bold")
     for i, line in enumerate(lines[:_WRITE_PREVIEW_LINES]):
@@ -1102,18 +1148,26 @@ def _diff_stats(old: str, new: str) -> tuple[int, int]:
     return add, rm
 
 
-def _preview_body(call: ToolUse, detailed: bool) -> RenderableType:
+def _preview_body(
+    call: ToolUse,
+    detailed: bool,
+    *,
+    real: ToolUse | None = None,
+    split: Callable[[str], list[str]] = str.splitlines,
+) -> RenderableType:
+    """カードの本文（``real`` があれば、ファイルの変更の差分と行数は元の値で数える）。"""
     inp = call.input
+    raw = (real or call).input
     if call.name == "bash":
         return Syntax(str(inp.get("command", "")), "bash", theme="ansi_dark", word_wrap=True)
     if call.name == "edit_file":
         path, old, new = (
             str(inp.get("path", "")),
-            str(inp.get("old", "")),
-            str(inp.get("new", "")),
+            str(raw.get("old", "")),
+            str(raw.get("new", "")),
         )
         if detailed:
-            return _diff_preview(path, old, new, True)
+            return _diff_preview(path, old, new, True, split)
         add, rm = _diff_stats(old, new)
         return Text.assemble(
             (f"{path}  ", "bold"),
@@ -1125,9 +1179,9 @@ def _preview_body(call: ToolUse, detailed: bool) -> RenderableType:
             ),
         )
     if call.name in ("write_file", "append_file"):
-        path, content = str(inp.get("path", "")), str(inp.get("content", ""))
+        path, content = str(inp.get("path", "")), str(raw.get("content", ""))
         if detailed:
-            return _write_preview(path, content, True)
+            return _write_preview(path, content, True, split)
         append = call.name == "append_file"
         n, size = len(content.splitlines()), len(content)
         return Text.assemble(
@@ -1164,12 +1218,17 @@ def _preview_body(call: ToolUse, detailed: bool) -> RenderableType:
         return Text(str(inp))
 
 
-def _diff_preview(path: str, old: str, new: str, detailed: bool) -> RenderableType:
-    lines = list(
-        difflib.unified_diff(
-            old.splitlines(), new.splitlines(), fromfile=path, tofile=path, lineterm=""
-        )
-    )
+def _diff_preview(
+    path: str,
+    old: str,
+    new: str,
+    detailed: bool,
+    split: Callable[[str], list[str]] = str.splitlines,
+) -> RenderableType:
+    a, b = old.splitlines(), new.splitlines()
+    lines = list(difflib.unified_diff(a, b, fromfile=path, tofile=path, lineterm=""))
+    if split is not str.splitlines:
+        lines = _shown_unified(lines, a, b, split(old), split(new))
     truncated = not detailed and len(lines) > _DIFF_PREVIEW_LINES
     shown = lines[:_DIFF_PREVIEW_LINES] if truncated else lines
     text = Text()
@@ -1187,12 +1246,33 @@ def _diff_preview(path: str, old: str, new: str, detailed: bool) -> RenderableTy
     return text
 
 
+def _shown_unified(
+    lines: list[str], a: list[str], b: list[str], sa: list[str], sb: list[str]
+) -> list[str]:
+    """``unified_diff`` の本文の行を、伏せた行に置き換える（見出しと ``@@`` は残す）。"""
+    out = lines[:2]
+    for group in difflib.SequenceMatcher(None, a, b).get_grouped_opcodes(3):
+        out.append(lines[len(out)])
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                out.extend(
+                    " " + _context(a[i], sa[i], sb[j])
+                    for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
+                )
+                continue
+            out.extend("-" + sa[i] for i in range(i1, i2))
+            out.extend("+" + sb[j] for j in range(j1, j2))
+    return out
+
+
 def _lines_omitted(n: int) -> str:
     return ui("cli.render.lines_omitted_d_for_full", n=n)
 
 
-def _write_preview(path: str, content: str, detailed: bool) -> RenderableType:
-    lines = content.splitlines()
+def _write_preview(
+    path: str, content: str, detailed: bool, split: Callable[[str], list[str]] = str.splitlines
+) -> RenderableType:
+    lines = split(content)
     truncated = not detailed and len(lines) > _WRITE_PREVIEW_LINES
     shown = lines[:_WRITE_PREVIEW_LINES] if truncated else lines
     n, size = len(lines), len(content)

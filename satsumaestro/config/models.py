@@ -177,6 +177,14 @@ class DotenvConfig(BaseModel):
     into_environ: bool = True
 
 
+class RedactionConfig(BaseModel):
+    """記録のほかに秘密を伏せる所。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    live: bool = False
+
+
 class McpServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -438,6 +446,7 @@ class RuntimeConfig(BaseModel):
     permission: PermissionConfig = Field(default_factory=PermissionConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     dotenv: DotenvConfig = Field(default_factory=DotenvConfig)
+    redaction: RedactionConfig = Field(default_factory=RedactionConfig)
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
     rag: RagConfig = Field(default_factory=RagConfig)
     hooks: HookConfig = Field(default_factory=HookConfig)

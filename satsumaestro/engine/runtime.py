@@ -199,6 +199,7 @@ from satsumaestro.session.models import (
     WriteChunk,
     plan_file_relpath,
 )
+from satsumaestro.session.redact import redact_secrets, secret_values
 from satsumaestro.session.store import JSONLSessionStore
 from satsumaestro.tools import (
     edit_match,
@@ -1607,8 +1608,9 @@ class ConversationRuntime:
                 reminders.emitted += len(notes)
                 notes.extend(reminders.collect(tool_calls, results, self.session))
             if notes:
+                note = self._shown_text(format_reminder(notes))
                 results[-1] = results[-1].model_copy(
-                    update={"output": results[-1].output + "\n\n" + format_reminder(notes)}
+                    update={"output": results[-1].output + "\n\n" + note}
                 )
             self._shrink_written(assistant, results, counters)
             self.session.messages.append(_tool_result_msg(results))
@@ -2136,6 +2138,17 @@ class ConversationRuntime:
             and name not in self._expanded
         )
 
+    def _shown_text(self, text: str) -> str:
+        """モデルと画面へ渡す文（``redaction.live`` なら秘密を伏せる）。"""
+        if not self.config.redaction.live:
+            return text
+        return redact_secrets(text, values=secret_values())
+
+    def _shown_result(self, block: ToolResultBlock) -> ToolResultBlock:
+        """モデルと画面へ渡す結果（``redaction.live`` なら秘密を伏せた写し）。"""
+        output = self._shown_text(block.output)
+        return block if output == block.output else block.model_copy(update={"output": output})
+
     def _unknown_tool_block(
         self, call: ToolUseBlock, counters: _TurnCounters | None
     ) -> ToolResultBlock:
@@ -2492,6 +2505,7 @@ class ConversationRuntime:
                         + f"\nnote: `{written}` is not a tool name; ran {canonical}."
                     }
                 )
+            block = self._shown_result(block)
             notify(ToolReturned(iteration, call.name, block.is_error))
             if quiet:
                 if block.is_error and block.output.startswith(PLAN_MODE_DENY_PREFIX):
