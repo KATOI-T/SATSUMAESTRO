@@ -37,7 +37,7 @@ from satsumaestro.providers.choice import (
 from satsumaestro.providers.detect import same_model
 from satsumaestro.providers.factory import build_provider, resolve_role_model, resolve_role_sampling
 from satsumaestro.providers.local import LlamaCppServer, Unloaded, unload_used
-from satsumaestro.providers.registry import expand_model_name
+from satsumaestro.providers.registry import expand_model_name, recommended_models
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.urls import host_url, openai_base
 
@@ -58,7 +58,7 @@ class MissingModelError(ConfigError):
 
 
 class ModelNeededError(ConfigError):
-    """切り替え先で使うモデルが決まらない（ローカルのサーバならモデルの一覧を持つ）。"""
+    """切り替え先のモデルが決まらない（ローカルはサーバのモデル、クラウドは勧めるモデルを持つ）。"""
 
     def __init__(self, choice: str, models: list[str]) -> None:
         name = CHOICE_LABELS[choice]
@@ -280,7 +280,7 @@ async def _pick_model(
     if remembered:
         return remembered
     if choice not in LOCAL_CHOICES:
-        raise ModelNeededError(choice, [])
+        raise ModelNeededError(choice, list(recommended_models(choice)))
     names = await list_models(cfg, now, env) or []
     if len(names) == 1:
         return names[0]

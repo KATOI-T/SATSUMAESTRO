@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with SATSUMAESTRO and
+  marks the current one, and `/provider <name>` without a model lists them too, so you can pick
+  one. `satsumaestro models` shows them after the shorthands. Other model IDs work as before; the
+  list only decides what is offered. Code that embeds SATSUMAESTRO gets the same list from
+  `list_models()` on a cloud endpoint, from `ModelNeededError.models`, and from
+  `recommended_models()` in `satsumaestro.providers`. The models are those listed under "Checked
+  models" in 0.5.1, without the ones the providers deprecated and `gpt-6-astra` and `gpt-6.1-sol`,
+  which cannot call tools over Chat Completions.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+
 ## [0.5.2] - 2026-11-17
 
 ### Added

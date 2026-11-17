@@ -21,6 +21,7 @@ from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffo
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
+    CLOUD_KEYS,
     PROVIDER_CHOICES,
     ProviderStatus,
     current_choice,
@@ -445,6 +446,8 @@ class SlashDispatcher:
             for name in names or []:
                 mark = "*" if same_model(name, current) else " "
                 self._print(f"  {mark} {escape(name)}")
+            if names and current_choice(self.rt.config.provider, current, ENVIRON) in CLOUD_KEYS:
+                self._print(Text(ui("cli.commands.tested_models_note"), style="dim"))
             return
         resolved = expand_model_name(args[0])
         check = await check_model(self.rt.config, resolved, ENVIRON)
@@ -490,6 +493,8 @@ class SlashDispatcher:
             self._print(Text(str(exc), style="yellow"))
             for name in exc.models:
                 self._print(Text(f"  {name}"))
+            if exc.models and exc.choice in CLOUD_KEYS:
+                self._print(Text(ui("cli.commands.tested_models_note"), style="dim"))
             self._print(stays)
             return
         except SatsumaError as exc:

@@ -12,6 +12,7 @@ import httpx
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.base import ProviderKind
+from satsumaestro.providers.choice import current_choice
 from satsumaestro.providers.detect import (
     ContextSource,
     LocalKind,
@@ -26,6 +27,7 @@ from satsumaestro.providers.local import (
     server_for_endpoint,
     unreached_cause,
 )
+from satsumaestro.providers.registry import recommended_models
 
 _log = logging.getLogger(__name__)
 
@@ -239,10 +241,10 @@ async def list_models(
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 3.0,
 ) -> list[str] | None:
-    """接続先がローカルのサーバならモデルの名前。"""
+    """ローカルのサーバならそのモデル、クラウドなら勧めるモデル（ほかは ``None``）。"""
     server = local_server_for(cfg, model, env)
     if server is None:
-        return None
+        return list(recommended_models(current_choice(cfg.provider, model, env) or "")) or None
     return await server.list_models(client=client, timeout_s=timeout_s)
 
 

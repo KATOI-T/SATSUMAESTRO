@@ -126,7 +126,7 @@ from satsumaestro.providers.local import (
     unload_used,
     unreached_cause,
 )
-from satsumaestro.providers.registry import MODEL_SHORTHANDS, expand_model_name
+from satsumaestro.providers.registry import MODEL_SHORTHANDS, RECOMMENDED_MODELS, expand_model_name
 from satsumaestro.rag.embed import DEFAULT_EMBED_ENDPOINT as DEFAULT_EMBED_BASE_URL
 from satsumaestro.rag.models import IngestReport
 from satsumaestro.rag.service import RAGService
@@ -968,7 +968,7 @@ def _redact_config_dump(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-@app.command(help=ui("cli.app.list_the_model_shorthands"))
+@app.command(help=ui("cli.app.list_the_models"))
 def models() -> None:
     table = Table(title="model shorthands")
     table.add_column("shorthand", style="cyan")
@@ -976,6 +976,13 @@ def models() -> None:
     for shorthand, target in sorted(MODEL_SHORTHANDS.items()):
         table.add_row(shorthand, target)
     _console.print(table)
+    tested = Table(title="cloud models tested with SATSUMAESTRO")
+    tested.add_column("provider", style="cyan")
+    tested.add_column("model")
+    for choice, names in RECOMMENDED_MODELS.items():
+        for n, name in enumerate(names):
+            tested.add_row(choice if n == 0 else "", name, end_section=n == len(names) - 1)
+    _console.print(tested)
 
 
 @app.command(

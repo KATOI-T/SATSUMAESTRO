@@ -11,7 +11,9 @@ from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import CacheLoss, PromptCacheMonitor
 from satsumaestro.providers.registry import (
     MODEL_SHORTHANDS,
+    RECOMMENDED_MODELS,
     expand_model_name,
+    recommended_models,
     vendor_for_model,
 )
 from satsumaestro.providers.retry import (
@@ -25,6 +27,7 @@ from satsumaestro.providers.retry import (
 
 __all__ = [
     "MODEL_SHORTHANDS",
+    "RECOMMENDED_MODELS",
     "AnthropicProvider",
     "ApiRequest",
     "CacheLoss",
@@ -42,6 +45,7 @@ __all__ = [
     "expand_model_name",
     "is_retryable",
     "is_tool_call_parse_error",
+    "recommended_models",
     "retry_after_of",
     "vendor_for_model",
 ]

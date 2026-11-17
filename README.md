@@ -242,16 +242,16 @@ satsumaestro prompt "say hi"          # one-shot, non-interactive
 satsumaestro prompt "plan a refactor of the auth code" --mode plan   # plan only; project files are not changed
 satsumaestro prompt "say hi" --output-format json                    # JSON output
 satsumaestro session list             # past sessions; resume with: satsumaestro session resume <id>
-satsumaestro models                   # model shorthands
+satsumaestro models                   # model shorthands and the tested cloud models
 satsumaestro config show              # merged settings
 satsumaestro doctor                   # health check of settings, provider, keys and policy
 ```
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
 current turn. Typing `/` lists the commands under the prompt, and after a command its arguments
-(`/model ` lists the models of the current server), each with a one-line note. ↑/↓ choose, Tab
-fills in the choice, Enter runs it, and Esc closes the list. Not every model takes every `/effort`
-level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
+(`/model ` lists the models of the current server, or the tested models on a cloud), each with a
+one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
+every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.
@@ -292,7 +292,9 @@ Choose the provider with `/provider` in the REPL or with `provider.kind` in the 
 `lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. `/provider` alone lists them with their
 endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
 choice to `~/.satsuma/settings.json`. `/model` saves the model there as well, and the next start
-uses the provider and model chosen last.
+uses the provider and model chosen last. On `openai`, `anthropic` and `xai`, `/model` alone and
+`/provider <name>` without a model list the models tested with SATSUMAESTRO (also
+`satsumaestro models`); other model IDs work too.
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1

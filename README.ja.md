@@ -228,14 +228,14 @@ satsumaestro prompt "say hi"          # 一発実行（非対話）
 satsumaestro prompt "認証周りの改修計画を立てて" --mode plan   # plan モードで起動（プロジェクトのファイルは変えない）
 satsumaestro prompt "say hi" --output-format json             # JSON 出力
 satsumaestro session list             # セッション一覧（再開は satsumaestro session resume <id>）
-satsumaestro models                   # モデルの略称の一覧
+satsumaestro models                   # モデルの略称と、確かめたクラウドのモデルの一覧
 satsumaestro config show              # 重ねた後の設定
 satsumaestro doctor                   # 設定・プロバイダ・鍵・ポリシーの診断
 ```
 
 REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。`/` を打つと
 入力欄の下にコマンドの候補が、コマンドの後には引数の候補が、それぞれ 1 行の説明つきで出ます（`/model ` なら
-今のサーバのモデル）。↑/↓ で選び、Tab で入力欄に埋め、Enter で実行し、Esc で閉じます。`/effort` の段階には、
+今のサーバのモデル。クラウドでは確かめたモデル）。↑/↓ で選び、Tab で入力欄に埋め、Enter で実行し、Esc で閉じます。`/effort` の段階には、
 モデルによって受けないものがあり、その段階は近い段階で送るか、指定を外して送ります。REPL を閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
 `provider.ollama.unload_on_exit: false`）。LM Studio と llama.cpp の router からは、その REPL が読み込ませたモデルだけを降ろします
 （残すなら `provider.local.unload_on_exit: false`）。`/provider` でローカルのサーバから切り替えたときも、同じように降ろします。
@@ -273,6 +273,8 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 `openai`・`anthropic`・`xai`）。`/provider` だけで、プロバイダごとの接続先か鍵の有無を出します。
 `/provider <名前> [URL] [モデル]` で会話の途中に切り替え、`~/.satsuma/settings.json` に保存します。
 `/model` もモデルをそこに保存し、次の起動では最後に選んだプロバイダとモデルを使います。
+`openai`・`anthropic`・`xai` では、`/model` だけと、モデルを付けない `/provider <名前>` で、SATSUMAESTRO で
+確かめたモデルを出します（`satsumaestro models` でも見られます）。ほかのモデルの ID も使えます。
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1

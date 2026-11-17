@@ -259,3 +259,4 @@ async def test_model_without_args_lists_the_models(
     out = await _model(rt, "/model")
     assert "model: gpt-oss:120b" in out
     assert "* gpt-oss:120b" in out and "  qwen3-coder-next:q4_K_M" in out
+    assert "確かめたモデル" not in out
