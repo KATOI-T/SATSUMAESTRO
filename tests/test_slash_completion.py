@@ -16,6 +16,7 @@ from satsumaestro.cli.commands import SLASH_COMMANDS, provider_notes
 from satsumaestro.cli.completion import ModelNames, SlashCompleter, slash_completions
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 from satsumaestro.i18n.text import pinned_ui_language, ui
+from satsumaestro.providers.registry import RECOMMENDED_MODELS
 from satsumaestro.util.errors import ConfigError
 
 MODELS = [("gpt-oss:120b", ""), ("gpt-oss:20b", ""), ("qwen3-coder:30b", ""), ("qwen/gpt-x", "")]
@@ -114,6 +115,21 @@ def test_no_suggestions(text: str) -> None:
 )
 def test_arguments_are_suggested(text: str, expected: list[str]) -> None:
     assert _texts(text) == expected
+
+
+def test_a_cloud_provider_is_followed_by_its_recommended_models() -> None:
+    assert _texts("/provider anthropic ") == list(RECOMMENDED_MODELS["anthropic"])
+    assert _texts("/provider 6 ") == list(RECOMMENDED_MODELS["xai"])
+    assert _texts("/provider xai grok-4.2") == [
+        "grok-4.20-0309-reasoning",
+        "grok-4.20-0309-non-reasoning",
+    ]
+    assert _texts("/provider OpenAI gpt-5.4") == ["gpt-5.4", "gpt-5.4-mini"]
+    for text in ("/provider ollama ", "/provider lmstudio ", "/provider anthropic claude-opus-5 "):
+        assert _texts(text) == [], text
+    inserted = {c.display_text: c.text for c in slash_completions("/provider ")}
+    assert inserted["anthropic"] == "anthropic " and inserted["ollama"] == "ollama"
+    assert [c.text for c in slash_completions("/provider xai grok-4.7")] == ["grok-4.7"]
 
 
 def _notes(text: str, **kwargs: Any) -> dict[str, str]:

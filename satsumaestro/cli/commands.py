@@ -29,6 +29,7 @@ from satsumaestro.providers.choice import (
     provider_statuses,
     resolve_endpoint,
 )
+from satsumaestro.providers.registry import recommended_models
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ModeState
 from satsumaestro.telemetry.log import TraceLog
@@ -184,6 +185,8 @@ def argument_choices(
     """``/<name>`` で ``given`` の次の引数に取れる決まった値と、その 1 行の説明。"""
     if name == "mode" and [arg.lower() for arg in given] == ["code"]:
         return _noted("sub-mode", _SUB_VALUES)
+    if name == "provider" and len(given) == 1:
+        return tuple((model, "") for model in recommended_models(_provider_choice(given[0])))
     if given:
         return ()
     if name == "language":
@@ -258,11 +261,17 @@ def _looks_like_url(arg: str) -> bool:
     return "://" in arg or _URL_HOST.match(arg) is not None
 
 
+def _provider_choice(arg: str) -> str:
+    """``/provider`` の最初の引数を種類の名前に（一覧の番号も受ける）。"""
+    head = arg.lower()
+    if head.isdigit() and 1 <= int(head) <= len(PROVIDER_CHOICES):
+        return PROVIDER_CHOICES[int(head) - 1]
+    return head
+
+
 def provider_args(args: list[str]) -> tuple[str, str | None, str | None] | None:
     """``/provider`` の引数を種類・URL・モデルに分ける（読めなければ ``None``）。"""
-    head = args[0].lower()
-    if head.isdigit() and 1 <= int(head) <= len(PROVIDER_CHOICES):
-        head = PROVIDER_CHOICES[int(head) - 1]
+    head = _provider_choice(args[0])
     url: str | None = None
     model: str | None = None
     for arg in args[1:]:

@@ -25,7 +25,6 @@ RECOMMENDED_MODELS: dict[str, tuple[str, ...]] = {
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.2",
-        "chat-latest",
     ),
     "anthropic": (
         "claude-fable-5-1",
