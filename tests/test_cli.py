@@ -32,6 +32,7 @@ def _patch_provider(monkeypatch, script, captured=None):
         return MockProvider(script)
 
     monkeypatch.setattr(cli_app, "build_provider", fake_build_provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
 
 
 def test_cli_prompt_json(monkeypatch, tmp_path: Path) -> None:

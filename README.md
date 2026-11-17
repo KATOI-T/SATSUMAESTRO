@@ -111,7 +111,8 @@ SATSUMAESTRO does not run natively on Windows. Use it inside WSL2 (Windows Subsy
    ```json
    {"provider": {"base_url": "http://localhost:11434/v1", "default_model": "qwen3:8b"}}
    ```
-   Always set a model: without one, Ollama refuses the first request. The shell variables
+   Always set a model: without one, `satsumaestro prompt` stops before sending anything and lists
+   the models on the server, and the REPL asks you to choose one with `/model`. The shell variables
    `OLLAMA_HOST` and `OLLAMA_MODEL` work too.
 4. Check the setup, then start the REPL in your project:
    ```bash
@@ -292,9 +293,10 @@ Choose the provider with `/provider` in the REPL or with `provider.kind` in the 
 `lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. `/provider` alone lists them with their
 endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
 choice to `~/.satsuma/settings.json`. `/model` saves the model there as well, and the next start
-uses the provider and model chosen last. On `openai`, `anthropic` and `xai`, `/model` alone and
-`/provider <name>` without a model list the models tested with SATSUMAESTRO (also
-`satsumaestro models`); other model IDs work too.
+uses the provider and model chosen last. Without a model, `/provider <name>` uses the one used
+there last, or switches without one; choose it with `/model`. On `openai`, `anthropic` and `xai`,
+`/model` alone lists the models tested with SATSUMAESTRO (also `satsumaestro models`); other model
+IDs work too.
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1
@@ -323,7 +325,9 @@ With `auto` (the default), SATSUMAESTRO picks the provider in this order:
 If no endpoint is set, SATSUMAESTRO may choose a cloud provider from the API keys in your
 environment. To keep requests on your own machine or LAN, set `provider.base_url` or `OLLAMA_HOST`.
 
-The model comes from `--model` / `-m`, `OLLAMA_MODEL` or the setting `provider.default_model`.
+The model comes from `--model` / `-m`, `OLLAMA_MODEL` or the setting `provider.default_model`. With
+none of them, `satsumaestro prompt` stops before sending anything, says where to set it, and lists
+the models to choose from. The REPL starts and asks you to choose one with `/model` before it sends.
 
 ## Settings and trust
 

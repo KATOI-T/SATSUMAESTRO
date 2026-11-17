@@ -10,8 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with SATSUMAESTRO and
-  marks the current one, and `/provider <name>` without a model lists them too, so you can pick
-  one. While you type, they are suggested after `/model ` and after `/provider <name> `.
+  marks the current one, so you can pick one. While you type, they are suggested after `/model `
+  and after `/provider <name> `.
   `satsumaestro models` shows them after the shorthands. Other model IDs work as before; the
   list only decides what is offered. Code that embeds SATSUMAESTRO gets the same list from
   `list_models()` on a cloud endpoint, from `ModelNeededError.models`, and from
@@ -19,6 +19,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   models" in 0.5.1, without the ones the providers deprecated, `gpt-6-astra` and `gpt-6.1-sol`,
   which cannot call tools over Chat Completions, and `chat-latest`, whose name does not fix the
   model it uses.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+
+### Changed
+
+- `/provider <name>` without a model switches even when it cannot tell which model to use there,
+  instead of stopping; choose one with `/model`. Code that calls `switch_provider()` gets this with
+  `model_required=False`; by default it still raises `ModelNeededError`.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+
+### Fixed
+
+- With no model set (no `--model`, `OLLAMA_MODEL` or `provider.default_model`), nothing is sent.
+  `satsumaestro prompt` stops, says where to set the model and lists the models to choose from:
+  those on the local server, or the recommended ones on a cloud. The REPL starts, and an
+  instruction gets a note to choose a model with `/model` instead of being sent. Before, the first
+  request failed with `model is required`. Resuming a session without a model set uses the
+  session's model. Code that embeds SATSUMAESTRO gets `ModelNotSetError` from `connect()`, with the
+  list in `models`, unless it passes `model_required=False`.
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
 
 ## [0.5.2] - 2026-11-17

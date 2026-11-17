@@ -239,6 +239,8 @@ effort_must_be_one_of = "effort must be one of {values}"
 fast_mode_off_effort = "fast mode off (effort → {prev})"
 fast_mode_on_effort_low = "fast mode on (effort → low)"
 model_stays = "model stays {kept}"
+no_model_chosen = "(none chosen)"
+no_model_chosen_detail = "no model chosen"
 tested_models_note = "Models tested with SATSUMAESTRO; other model IDs work too"
 model_switched = "model → {name}, saved to {path} (only models on the same endpoint; switch providers with /provider)"
 model_switched_not_saved = "model → {name}; could not save it: {error}; switched for this conversation only"
@@ -416,6 +418,7 @@ taken_as_an_instruction_to = "(Taken as an instruction to implement: approved th
 denied_so_this_turn_was = "(Denied, so this turn was stopped. Type your next instruction)"
 session_health_warning_starting_a = "⚠ Session health warning: {warning} — starting a new session is recommended"
 interrupted_notice = "(Interrupted)"
+choose_a_model_first = "No model is set, so nothing was sent. Choose one with /model <name> (/model alone lists the models you can choose)"
 plan_step_is_not_finished = "(Plan step {step} is not finished. Say \"continue\" to resume, or /clear to discard it)"
 stopping_background_tasks = { one = "(Stopping {n} background task)", other = "(Stopping {n} background tasks)" }
 
@@ -595,6 +598,9 @@ unknown_provider = "No provider named {name} (choose from {names})"
 url_is_for_local = "Only local servers take a URL; {name} does not"
 pick_a_local_model = "Cannot tell which model to use on {name}; pick one with `/provider {choice} <model>`"
 name_a_cloud_model = "Name the model to use on {name}: `/provider {choice} <model>`"
+model_not_set = "No model is set. Name one with --model, or set provider.default_model in {path}"
+model_not_set_or_ollama_model = "No model is set. Name one with --model, set provider.default_model in {path}, or set OLLAMA_MODEL in the environment or .env"
+tested_models_label = "Tested with SATSUMAESTRO"
 
 [engine.runtime]
 researching = "Researching…"

@@ -375,7 +375,7 @@ async def apply_context_fit(
     client: httpx.AsyncClient | None = None,
 ) -> ContextFitResult | None:
     """ローカルのサーバの判定 → 検出 → クランプを起動時に一度だけ行う（対象外なら ``None``）。"""
-    if not cfg.compaction.auto_context_fit or cfg.compact_token_threshold <= 0:
+    if not model.strip() or not cfg.compaction.auto_context_fit or cfg.compact_token_threshold <= 0:
         return None
     server = local_server_for(cfg, model, env)
     if server is None:

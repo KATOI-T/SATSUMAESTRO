@@ -108,7 +108,8 @@ SATSUMAESTRO は Windows では直接動きません。WSL2（Windows Subsystem 
    ```json
    {"provider": {"base_url": "http://localhost:11434/v1", "default_model": "qwen3:8b"}}
    ```
-   モデルは必ず書きます（未設定のままだと、最初の依頼で Ollama に断られます）。シェルの
+   モデルは必ず書きます（未設定のままだと、`satsumaestro prompt` は何も送らずに止まってサーバのモデルの一覧を出し、
+   REPL は `/model` で選ぶよう案内します）。シェルの
    `OLLAMA_HOST` / `OLLAMA_MODEL` でも構いません
 4. 設定を確かめてから、作業するディレクトリで REPL を起動します
    ```bash
@@ -273,8 +274,9 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 `openai`・`anthropic`・`xai`）。`/provider` だけで、プロバイダごとの接続先か鍵の有無を出します。
 `/provider <名前> [URL] [モデル]` で会話の途中に切り替え、`~/.satsuma/settings.json` に保存します。
 `/model` もモデルをそこに保存し、次の起動では最後に選んだプロバイダとモデルを使います。
-`openai`・`anthropic`・`xai` では、`/model` だけと、モデルを付けない `/provider <名前>` で、SATSUMAESTRO で
-確かめたモデルを出します（`satsumaestro models` でも見られます）。ほかのモデルの ID も使えます。
+モデルを付けない `/provider <名前>` は、そこで前に使ったモデルを使い、無ければモデルなしで切り替えます（`/model` で選びます）。
+`openai`・`anthropic`・`xai` では、`/model` だけで SATSUMAESTRO で確かめたモデルを出します（`satsumaestro models` でも見られます）。
+ほかのモデルの ID も使えます。
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1
@@ -302,6 +304,8 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 使うなら、`provider.base_url` か `OLLAMA_HOST` を設定してください。
 
 モデルは `--model` / `-m`・`OLLAMA_MODEL`・設定の `provider.default_model` のどれかで指定します。
+どれも無ければ、`satsumaestro prompt` は何も送らずに止まり、指定する場所と選べるモデルを出します。
+REPL は起動し、指示を送る前に `/model` で選ぶよう案内します。
 
 ## 設定と信頼
 

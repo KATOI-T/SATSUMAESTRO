@@ -16,6 +16,7 @@ runner = CliRunner()
 
 def _patch_provider(monkeypatch, provider) -> None:
     monkeypatch.setattr(cli_app, "build_provider", lambda config, model, env: provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
 
 
 def _isolate(monkeypatch, tmp_path: Path) -> None:

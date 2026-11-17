@@ -95,6 +95,8 @@ async def test_switching_to_a_cloud_without_a_model_offers_the_recommended_model
     with pytest.raises(ModelNeededError) as needed:
         await switch_provider(rt, "xai", env={"XAI_API_KEY": "k"})
     assert needed.value.models == list(RECOMMENDED_MODELS["xai"])
+    result = await switch_provider(rt, "xai", env={"XAI_API_KEY": "k"}, model_required=False)
+    assert result.model == "" and rt.session.model == "" and rt.config.provider.kind == "xai"
 
 
 async def test_model_lists_the_recommended_models_on_a_cloud(tmp_path: Path) -> None:
@@ -109,18 +111,18 @@ async def test_model_lists_the_recommended_models_on_a_cloud(tmp_path: Path) -> 
     assert _NOTE in out
 
 
-async def test_provider_offers_the_recommended_models_without_a_model(
+async def test_provider_switches_without_a_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XAI_API_KEY", "k")
     rt = _local_runtime(tmp_path)
     out = await _dispatch(rt, "/provider xai")
-    assert "xAI で使うモデルを付けてください" in out
-    assert "  grok-4.7" in out and "  grok-build-0.1" in out
-    assert _NOTE in out
-    assert "プロバイダは ollama のままです" in out
-    assert rt.config.provider.kind == "ollama"
+    assert "provider → xai（モデルは未選択）" in out
+    assert "付けてください" not in out and "のままです" not in out
+    assert rt.config.provider.kind == "xai" and rt.session.model == ""
+    out = await _dispatch(rt, "/model")
+    assert "model: （未選択）" in out and "    grok-4.7" in out
 
 
 async def test_the_model_completion_offers_the_recommended_models_on_a_cloud() -> None:

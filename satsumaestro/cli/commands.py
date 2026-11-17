@@ -445,12 +445,13 @@ class SlashDispatcher:
             list_models,
             missing_model_notice,
         )
+        from satsumaestro.engine.provider_switch import build_compactor
         from satsumaestro.providers.detect import same_model
         from satsumaestro.providers.registry import expand_model_name
 
         current = self.rt.session.model
         if not args:
-            self._print(f"model: {escape(current)}")
+            self._print(f"model: {escape(current) or ui('cli.commands.no_model_chosen')}")
             names = await list_models(self.rt.config, current, ENVIRON)
             for name in names or []:
                 mark = "*" if same_model(name, current) else " "
@@ -465,7 +466,12 @@ class SlashDispatcher:
             kept = escape(current)
             self._print(f"[dim]{ui('cli.commands.model_stays', kept=kept)}[/dim]")
             return
-        self.rt.session.model = resolved
+        if current.strip():
+            self.rt.session.model = resolved
+        else:
+            # 起動時にモデルが無ければ、子と要約にも選んだモデルを使う
+            compactor = build_compactor(self.rt.config, self.rt.provider, resolved, ENVIRON)
+            self.rt.use_provider(self.rt.provider, resolved, compactor=compactor)
         self._print(self._save_model(resolved))
         fit = await self.rt.refit_for_model()
         await _print_window(self.rt, fit, console=self.console, breakdown_line=True)
@@ -476,7 +482,6 @@ class SlashDispatcher:
         from satsumaestro.engine.context_fit import local_server_for
         from satsumaestro.engine.provider_switch import (
             MissingModelError,
-            ModelNeededError,
             switch_provider,
             unloaded_text,
         )
@@ -493,17 +498,11 @@ class SlashDispatcher:
         choice, url, model = parsed
         stays = Text(ui("cli.commands.provider_stays", name=self._provider_name()), style="dim")
         try:
-            result = await switch_provider(self.rt, choice, env=ENVIRON, url=url, model=model)
+            result = await switch_provider(
+                self.rt, choice, env=ENVIRON, url=url, model=model, model_required=False
+            )
         except MissingModelError as exc:
             self._print(missing_model_text(exc.notice))
-            self._print(stays)
-            return
-        except ModelNeededError as exc:
-            self._print(Text(str(exc), style="yellow"))
-            for name in exc.models:
-                self._print(Text(f"  {name}"))
-            if exc.models and exc.choice in CLOUD_KEYS:
-                self._print(Text(ui("cli.commands.tested_models_note"), style="dim"))
             self._print(stays)
             return
         except SatsumaError as exc:
@@ -511,7 +510,8 @@ class SlashDispatcher:
             self._print(stays)
             return
         url_shown = result.endpoint.url if result.endpoint else ""
-        detail = " · ".join(part for part in (url_shown, result.model) if part)
+        model_shown = result.model or ui("cli.commands.no_model_chosen_detail")
+        detail = " · ".join(part for part in (url_shown, model_shown) if part)
         try:
             path = save_provider(
                 result.choice, result.model, result.base_url, remember=result.remember

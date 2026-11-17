@@ -245,6 +245,7 @@ def _cli(monkeypatch: pytest.MonkeyPatch, text: str = "main.py です") -> objec
         return MockProvider([TextDelta(text=text), MessageStop()])
 
     monkeypatch.setattr(cli_app, "build_provider", fake_build_provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
     return cli_app
 
 

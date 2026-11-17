@@ -38,7 +38,8 @@ from satsumaestro.providers.detect import same_model
 from satsumaestro.providers.factory import build_provider, resolve_role_model, resolve_role_sampling
 from satsumaestro.providers.local import LlamaCppServer, Unloaded, unload_used
 from satsumaestro.providers.registry import expand_model_name, recommended_models
-from satsumaestro.util.errors import ConfigError
+from satsumaestro.util.errors import ConfigError, SatsumaError
+from satsumaestro.util.paths import default_config_home
 from satsumaestro.util.urls import host_url, openai_base
 
 if TYPE_CHECKING:
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 ProviderBuilder = Callable[[RuntimeConfig, str, Mapping[str, str]], Provider]
 
 _BUSY_WORKERS = frozenset({WorkerState.STARTING, WorkerState.RUNNING})
+_SHOWN_LOCAL_MODELS = 10
 
 
 class MissingModelError(ConfigError):
@@ -69,6 +71,27 @@ class ModelNeededError(ConfigError):
         super().__init__(text)
         self.choice = choice
         self.models = models
+
+
+class ModelNotSetError(ConfigError):
+    """モデルの名前が空のまま接続しようとした（選べるモデルを持つ）。"""
+
+    def __init__(self, headline: str, label: str, models: list[str], *, shown: int) -> None:
+        self.headline = headline
+        self.label = label
+        self.models = models
+        self.shown = models[:shown]
+        self.more = (
+            ui("engine.context_fit.and_more", rest=len(models) - shown)
+            if len(models) > shown
+            else ""
+        )
+        super().__init__(self.text())
+
+    def text(self) -> str:
+        if not self.shown:
+            return self.headline
+        return f"{self.headline}\n{self.label}: {', '.join(self.shown)}{self.more}"
 
 
 @dataclass(frozen=True)
@@ -105,18 +128,42 @@ async def connect(
     *,
     startup: bool = True,
     build: ProviderBuilder = build_provider,
+    model_required: bool = True,
 ) -> Connection:
-    """サーバの判定 → 組み立て → 届くか → モデルがあるか → ツールのテンプレートを確かめる。"""
+    """サーバの判定 → 名前があるか → 組み立て → 届くか → モデルがあるか → ツールのテンプレート。"""
     await detect_local_server(cfg, model, env)
+    unset = not model.strip()
+    if unset and model_required:
+        raise await _model_not_set(cfg, env)
     provider = build(cfg, model, env)
     problem = await check_reachable(cfg, model, env)
     if problem is not None:
         raise ConfigError(problem)
+    if unset:
+        return Connection(provider, ())
     check = await check_model(cfg, model, env)
     if check is not None and check.missing:
         raise MissingModelError(missing_model_notice(model, check, startup=startup))
     note = await tools_note(cfg, model, env)
     return Connection(provider, (note,) if note else ())
+
+
+async def _model_not_set(cfg: RuntimeConfig, env: Mapping[str, str]) -> ModelNotSetError:
+    """名前が空のときの案内（決める場所と、ローカルのサーバのモデルか勧めるモデル）。"""
+    path = default_config_home() / "settings.json"
+    if cfg.provider.kind in ("auto", "ollama"):
+        headline = ui("engine.provider_switch.model_not_set_or_ollama_model", path=path)
+    else:
+        headline = ui("engine.provider_switch.model_not_set", path=path)
+    try:
+        names = await list_models(cfg, "", env) or []
+    except SatsumaError:
+        names = []
+    if local_server_for(cfg, "", env) is not None:
+        label = ui("engine.context_fit.available")
+        return ModelNotSetError(headline, label, names, shown=_SHOWN_LOCAL_MODELS)
+    label = ui("engine.provider_switch.tested_models_label")
+    return ModelNotSetError(headline, label, names, shown=len(names))
 
 
 async def tools_note(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> str | None:
@@ -164,6 +211,7 @@ async def switch_provider(
     url: str | None = None,
     model: str | None = None,
     build: ProviderBuilder = build_provider,
+    model_required: bool = True,
 ) -> SwitchResult:
     """プロバイダを切り替える。足りないときは何も変えずに ``ConfigError`` などを投げる。"""
     if not is_choice(choice):
@@ -190,8 +238,15 @@ async def switch_provider(
         problem = await check_reachable(trial, now, env)
         if problem is not None:
             raise ConfigError(problem)
-    resolved = await _pick_model(trial, chosen, previous, now, model, endpoint, env)
-    connection = await connect(trial, resolved, env, startup=False, build=build)
+    try:
+        resolved = await _pick_model(trial, chosen, previous, now, model, endpoint, env)
+    except ModelNeededError:
+        if model_required:
+            raise
+        resolved = ""
+    connection = await connect(
+        trial, resolved, env, startup=False, build=build, model_required=model_required
+    )
     chosen_settings = trial.provider.model_copy(
         update={
             "default_model": resolved,
@@ -324,6 +379,7 @@ __all__ = [
     "Connection",
     "MissingModelError",
     "ModelNeededError",
+    "ModelNotSetError",
     "ProviderBuilder",
     "SwitchResult",
     "build_compactor",

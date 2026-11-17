@@ -239,6 +239,8 @@ effort_must_be_one_of = "effort は {values} のいずれかです"
 fast_mode_off_effort = "高速モード off（effort → {prev}）"
 fast_mode_on_effort_low = "高速モード on（effort → low）"
 model_stays = "model は {kept} のままです"
+no_model_chosen = "（未選択）"
+no_model_chosen_detail = "モデルは未選択"
 tested_models_note = "SATSUMAESTRO で確かめたモデルです。ほかのモデルの ID も使えます"
 model_switched = "model → {name}。{path} に保存しました（同じ接続先のモデルに限る。プロバイダを替えるのは /provider）"
 model_switched_not_saved = "model → {name}。保存できませんでした: {error}。この会話の間だけ切り替えます"
@@ -416,6 +418,7 @@ taken_as_an_instruction_to = "(実装の指示と判断し、計画を承認し�
 denied_so_this_turn_was = "(拒否したので、このターンを止めました。続けて指示を入力してください)"
 session_health_warning_starting_a = "⚠ セッション健全性の警告: {warning} — 新しいセッションの開始を推奨します"
 interrupted_notice = "(中断しました)"
+choose_a_model_first = "モデルが決まっていないので送っていません。/model <名前> で使うモデルを選んでください（/model だけで選べるモデルを出します）"
 plan_step_is_not_finished = "(計画の段 {step} が未完です。「続けて」で再開、/clear で破棄)"
 stopping_background_tasks = "(バックグラウンドタスク {n} 件を停止します)"
 
@@ -595,6 +598,9 @@ unknown_provider = "プロバイダ {name} はありません（{names} から�
 url_is_for_local = "URL を付けられるのはローカルのサーバだけです（{name} には付けられません）"
 pick_a_local_model = "{name} で使うモデルを決められません: `/provider {choice} <モデル>` で選びます"
 name_a_cloud_model = "{name} で使うモデルを付けてください: `/provider {choice} <モデル>`"
+model_not_set = "モデルが決まっていません。--model か、{path} の provider.default_model で指定してください"
+model_not_set_or_ollama_model = "モデルが決まっていません。--model か、{path} の provider.default_model か、環境変数か .env の OLLAMA_MODEL で指定してください"
+tested_models_label = "SATSUMAESTRO で確かめたモデル"
 
 [engine.runtime]
 researching = "下調べ中…"

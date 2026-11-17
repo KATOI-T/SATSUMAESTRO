@@ -45,6 +45,7 @@ from satsumaestro.engine.context_fit import (
 )
 from satsumaestro.engine.provider_switch import (
     MissingModelError,
+    ModelNotSetError,
     build_compactor,
     connect,
     unloaded_text,
@@ -249,6 +250,11 @@ def _print_error(e: SatsumaError) -> None:
     """``prompt`` / ``repl`` / ``session`` の終了前のエラー表示（存在しないモデルは色分け）。"""
     if isinstance(e, MissingModelError):
         _console.print(missing_model_text(e.notice, prefix="error: "))
+    elif isinstance(e, ModelNotSetError):
+        out = Text().append("error: " + e.headline, style="red")
+        if e.shown:
+            out.append(f"\n{e.label}: ", style="yellow").append(", ".join(e.shown) + e.more)
+        _console.print(out)
     else:
         _console.print(f"[red]error: {e}[/red]")
 
@@ -387,7 +393,11 @@ async def _assemble_runtime(
     use_screen_language(cfg.language.chosen_ui)
     _show_config_notes(loader)
     resolved = expand_model_name(model or cfg.provider.default_model)
-    connection = await connect(cfg, resolved, ENVIRON, build=build_provider)
+    if not resolved and resume_path is not None:
+        resolved = JSONLSessionStore().load(resume_path).model
+    connection = await connect(
+        cfg, resolved, ENVIRON, build=build_provider, model_required=not interactive
+    )
     provider = connection.provider
     for note in connection.notes:
         _err_console.print(Text(note, style="yellow"))

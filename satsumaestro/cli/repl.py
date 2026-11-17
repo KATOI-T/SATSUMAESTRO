@@ -342,6 +342,9 @@ async def run_repl(
                 console.print(f"[red]{failed}[/red]")
             continue
 
+        if not rt.session.model.strip():
+            console.print(Text(ui("cli.repl.choose_a_model_first"), style="yellow"))
+            continue
         if rt.approve_plan_from_text(line):
             mode = mode_markup(rt.session.mode)
             approved = ui("cli.repl.taken_as_an_instruction_to", mode=mode)
