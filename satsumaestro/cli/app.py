@@ -22,6 +22,7 @@ from rich.text import Text
 from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
+from satsumaestro.cli.errors_ui import account_turn_failure
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
@@ -902,7 +903,8 @@ def prompt(
         SessionAbortError,
         MaxIterationsError,
     ) as e:
-        typer.echo(f"error: {e}", err=True)
+        refused = account_turn_failure(e)
+        typer.echo(f"error: {e if refused is None else refused.reason}", err=True)
         raise typer.Exit(1) from e
 
 

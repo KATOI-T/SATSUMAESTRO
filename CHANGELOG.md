@@ -27,6 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of stopping; choose one with `/model`. Code that calls `switch_provider()` gets this with
   `model_required=False`; by default it still raises `ModelNeededError`.
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- A request the provider answers with 429 is not sent again. Before, it was retried up to 9 times
+  over about 2 minutes, which does not help when the account has no credits left. With
+  `provider.fallback_model` set, a 429 does not switch to that model either. Other passing errors
+  (408, 409, 5xx and dropped connections) are retried as before.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 
 ### Fixed
 
@@ -38,6 +43,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   session's model. Code that embeds SATSUMAESTRO gets `ModelNotSetError` from `connect()`, with the
   list in `models`, unless it passes `model_required=False`.
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- A request refused for reasons of the account now says why, with the provider's message, instead
+  of only the raw error: no credits left, a rate limit, or a rejected key.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 
 ## [0.5.2] - 2026-11-17
 

@@ -139,7 +139,7 @@ async def test_no_retry_after_first_yield(slept: list[float]) -> None:
 
 async def test_retry_after_header_preferred(slept: list[float]) -> None:
     inner = ScriptedFailureProvider(
-        [_wrapped(_http_error(429, {"retry-after": "5"})), _ok()],
+        [_wrapped(_http_error(503, {"retry-after": "5"})), _ok()],
     )
     await _drain(RetryingProvider(inner, _FAST))
     assert slept == [5.0]
@@ -252,9 +252,9 @@ def test_backoff_delay_doubles_from_the_first_wait_up_to_the_cap() -> None:
 
 
 def test_is_retryable_classification() -> None:
-    for status in (408, 409, 429, 500, 501, 502, 503, 504, 529):
+    for status in (408, 409, 500, 501, 502, 503, 504, 529):
         assert is_retryable(_wrapped(_http_error(status))) is True
-    for status in (400, 401, 403, 404, 413, 422):
+    for status in (400, 401, 403, 404, 413, 422, 429):
         assert is_retryable(_wrapped(_http_error(status))) is False
     assert is_retryable(_wrapped(_connection_error(), retryable=True)) is True
     assert is_retryable(ProviderError("tool_call 引数が JSON として不正")) is False

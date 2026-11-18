@@ -64,7 +64,7 @@ _TRANSPORT_ERROR_NAMES = frozenset(
 _READ_TIMEOUT_NAMES = frozenset({"ReadTimeout", "APITimeoutError", "TimeoutException"})
 
 
-def _causes(exc: BaseException, limit: int = 5) -> Iterator[BaseException]:
+def causes(exc: BaseException, limit: int = 5) -> Iterator[BaseException]:
     """例外と ``__cause__`` 連鎖を浅い順に辿る（循環・過深は打ち切り）。"""
     seen: set[int] = set()
     current: BaseException | None = exc
@@ -82,7 +82,7 @@ def _as_int(value: object) -> int | None:
 
 def status_code_of(exc: BaseException) -> int | None:
     """SDK 例外（``APIStatusError`` 系）の HTTP ステータスを取り出す。"""
-    for e in _causes(exc):
+    for e in causes(exc):
         direct = _as_int(getattr(e, "status_code", None))
         if direct is not None:
             return direct
@@ -127,7 +127,7 @@ def _retry_after_seconds(raw: str) -> float | None:
 
 def retry_after_of(exc: BaseException) -> float | None:
     """``Retry-After`` 相当の待機秒。"""
-    for e in _causes(exc):
+    for e in causes(exc):
         explicit = getattr(e, "retry_after", None)
         if isinstance(explicit, int | float) and not isinstance(explicit, bool):
             return max(0.0, float(explicit))
@@ -143,7 +143,7 @@ def is_retryable(exc: BaseException) -> bool:
     """一過性失敗か。"""
     if isinstance(exc, asyncio.CancelledError | RetriesExhaustedError):
         return False
-    for e in _causes(exc):
+    for e in causes(exc):
         flag = getattr(e, "retryable", None)
         if isinstance(flag, bool):
             return flag
@@ -151,7 +151,8 @@ def is_retryable(exc: BaseException) -> bool:
             getattr(getattr(e, "response", None), "status_code", None)
         )
         if status is not None:
-            return status_is_transient(status)
+            # 429 は残高切れでも返るので、待たずに状況の文で止める
+            return status != 429 and status_is_transient(status)
         if type(e).__name__ in _TRANSPORT_ERROR_NAMES:
             return True
     return False
@@ -159,21 +160,21 @@ def is_retryable(exc: BaseException) -> bool:
 
 def transport_retryable(exc: BaseException) -> bool | None:
     """プロバイダ境界で ``ProviderError.retryable`` に載せる値を決める。"""
-    if any(type(e).__name__ in _TRANSPORT_ERROR_NAMES for e in _causes(exc)):
+    if any(type(e).__name__ in _TRANSPORT_ERROR_NAMES for e in causes(exc)):
         return True
     return None
 
 
 def is_read_timeout(exc: BaseException) -> bool:
     """「送ったのに応答が来ない」タイムアウトか（接続不能・転送断とは区別する）。"""
-    return any(type(e).__name__ in _READ_TIMEOUT_NAMES for e in _causes(exc))
+    return any(type(e).__name__ in _READ_TIMEOUT_NAMES for e in causes(exc))
 
 
 def is_connection_failure(exc: BaseException) -> bool:
     """サーバに届かない・接続が途中で切れたことで失敗したか。"""
     return any(
         type(e).__name__ in _TRANSPORT_ERROR_NAMES and type(e).__name__ not in _READ_TIMEOUT_NAMES
-        for e in _causes(exc)
+        for e in causes(exc)
     )
 
 
@@ -185,7 +186,7 @@ def describe(exc: BaseException) -> str:
 
 def is_tool_call_parse_error(exc: BaseException) -> bool:
     """サーバ側の tool_call パース失敗か（モデル出力の欠陥＝投げ直しても同じ壊れ方をする）。"""
-    for e in _causes(exc):
+    for e in causes(exc):
         text = str(e).casefold()
         if any(sig in text for sig in _TOOL_PARSE_ERROR_SIGNATURES):
             return True
@@ -201,7 +202,7 @@ _CONTEXT_OVERFLOW_SIGNATURES = (
 
 def is_context_overflow(exc: BaseException) -> bool:
     """サーバが、モデルの窓より長い要求として断ったか（LM Studio・llama.cpp）。"""
-    for e in _causes(exc):
+    for e in causes(exc):
         text = str(e).casefold()
         if any(sig in text for sig in _CONTEXT_OVERFLOW_SIGNATURES):
             return True
@@ -218,7 +219,7 @@ class ReportedOverflow:
 
 def reported_overflow(exc: BaseException) -> ReportedOverflow:
     """窓あふれの応答の本文から、窓と要求のトークン数を読む（無ければ空）。"""
-    for e in _causes(exc):
+    for e in causes(exc):
         body = getattr(e, "body", None)
         error = body.get("error", body) if isinstance(body, dict) else None
         if isinstance(error, dict) and error.get("type") == "exceed_context_size_error":

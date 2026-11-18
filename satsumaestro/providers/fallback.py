@@ -15,7 +15,7 @@ from satsumaestro.util.errors import RetriesExhaustedError, SatsumaError
 
 _log = logging.getLogger(__name__)
 
-_HOPELESS_STATUS = frozenset({400, 413, 422})
+_HOPELESS_STATUS = frozenset({400, 413, 422, 429})
 
 
 class FallbackProvider:

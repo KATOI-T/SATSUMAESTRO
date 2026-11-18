@@ -370,7 +370,7 @@ async def run_repl(
         except SatsumaError as e:
             failure = turn_failure(e)
             console.print(Text(failure.headline, style="red"))
-            if not rt.session.plan_steps:
+            if failure.next_step and not rt.session.plan_steps:
                 console.print(Text(f"  {failure.next_step}", style="dim"))
         finally:
             render.end_turn(delegated=summary.delegated_usage if summary else None)
