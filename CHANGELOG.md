@@ -38,6 +38,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `provider.fallback_model` set, a 429 does not switch to that model either. Other passing errors
   (408, 409, 5xx and dropped connections) are retried as before.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- The line shown while waiting to send a request again now says why it failed: a server error with
+  its status, could not connect, the connection dropped, no response, or a busy server.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 
 ### Fixed
 

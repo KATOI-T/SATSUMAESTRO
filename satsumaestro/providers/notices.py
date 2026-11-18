@@ -14,6 +14,7 @@ NoticeKind = Literal[
     "retry", "fallback", "rewrite", "tools_dropped", "effort_forced", "effort_adjusted"
 ]
 RetryReason = Literal["tool_parse", "transient"]
+RetryCause = Literal["", "status", "connect", "dropped", "timeout", "busy"]
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class ProviderNotice:
     limit: int = 0
     delay_s: float = 0.0
     reason: RetryReason = "transient"
+    cause: RetryCause = ""
+    status: int = 0
     from_model: str = ""
     to_model: str = ""
     model: str = ""
@@ -85,6 +88,26 @@ def describe(notice: ProviderNotice) -> str:
             return ui("providers.notices.output_broke_retry_count", count=count)
         return ui("providers.notices.output_broke_retry")
     delay = f"{notice.delay_s:.0f}"
+    cause = _cause(notice)
     if notice.limit:
-        return ui("providers.notices.reply_failed_retry_count", delay=delay, count=count)
-    return ui("providers.notices.reply_failed_retry", delay=delay)
+        return ui(
+            "providers.notices.reply_failed_retry_count", cause=cause, delay=delay, count=count
+        )
+    return ui("providers.notices.reply_failed_retry", cause=cause, delay=delay)
+
+
+def _cause(notice: ProviderNotice) -> str:
+    """再送を待つ行に添える、失敗の短い理由（分からなければ空）。"""
+    if notice.cause == "status":
+        what = ui("providers.notices.cause_server_error", status=notice.status)
+    elif notice.cause == "connect":
+        what = ui("providers.notices.cause_could_not_connect")
+    elif notice.cause == "dropped":
+        what = ui("providers.notices.cause_connection_dropped")
+    elif notice.cause == "timeout":
+        what = ui("providers.notices.cause_no_response")
+    elif notice.cause == "busy":
+        what = ui("providers.notices.cause_server_busy")
+    else:
+        return ""
+    return ui("providers.notices.retry_cause", what=what)

@@ -62,6 +62,7 @@ _TRANSPORT_ERROR_NAMES = frozenset(
 )
 
 _READ_TIMEOUT_NAMES = frozenset({"ReadTimeout", "APITimeoutError", "TimeoutException"})
+_CONNECT_NAMES = frozenset({"ConnectError", "ConnectTimeout"})
 
 
 def causes(exc: BaseException, limit: int = 5) -> Iterator[BaseException]:
@@ -176,6 +177,24 @@ def is_connection_failure(exc: BaseException) -> bool:
         type(e).__name__ in _TRANSPORT_ERROR_NAMES and type(e).__name__ not in _READ_TIMEOUT_NAMES
         for e in causes(exc)
     )
+
+
+def retry_cause(exc: BaseException) -> tuple[notices.RetryCause, int]:
+    """再送する失敗の種類と HTTP の状態（再送を待つ行に添える。分からなければ ``""``）。"""
+    status = status_code_of(exc)
+    if status is not None:
+        return "status", status
+    errors = list(causes(exc))
+    names = {type(e).__name__ for e in errors}
+    if names & _CONNECT_NAMES:
+        return "connect", 0
+    if names & _READ_TIMEOUT_NAMES:
+        return "timeout", 0
+    if names & _TRANSPORT_ERROR_NAMES:
+        return "dropped", 0
+    if any(getattr(e, "code", None) == "resource-exhausted" for e in errors):
+        return "busy", 0
+    return "", 0
 
 
 def describe(exc: BaseException) -> str:
@@ -317,6 +336,7 @@ class RetryingProvider:
             if remaining <= 0.0 or delay >= remaining:
                 raise self._out_of_time(attempt, began_at, failure) from failure
 
+            cause, status = retry_cause(failure)
             notices.notify(
                 notices.ProviderNotice(
                     kind="retry",
@@ -324,6 +344,8 @@ class RetryingProvider:
                     limit=cap + 1,
                     delay_s=delay,
                     reason="tool_parse" if tool_parse else "transient",
+                    cause=cause,
+                    status=status,
                 )
             )
             _log.warning(

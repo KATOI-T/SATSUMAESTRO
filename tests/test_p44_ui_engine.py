@@ -103,6 +103,10 @@ def test_provider_notices() -> None:
     assert describe(ProviderNotice(kind="retry", attempt=2, limit=9, delay_s=3.2)) == (
         "The model's reply failed, so trying again in 3 s (2/9)"
     )
+    failed = ProviderNotice(kind="retry", attempt=1, limit=9, delay_s=2, cause="status", status=503)
+    assert describe(failed) == (
+        "The model's reply failed (server error 503), so trying again in 2 s (1/9)"
+    )
 
 
 def test_exceptions_shown_on_the_screen() -> None:
