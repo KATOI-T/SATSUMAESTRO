@@ -22,7 +22,7 @@ from rich.text import Text
 from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
-from satsumaestro.cli.errors_ui import account_turn_failure
+from satsumaestro.cli.errors_ui import account_turn_failure, rejected_key_text
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
@@ -100,6 +100,7 @@ from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
+    CLOUD_KEYS,
     HOST_ENV,
     OPENAI_API_BASE_URL,
     current_choice,
@@ -117,6 +118,7 @@ from satsumaestro.providers.factory import (
     build_provider,
     openai_endpoint,
 )
+from satsumaestro.providers.key_check import KeyChecks, check_keys
 from satsumaestro.providers.local import (
     LlamaCppServer,
     LMStudioServer,
@@ -844,6 +846,7 @@ async def _repl_session(
             trace_log=trace_log,
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
+            key_checks=KeyChecks(),
         )
     finally:
         try:
@@ -2047,6 +2050,7 @@ async def _run_repl_resume(model: str | None, cwd: Path, path: Path, *, trusted:
             _console,
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
+            key_checks=KeyChecks(),
         )
     finally:
         try:
@@ -2107,7 +2111,7 @@ def _doctor(cwd: Path, *, probe: bool = False, trust: bool = False) -> None:
     )
     kind = choose_provider_kind(model, ENVIRON, cfg.provider.base_url, choice=cfg.provider.kind)
     table.add_row("provider", "ok", _provider_label(cfg, model, ENVIRON))
-    table.add_row("api key", *_key_status(cfg, model, ENVIRON))
+    table.add_row("api key", *_key_status(cfg, model, ENVIRON, probe=probe))
 
     default_mode = PermissionMode(cfg.permission.default_mode)
     parsed = (
@@ -2637,24 +2641,27 @@ def _provider_label(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> s
     return f"auto ({actual})"
 
 
-def _key_status(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> tuple[str, str]:
-    """doctor の api key の行（実際に使う接続先か、クラウドの鍵）。"""
+def _key_status(
+    cfg: RuntimeConfig, model: str, env: Mapping[str, str], *, probe: bool = False
+) -> tuple[str, str]:
+    """doctor の api key の行（実際に使う接続先か、クラウドの鍵。--probe なら鍵を確かめる）。"""
     provider = cfg.provider
     kind = choose_provider_kind(model, env, provider.base_url, choice=provider.kind)
     if kind is ProviderKind.ANTHROPIC:
         ok = bool(env.get("ANTHROPIC_API_KEY"))
         if ok:
-            return "ok", "ANTHROPIC_API_KEY set"
+            return _cloud_key_row("anthropic", "ANTHROPIC_API_KEY set", env, probe=probe)
         return "warn", ui("cli.app.anthropic_api_key_not_set")
     if kind is ProviderKind.XAI:
         ok = bool(env.get("XAI_API_KEY"))
         if ok:
-            return "ok", "XAI_API_KEY set"
+            return _cloud_key_row("xai", "XAI_API_KEY set", env, probe=probe)
         return "warn", ui("cli.app.xai_api_key_not_set")
     endpoint = resolve_endpoint(provider, env)
     if provider.kind == "openai":
         if env.get("OPENAI_API_KEY"):
-            return "ok", f"OPENAI_API_KEY set ({OPENAI_API_BASE_URL})"
+            shown = f"OPENAI_API_KEY set ({OPENAI_API_BASE_URL})"
+            return _cloud_key_row("openai", shown, env, probe=probe)
         return "warn", ui("providers.choice.key_is_not_set", name="OPENAI_API_KEY")
     if endpoint is not None:
         label = "provider.base_url" if endpoint.source == "settings" else endpoint.source
@@ -2666,6 +2673,21 @@ def _key_status(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> tuple
         return ("ok", "OPENAI_API_KEY set")
     names = "(OPENAI_API_KEY / OLLAMA_HOST / OPENAI_BASE_URL / provider.base_url)"
     return "warn", ui("cli.app.no_openai_compatible_endpoint_or", names=names)
+
+
+def _cloud_key_row(
+    choice: str, shown: str, env: Mapping[str, str], *, probe: bool
+) -> tuple[str, str]:
+    """鍵のあるクラウドの行（--probe なら、トークンを使わない要求で各社に確かめる）。"""
+    if not probe:
+        return "ok", shown
+    name = CLOUD_KEYS[choice]
+    found = asyncio.run(check_keys({name: env[name]})).get(choice)
+    if found is None:
+        return "warn", ui("cli.app.key_not_checked", name=name)
+    if found.rejected:
+        return "warn", rejected_key_text(found)
+    return "ok", ui("cli.app.key_accepted", name=name)
 
 
 def _sessions_folder(cwd: Path) -> Path:

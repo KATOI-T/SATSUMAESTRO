@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from typing import TYPE_CHECKING, Protocol
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -21,6 +29,7 @@ if TYPE_CHECKING:
     from satsumaestro.engine.runtime import ConversationRuntime
 
 Choice = tuple[str, str]
+_REJECTED = "fg:ansired"
 
 
 class ModelSource(Protocol):
@@ -160,20 +169,33 @@ class SlashCompleter(Completer):
         models: ModelSource | None = None,
         *,
         providers: Callable[[], Mapping[str, str]] | None = None,
+        rejected: Callable[[], Collection[str]] | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
+        self._rejected = rejected
 
     def _provider_notes(self, text: str) -> Mapping[str, str] | None:
         if self._providers is None or _first_argument_of(text) != "provider":
             return None
         return self._providers()
 
+    def _marked(self, text: str, completions: Iterable[Completion]) -> Iterator[Completion]:
+        """断られた鍵のプロバイダの候補を赤に。"""
+        if self._rejected is None or _first_argument_of(text) != "provider":
+            yield from completions
+            return
+        rejected = self._rejected()
+        for c in completions:
+            if c.text.strip() in rejected:
+                c = Completion(c.text, c.start_position, c.display, c.display_meta, style=_REJECTED)
+            yield c
+
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         text = document.text_before_cursor
-        return slash_completions(text, providers=self._provider_notes(text))
+        return self._marked(text, slash_completions(text, providers=self._provider_notes(text)))
 
     async def get_completions_async(
         self, document: Document, complete_event: CompleteEvent
@@ -184,5 +206,6 @@ class SlashCompleter(Completer):
             models = await self._models.names()
         elif self._models is not None and _split(text) is not None:
             self._models.prefetch()
-        for completion in slash_completions(text, models, providers=self._provider_notes(text)):
+        found = slash_completions(text, models, providers=self._provider_notes(text))
+        for completion in self._marked(text, found):
             yield completion

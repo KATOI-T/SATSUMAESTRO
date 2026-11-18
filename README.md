@@ -308,6 +308,9 @@ IDs work too.
 - Local servers use `provider.base_url`, or `OLLAMA_HOST`, `LMSTUDIO_HOST` and `LLAMACPP_HOST`
   (a host, `host:port` or a URL, in the environment or `.env`)
 - The clouds need their API key in the environment or `.env`. Keys are never written to the settings
+- The REPL checks each key when it starts, with a request that spends no tokens, and shows a
+  rejected key in red in the `/provider` list. `satsumaestro doctor --probe` checks the current
+  provider's key
 - With `provider.kind` set, the model ID and `OLLAMA_HOST` do not change the provider. Set
   `"kind": "auto"` to go back to the automatic choice below
 

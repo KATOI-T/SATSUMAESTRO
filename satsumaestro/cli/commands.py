@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -29,6 +29,7 @@ from satsumaestro.providers.choice import (
     provider_statuses,
     resolve_endpoint,
 )
+from satsumaestro.providers.key_check import KeyChecks
 from satsumaestro.providers.registry import recommended_models
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ModeState
@@ -205,12 +206,17 @@ def argument_choices(
     return _noted(name, values)
 
 
-def provider_notes(provider: ProviderConfig, model: str, env: Mapping[str, str]) -> dict[str, str]:
+def provider_notes(
+    provider: ProviderConfig,
+    model: str,
+    env: Mapping[str, str],
+    rejected: Collection[str] = (),
+) -> dict[str, str]:
     """``/provider`` の候補に添える、名前と接続先か鍵の有無（今の種類に ✓）。"""
     notes: dict[str, str] = {}
     for status in provider_statuses(provider, model, env):
         label = CHOICE_LABELS[status.choice] + (" ✓" if status.current else "")
-        notes[status.choice] = f"{label} · {_status_text(status)}"
+        notes[status.choice] = f"{label} · {_status_text(status, status.choice in rejected)}"
     return notes
 
 
@@ -284,9 +290,11 @@ def provider_args(args: list[str]) -> tuple[str, str | None, str | None] | None:
     return head, url, model
 
 
-def _status_text(status: ProviderStatus) -> str:
-    """``/provider`` の一覧の 1 行の、接続先か鍵の有無。"""
-    if status.key_env and status.key_set:
+def _status_text(status: ProviderStatus, rejected: bool = False) -> str:
+    """``/provider`` の一覧の 1 行の、接続先か鍵の有無（起動時に断られた鍵はそう出す）。"""
+    if status.key_env and status.key_set and rejected:
+        text = ui("cli.commands.provider_key_rejected", name=status.key_env)
+    elif status.key_env and status.key_set:
         text = ui("cli.commands.provider_key_set", name=status.key_env)
     elif status.key_env:
         text = ui("cli.commands.provider_no_key", name=status.key_env)
@@ -312,12 +320,14 @@ class SlashDispatcher:
         *,
         trusted: bool = False,
         render: RichRenderer | None = None,
+        key_checks: KeyChecks | None = None,
     ) -> None:
         self.rt = rt
         self.console = console
         self.trace_log = trace_log
         self.trusted = trusted
         self.render = render
+        self.key_checks = key_checks
         self._fast_prev: ReasoningEffort | None = None
         self._fast_on = False
 
@@ -572,10 +582,15 @@ class SlashDispatcher:
         name = self._provider_name()
         self._print(Text(ui("cli.commands.provider_header", name=name, detail=detail)))
         statuses = provider_statuses(provider, model, ENVIRON)
+        checks = self.key_checks
+        rejected = checks.rejected() if checks is not None else {}
         width = max(len(status.choice) for status in statuses) + 2
         for n, status in enumerate(statuses, 1):
             label = f"{status.choice} ✓" if status.current else status.choice
-            self._print(Text(f"  {n}) {label:<{width}}  {_status_text(status)}"))
+            refused = status.choice in rejected
+            text = _status_text(status, refused)
+            head = f"  {n}) {label:<{width}}  "
+            self._print(Text.assemble(head, (text, "red" if refused else "")))
         path = default_config_home() / "settings.json"
         self._print(Text(ui("cli.commands.provider_usage", path=path), style="dim"))
 

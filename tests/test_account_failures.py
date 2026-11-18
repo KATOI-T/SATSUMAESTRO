@@ -131,6 +131,18 @@ def test_a_rejected_key_says_so() -> None:
     assert failure.next_step == ""
 
 
+def test_a_rejected_xai_key_comes_as_400() -> None:
+    body = {
+        "code": "invalid-argument",
+        "error": "Incorrect API key provided. You can obtain an API key from https://console.x.ai.",
+    }
+    xai = _sdk_error("openai", "https://api.x.ai/v1/chat/completions", 400, body)
+    assert turn_failure(xai).reason == (
+        "xAI が API の鍵を受け付けませんでした（400）: Incorrect API key provided. "
+        "You can obtain an API key from https://console.x.ai."
+    )
+
+
 def test_other_errors_keep_the_plain_text() -> None:
     failure = turn_failure(_openai(500, {"error": {"message": "boom"}}))
     assert failure.reason.startswith("モデルとの通信に失敗しました")

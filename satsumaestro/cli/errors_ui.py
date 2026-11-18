@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.choice import CHOICE_LABELS
 from satsumaestro.providers.failures import account_failure
+from satsumaestro.providers.key_check import KeyCheck
 from satsumaestro.providers.retry import is_read_timeout, is_tool_call_parse_error
 from satsumaestro.util.errors import (
     ContextOverflowError,
@@ -142,3 +143,12 @@ def account_turn_failure(exc: BaseException) -> TurnFailure | None:
     else:
         reason = ui("cli.errors_ui.key_rejected", vendor=vendor, status=status, message=message)
     return TurnFailure(reason, reason_only=True)
+
+
+def rejected_key_text(check: KeyCheck) -> str:
+    """確かめた鍵が断られた理由（止められた xAI の鍵は、止まっている項目の名前）。"""
+    vendor = CHOICE_LABELS.get(check.choice, check.choice)
+    if check.status == 200:
+        return ui("cli.errors_ui.key_blocked", vendor=vendor, flags=check.message)
+    status, message = check.status, check.message
+    return ui("cli.errors_ui.key_rejected", vendor=vendor, status=status, message=message)

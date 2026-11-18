@@ -123,7 +123,8 @@ class SuggestionMenu:
             meta = completion.display_meta_text
             if meta and room > 1:
                 pad = " " * (name_width - get_cwidth(name) + _GAP)
-                row += [("", pad), (_CURRENT_META if current else _META, _fit(meta, room))]
+                style = f"{_CURRENT_META if current else _META} {completion.style}".strip()
+                row += [("", pad), (style, _fit(meta, room))]
             rows.append(row)
         return rows
 

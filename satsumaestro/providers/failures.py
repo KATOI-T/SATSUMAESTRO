@@ -13,6 +13,7 @@ VENDOR_HOSTS = {"api.openai.com": "openai", "api.anthropic.com": "anthropic", "a
 _NO_CREDIT_CODES = frozenset({"insufficient_quota", "credit_balance_exhausted"})
 _NO_CREDIT_PHRASES = ("credit balance is too low", "used all available credits")
 _NO_CREDIT_STATUS = frozenset({400, 402, 403, 429})
+_KEY_PHRASES = ("incorrect api key",)
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,8 @@ def account_failure(exc: BaseException) -> AccountFailure | None:
         status = getattr(response, "status_code", None)
         if not isinstance(status, int):
             continue
-        codes, message = _fields(e)
-        kind = _kind(status, codes, message.casefold())
+        codes, message = body_fields(getattr(e, "body", None), getattr(e, "code", None))
+        kind = failure_kind(status, codes, message)
         if kind is None:
             return None
         host = _host(response)
@@ -49,24 +50,26 @@ def account_failure(exc: BaseException) -> AccountFailure | None:
     return None
 
 
-def _kind(status: int, codes: set[str], message: str) -> FailureKind | None:
-    no_credits = codes & _NO_CREDIT_CODES or any(p in message for p in _NO_CREDIT_PHRASES)
+def failure_kind(status: int, codes: set[str], message: str) -> FailureKind | None:
+    """状態と本文の code・文から、アカウントの事情による失敗の種類（ほかは ``None``）。"""
+    text = message.casefold()
+    no_credits = codes & _NO_CREDIT_CODES or any(p in text for p in _NO_CREDIT_PHRASES)
     if no_credits and status in _NO_CREDIT_STATUS:
         return "no_credits"
     if status == 429:
         return "rate_limited"
-    if status == 401:
+    # xAI は鍵の誤りを 400 で返す
+    if status == 401 or (status == 400 and any(p in text for p in _KEY_PHRASES)):
         return "key_rejected"
     return None
 
 
-def _fields(e: BaseException) -> tuple[set[str], str]:
+def body_fields(body: object, code: object = None) -> tuple[set[str], str]:
     """本文の code と type、プロバイダの文（OpenAI・Anthropic・xAI の形を読む）。"""
-    body = getattr(e, "body", None)
     if isinstance(body, str):
-        return {str(getattr(e, "code", "") or "")}, body
+        return {str(code or "")}, body
     if not isinstance(body, dict):
-        return {str(getattr(e, "code", "") or "")}, ""
+        return {str(code or "")}, ""
     inner = body.get("error")
     if isinstance(inner, str):
         return {str(body.get("code") or "")}, inner
@@ -83,4 +86,11 @@ def _host(response: object) -> str:
         return ""
 
 
-__all__ = ["VENDOR_HOSTS", "AccountFailure", "FailureKind", "account_failure"]
+__all__ = [
+    "VENDOR_HOSTS",
+    "AccountFailure",
+    "FailureKind",
+    "account_failure",
+    "body_fields",
+    "failure_kind",
+]
