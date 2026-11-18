@@ -120,6 +120,7 @@ async def test_provider_switches_without_a_model(
     out = await _dispatch(rt, "/provider xai")
     assert "provider → xai（モデルは未選択）" in out
     assert "付けてください" not in out and "のままです" not in out
+    assert "    grok-4.7\n    grok-4.6\n" in out and _NOTE in out
     assert rt.config.provider.kind == "xai" and rt.session.model == ""
     out = await _dispatch(rt, "/model")
     assert "model: （未選択）" in out and "    grok-4.7" in out

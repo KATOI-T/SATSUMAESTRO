@@ -29,9 +29,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `/provider <name>` without a model switches even when it cannot tell which model to use there,
-  instead of stopping; choose one with `/model`. Code that calls `switch_provider()` gets this with
-  `model_required=False`; by default it still raises `ModelNeededError`.
+- `/provider <name>` without a model lists the models there after switching and marks the one in
+  use, as `/model` alone does. When it cannot tell which model to use, it switches without one
+  instead of stopping; choose one with `/model`. Code that calls `switch_provider()` gets this
+  with `model_required=False`; by default it still raises `ModelNeededError`.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- While you type `/provider ollama `, `/provider lmstudio ` or `/provider llamacpp `, the models on
+  that server are suggested, as they are after `/model `. `models_for()` in
+  `satsumaestro.engine.provider_switch` gives the models of a provider without switching to it.
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
 - A request the provider answers with 429 is not sent again. Before, it was retried up to 9 times
   over about 2 minutes, which does not help when the account has no credits left. With

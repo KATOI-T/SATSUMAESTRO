@@ -125,11 +125,22 @@ def test_a_cloud_provider_is_followed_by_its_recommended_models() -> None:
         "grok-4.20-0309-non-reasoning",
     ]
     assert _texts("/provider OpenAI gpt-5.4") == ["gpt-5.4", "gpt-5.4-mini"]
-    for text in ("/provider ollama ", "/provider lmstudio ", "/provider anthropic claude-opus-5 "):
-        assert _texts(text) == [], text
+    assert _texts("/provider anthropic claude-opus-5 ") == []
     inserted = {c.display_text: c.text for c in slash_completions("/provider ")}
-    assert inserted["anthropic"] == "anthropic " and inserted["ollama"] == "ollama"
+    assert set(inserted.values()) == {f"{name} " for name in inserted}
     assert [c.text for c in slash_completions("/provider xai grok-4.7")] == ["grok-4.7"]
+
+
+def test_a_local_provider_is_followed_by_the_models_on_its_server() -> None:
+    assert _texts("/provider ollama ") == []
+    assert _texts("/provider ollama ", MODELS) == [name for name, _ in MODELS]
+    assert _texts("/provider 1 gpt", MODELS) == ["gpt-oss:120b", "gpt-oss:20b", "qwen/gpt-x"]
+    assert _texts("/provider lmstudio 120", MODELS) == ["gpt-oss:120b"]
+    assert [c.text for c in slash_completions("/provider ollama gpt-oss:20", MODELS)] == [
+        "gpt-oss:20b"
+    ]
+    assert _texts("/provider ollama gpt-oss:120b ", MODELS) == []
+    assert _texts("/provider xai ", MODELS) == list(RECOMMENDED_MODELS["xai"])
 
 
 def _notes(text: str, **kwargs: Any) -> dict[str, str]:
@@ -196,12 +207,14 @@ class _Source:
         self._names = names
         self.prefetched = 0
         self.asked = 0
+        self.targets: list[str] = []
 
-    def prefetch(self) -> None:
+    def prefetch(self, choice: str = "") -> None:
         self.prefetched += 1
 
-    async def names(self) -> Sequence[tuple[str, str]]:
+    async def names(self, choice: str = "") -> Sequence[tuple[str, str]]:
         self.asked += 1
+        self.targets.append(choice)
         return self._names
 
 
@@ -222,6 +235,17 @@ async def test_the_completer_asks_for_models_only_after_model() -> None:
     assert await _complete(completer, "/Users/a") == []
     assert (source.asked, source.prefetched) == (1, 1)
     assert list(completer.get_completions(Document("/pl"), CompleteEvent()))[0].text == "plan "
+
+
+async def test_the_completer_asks_the_server_after_a_local_provider() -> None:
+    source = _Source(MODELS)
+    completer = SlashCompleter(source)
+    assert await _complete(completer, "/provider 3 qwen") == ["qwen3-coder:30b", "qwen/gpt-x"]
+    assert await _complete(completer, "/provider ollama ") == [name for name, _ in MODELS]
+    assert source.targets == ["llamacpp", "ollama"]
+    assert await _complete(completer, "/provider xai grok-4.7") == ["grok-4.7"]
+    assert await _complete(completer, "/provider ollama gpt-oss:120b ") == []
+    assert source.targets == ["llamacpp", "ollama"]
 
 
 def _runtime(kind: str = "ollama", model: str = "gpt-oss:120b") -> Any:
@@ -288,6 +312,27 @@ async def test_prefetch_does_not_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not waiting.done()
     gate.set()
     assert await waiting == [("gpt-oss:120b", "")]
+
+
+async def test_the_models_of_the_switch_target_are_kept_apart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked = _fake_list(monkeypatch, [["gpt-oss:120b"]])
+    targets: list[str] = []
+
+    async def fake_for(rt: Any, choice: str, env: Any, **kwargs: Any) -> list[str] | None:
+        targets.append(choice)
+        return {"lmstudio": ["openai/gpt-oss-20b"]}.get(choice)
+
+    monkeypatch.setattr(completion_mod, "models_for", fake_for)
+    names = ModelNames(_runtime("anthropic", "claude-sonnet-5"))
+    assert await names.names("lmstudio") == [("openai/gpt-oss-20b", "")]
+    assert await names.names("lmstudio") == [("openai/gpt-oss-20b", "")]
+    assert await names.names("ollama") == []
+    assert targets == ["lmstudio", "ollama"]
+    current = await names.names()
+    assert current[0] == ("gpt-oss:120b", "") and ("sonnet", "→ claude-sonnet-5") in current
+    assert len(asked) == 1
 
 
 async def test_shorthands_are_offered_for_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -236,7 +236,7 @@ satsumaestro doctor                   # 設定・プロバイダ・鍵・ポリ�
 
 REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ctrl-C で今のターンを中断します。`/` を打つと
 入力欄の下にコマンドの候補が、コマンドの後には引数の候補が、それぞれ 1 行の説明つきで出ます（`/model ` なら
-今のサーバのモデル。クラウドでは確かめたモデル）。↑/↓ で選び、Tab で入力欄に埋め、Enter で実行し、Esc で閉じます。`/effort` の段階には、
+今のサーバのモデル。クラウドでは確かめたモデル。`/provider <名前> ` ならその先のモデル）。↑/↓ で選び、Tab で入力欄に埋め、Enter で実行し、Esc で閉じます。`/effort` の段階には、
 モデルによって受けないものがあり、その段階は近い段階で送るか、指定を外して送ります。REPL を閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
 `provider.ollama.unload_on_exit: false`）。LM Studio と llama.cpp の router からは、その REPL が読み込ませたモデルだけを降ろします
 （残すなら `provider.local.unload_on_exit: false`）。`/provider` でローカルのサーバから切り替えたときも、同じように降ろします。
@@ -274,7 +274,7 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 `openai`・`anthropic`・`xai`）。`/provider` だけで、プロバイダごとの接続先か鍵の有無を出します。
 `/provider <名前> [URL] [モデル]` で会話の途中に切り替え、`~/.satsuma/settings.json` に保存します。
 `/model` もモデルをそこに保存し、次の起動では最後に選んだプロバイダとモデルを使います。
-モデルを付けない `/provider <名前>` は、そこで前に使ったモデルを使い、無ければモデルなしで切り替えます（`/model` で選びます）。
+モデルを付けない `/provider <名前>` は、そこで前に使ったモデルを使い、無ければモデルなしで切り替えます。どちらでも、そこで選べるモデルを出します（`/model` で選びます）。
 `openai`・`anthropic`・`xai` では、`/model` だけで SATSUMAESTRO で確かめたモデルを出します（`satsumaestro models` でも見られます）。
 ほかのモデルの ID も使えます。
 

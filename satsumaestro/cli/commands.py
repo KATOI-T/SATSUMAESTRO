@@ -22,6 +22,7 @@ from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
     CLOUD_KEYS,
+    LOCAL_CHOICES,
     PROVIDER_CHOICES,
     ProviderStatus,
     current_choice,
@@ -204,6 +205,14 @@ def argument_choices(
         "plan": ("on", "off"),
     }.get(name, ())
     return _noted(name, values)
+
+
+def local_provider_choice(name: str, given: Sequence[str]) -> str | None:
+    """``/provider <ローカルの種類> `` の後なら、その種類（モデルはそのサーバに問い合わせる）。"""
+    if name != "provider" or len(given) != 1:
+        return None
+    choice = _provider_choice(given[0])
+    return choice if choice in LOCAL_CHOICES else None
 
 
 def provider_notes(
@@ -450,24 +459,14 @@ class SlashDispatcher:
 
     async def _cmd_model(self, args: list[str]) -> None:
         from satsumaestro.cli.app import _print_window, missing_model_text
-        from satsumaestro.engine.context_fit import (
-            check_model,
-            list_models,
-            missing_model_notice,
-        )
+        from satsumaestro.engine.context_fit import check_model, missing_model_notice
         from satsumaestro.engine.provider_switch import build_compactor
-        from satsumaestro.providers.detect import same_model
         from satsumaestro.providers.registry import expand_model_name
 
         current = self.rt.session.model
         if not args:
             self._print(f"model: {escape(current) or ui('cli.commands.no_model_chosen')}")
-            names = await list_models(self.rt.config, current, ENVIRON)
-            for name in names or []:
-                mark = "*" if same_model(name, current) else " "
-                self._print(f"  {mark} {escape(name)}")
-            if names and current_choice(self.rt.config.provider, current, ENVIRON) in CLOUD_KEYS:
-                self._print(Text(ui("cli.commands.tested_models_note"), style="dim"))
+            await self._print_models()
             return
         resolved = expand_model_name(args[0])
         check = await check_model(self.rt.config, resolved, ENVIRON)
@@ -539,6 +538,8 @@ class SlashDispatcher:
                 "cli.commands.provider_switched", name=result.choice, detail=detail, path=path
             )
             self._print(Text(switched, style="dim"))
+        if model is None:
+            await self._print_models()
         for note in result.notes:
             self._print(Text(note, style="yellow"))
         for unloaded in result.unloaded:
@@ -553,6 +554,19 @@ class SlashDispatcher:
             kind = server.kind if server is not None else "ollama"
             self.render.use_local_server(kind, _unloaded_model(result.fit))
         await _print_window(self.rt, result.fit, console=self.console, breakdown_line=True)
+
+    async def _print_models(self) -> None:
+        """今の接続先で選べるモデル（今のモデルに *・クラウドでは確かめたモデルの注も）。"""
+        from satsumaestro.engine.context_fit import list_models
+        from satsumaestro.providers.detect import same_model
+
+        current = self.rt.session.model
+        names = await list_models(self.rt.config, current, ENVIRON)
+        for name in names or []:
+            mark = "*" if same_model(name, current) else " "
+            self._print(f"  {mark} {escape(name)}")
+        if names and current_choice(self.rt.config.provider, current, ENVIRON) in CLOUD_KEYS:
+            self._print(Text(ui("cli.commands.tested_models_note"), style="dim"))
 
     def _save_model(self, model: str) -> Text:
         """選んだモデルを今の設定とユーザーの設定に書き、知らせる文を返す。"""

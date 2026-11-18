@@ -250,8 +250,8 @@ satsumaestro doctor                   # health check of settings, provider, keys
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
 current turn. Typing `/` lists the commands under the prompt, and after a command its arguments
-(`/model ` lists the models of the current server, or the tested models on a cloud), each with a
-one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
+(`/model ` lists the models of the current server, or the tested models on a cloud, and
+`/provider <name> ` those of that provider), each with a one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
 every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
@@ -294,9 +294,9 @@ Choose the provider with `/provider` in the REPL or with `provider.kind` in the 
 endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
 choice to `~/.satsuma/settings.json`. `/model` saves the model there as well, and the next start
 uses the provider and model chosen last. Without a model, `/provider <name>` uses the one used
-there last, or switches without one; choose it with `/model`. On `openai`, `anthropic` and `xai`,
-`/model` alone lists the models tested with SATSUMAESTRO (also `satsumaestro models`); other model
-IDs work too.
+there last, or switches without one; either way it lists the models there, and `/model` picks one.
+On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with SATSUMAESTRO (also
+`satsumaestro models`); other model IDs work too.
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1

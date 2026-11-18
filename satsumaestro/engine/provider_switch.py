@@ -281,6 +281,24 @@ async def switch_provider(
     )
 
 
+async def models_for(
+    rt: ConversationRuntime, choice: str, env: Mapping[str, str], *, timeout_s: float = 3.0
+) -> list[str] | None:
+    """切り替えずに、``/provider <choice>`` の先で選べるモデル（取れなければ ``None``）。"""
+    if not is_choice(choice):
+        return None
+    chosen = cast(ChosenProvider, choice)
+    if chosen not in LOCAL_CHOICES:
+        return list(recommended_models(chosen)) or None
+    old = rt.config.provider
+    previous = current_choice(old, rt.session.model, env)
+    endpoint = switch_endpoint(old, chosen, env, current=previous)
+    if endpoint is None:
+        return None
+    trial = _with_choice(rt.config, chosen, endpoint, {})
+    return await list_models(trial, "", env, timeout_s=timeout_s)
+
+
 def _with_choice(
     cfg: RuntimeConfig,
     choice: ChosenProvider,
@@ -384,6 +402,7 @@ __all__ = [
     "SwitchResult",
     "build_compactor",
     "connect",
+    "models_for",
     "switch_provider",
     "tools_note",
     "unloaded_text",
