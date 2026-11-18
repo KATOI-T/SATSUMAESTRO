@@ -6,7 +6,6 @@ from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.factory import build_bare, build_provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import CacheLoss, PromptCacheMonitor
 from satsumaestro.providers.registry import (
@@ -31,7 +30,6 @@ __all__ = [
     "AnthropicProvider",
     "ApiRequest",
     "CacheLoss",
-    "FallbackProvider",
     "OpenAICompatProvider",
     "PromptCacheMonitor",
     "Provider",

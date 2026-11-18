@@ -14,13 +14,12 @@ from typer.testing import CliRunner
 
 import satsumaestro.cli.app as cli_app
 from satsumaestro.cli.errors_ui import turn_failure
-from satsumaestro.engine.events import MessageStop, TextDelta
+from satsumaestro.engine.events import TextDelta
 from satsumaestro.providers.base import ApiRequest
 from satsumaestro.providers.failures import account_failure
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
 from satsumaestro.util.errors import ProviderError
-from tests.fixtures.mock_provider import MockProvider, ScriptedFailureProvider
+from tests.fixtures.mock_provider import ScriptedFailureProvider
 
 _NO_CREDITS = {
     "error": {
@@ -79,20 +78,6 @@ async def test_a_429_is_not_sent_again(slept: list[float]) -> None:
         async for _ in RetryingProvider(inner, RetryPolicy(max_retries=8)).stream(_req()):
             pass
     assert inner.attempts == 1 and slept == []
-
-
-async def test_a_429_does_not_switch_to_the_fallback_model() -> None:
-    built: list[str] = []
-
-    def build() -> MockProvider:
-        built.append("backup")
-        return MockProvider([TextDelta(text="ok"), MessageStop()])
-
-    primary = ScriptedFailureProvider([_openai(429, _NO_CREDITS)])
-    with pytest.raises(ProviderError):
-        async for _ in FallbackProvider(primary, build, "gpt-5.4").stream(_req()):
-            pass
-    assert built == []
 
 
 def test_no_credits_on_openai_says_so_with_the_providers_message() -> None:

@@ -706,7 +706,6 @@ openai_endpoint_unresolved = "OpenAI 互換の接続先が決まりません（p
 no_endpoint_for = "{name} の接続先がありません（provider.base_url か {var} で指定します）"
 
 [providers.notices]
-is_not_responding_so_switching = "'{old}' が応答しないので '{new}' に切り替えます"
 the_model_s_output_kept = "モデルの出力が繰り返し壊れたので、書き直すよう依頼しました"
 output_broke_retry_count = "モデルの出力が途中で壊れたので、もう一度生成します（{count}）"
 output_broke_retry = "モデルの出力が途中で壊れたので、もう一度生成します"

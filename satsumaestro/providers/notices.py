@@ -10,9 +10,7 @@ from typing import Literal
 
 from satsumaestro.i18n.text import ui
 
-NoticeKind = Literal[
-    "retry", "fallback", "rewrite", "tools_dropped", "effort_forced", "effort_adjusted"
-]
+NoticeKind = Literal["retry", "rewrite", "tools_dropped", "effort_forced", "effort_adjusted"]
 RetryReason = Literal["tool_parse", "transient"]
 RetryCause = Literal["", "status", "connect", "dropped", "timeout", "busy"]
 
@@ -26,8 +24,6 @@ class ProviderNotice:
     reason: RetryReason = "transient"
     cause: RetryCause = ""
     status: int = 0
-    from_model: str = ""
-    to_model: str = ""
     model: str = ""
     requested: str = ""
     sent: str = ""
@@ -60,9 +56,6 @@ def bind(sink: NoticeSink) -> Iterator[None]:
 
 def describe(notice: ProviderNotice) -> str:
     """ユーザー向けの 1 行（先頭の「— 」は描画側が付ける）。"""
-    if notice.kind == "fallback":
-        old, new = notice.from_model, notice.to_model
-        return ui("providers.notices.is_not_responding_so_switching", old=old, new=new)
     if notice.kind == "rewrite":
         return ui("providers.notices.the_model_s_output_kept")
     if notice.kind == "tools_dropped":

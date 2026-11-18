@@ -53,16 +53,16 @@ def test_four_layer_merge_last_wins(tmp_path: Path) -> None:
 
     _put_json(
         home / "settings.json",
-        {"max_iterations": 10, "provider": {"fallback_model": "global"}},
+        {"max_iterations": 10, "provider": {"sampling": {"temperature": 0.1}}},
     )
     _put_json(cwd / ".satsuma.json", {"max_iterations": 20})
-    _put_json(cwd / ".satsuma" / "settings.json", {"provider": {"fallback_model": "project"}})
+    _put_json(cwd / ".satsuma" / "settings.json", {"provider": {"sampling": {"temperature": 0.7}}})
     _put_json(cwd / ".satsuma" / "settings.local.json", {"max_iterations": 99})
 
     cfg = ConfigLoader(cwd, config_home=home, trusted=True).load()
 
     assert cfg.max_iterations == 99
-    assert cfg.provider.fallback_model == "project"
+    assert cfg.provider.sampling.temperature == 0.7
 
 
 def test_the_users_last_choice_wins_over_the_project(tmp_path: Path) -> None:
@@ -78,7 +78,7 @@ def test_the_users_last_choice_wins_over_the_project(tmp_path: Path) -> None:
                 "kind": "ollama",
                 "base_url": "http://other:11434/v1",
                 "default_model": "gpt-oss:120b",
-                "fallback_model": "qwen3:8b",
+                "sampling": {"temperature": 0.3},
             }
         },
     )
@@ -86,7 +86,7 @@ def test_the_users_last_choice_wins_over_the_project(tmp_path: Path) -> None:
     provider = ConfigLoader(cwd, config_home=home, trusted=True).load().provider
 
     assert (provider.kind, provider.base_url, provider.default_model) == tuple(chosen.values())
-    assert provider.fallback_model == "qwen3:8b"
+    assert provider.sampling.temperature == 0.3
     _put_json(home / "settings.json", {"provider": {"default_model": "gpt-oss-20b"}})
     provider = ConfigLoader(cwd, config_home=home, trusted=True).load().provider
     assert (provider.kind, provider.default_model) == ("ollama", "gpt-oss-20b")

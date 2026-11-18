@@ -706,7 +706,6 @@ openai_endpoint_unresolved = "OpenAI-compatible endpoint unresolved (set provide
 no_endpoint_for = "{name} has no endpoint (set provider.base_url or {var})"
 
 [providers.notices]
-is_not_responding_so_switching = "'{old}' is not responding, so switching to '{new}'"
 the_model_s_output_kept = "The model's output kept breaking, so it was asked to rewrite it"
 output_broke_retry_count = "The model's output broke midway, so generating it again ({count})"
 output_broke_retry = "The model's output broke midway, so generating it again"

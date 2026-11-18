@@ -28,10 +28,8 @@ from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.orchestration.worker import WorkerState
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.anthropic_provider import _to_wire
-from satsumaestro.providers.base import Provider, ProviderKind
+from satsumaestro.providers.base import Provider
 from satsumaestro.providers.detect import note_model_used, used_models
-from satsumaestro.providers.factory import build_provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.local import Unloaded, unload_used
 from satsumaestro.providers.registry import RECOMMENDED_MODELS
 from satsumaestro.security.enforcer import PermissionMode
@@ -397,21 +395,6 @@ async def test_the_models_after_a_switch_are_read_without_switching(
     assert await models_for(rt, "lmstudio", {}) is None
     assert await models_for(rt, "xai", _ENV) == list(RECOMMENDED_MODELS["xai"])
     assert rt.config.provider.base_url == f"{_LLAMA}/v1" and rt.session.model == "gpt-oss-20b"
-
-
-def test_a_provider_built_before_a_switch_keeps_its_fallback_endpoint() -> None:
-    cfg = RuntimeConfig(
-        provider=ProviderConfig(base_url=f"{_OLLAMA}/v1", fallback_model="qwen3:8b")
-    )
-    env = {"ANTHROPIC_API_KEY": "k"}
-    provider = build_provider(cfg, "gpt-oss:120b", env)
-    assert isinstance(provider, FallbackProvider)
-    cfg.provider = ProviderConfig(kind="anthropic", default_model="claude-haiku-5-5")
-    env["ANTHROPIC_API_KEY"] = "changed"
-
-    fallback = provider._build_fallback()._inner  # type: ignore[attr-defined]
-    assert fallback.kind is ProviderKind.OPENAI
-    assert str(fallback._client.base_url).rstrip("/") == f"{_OLLAMA}/v1"
 
 
 def test_anthropic_gets_unique_tool_ids() -> None:

@@ -18,7 +18,6 @@ from satsumaestro.providers.choice import (
     resolve_endpoint,
 )
 from satsumaestro.providers.detect import choose_provider_kind
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.local import LlamaCppServer, LMStudioServer, server_for_endpoint
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
@@ -140,24 +139,7 @@ def build_provider(
     """堅牢化済みの :class:`Provider` を生成する。"""
     env = env if env is not None else ENVIRON
     resolved = expand_model_name(model)
-    policy = _policy(config)
-    primary = _with_retry(build_bare(config, resolved, env), config, policy)
-
-    configured = config.provider.fallback_model
-    if not configured:
-        return primary
-    fallback_model = expand_model_name(configured)
-    if fallback_model.casefold() == resolved.casefold():
-        return primary
-
-    built_with, env_then = config.model_copy(), dict(env)
-    return FallbackProvider(
-        primary,
-        build_fallback=lambda: _with_retry(
-            build_bare(built_with, fallback_model, env_then), built_with, policy
-        ),
-        fallback_model=fallback_model,
-    )
+    return _with_retry(build_bare(config, resolved, env), config, _policy(config))
 
 
 def resolve_role_model(config: RuntimeConfig, role: str, *, default: str) -> str:

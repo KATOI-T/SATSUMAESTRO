@@ -19,14 +19,13 @@ from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.base import ApiRequest, Provider
 from satsumaestro.providers.factory import _policy
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import default_policy
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.tools import default_registry
 from satsumaestro.util.errors import ProviderError, RetriesExhaustedError
-from tests.fixtures.mock_provider import MockProvider, ScriptedFailureProvider
+from tests.fixtures.mock_provider import ScriptedFailureProvider
 
 _REQUEST = httpx.Request("POST", "http://localhost:11434")
 
@@ -103,21 +102,6 @@ def test_the_default_comes_from_config() -> None:
     cfg = RuntimeConfig()
     cfg.provider.retry = RetryConfig(read_timeout_max_retries=2)
     assert _policy(cfg).read_timeout_max_retries == 2
-
-
-async def test_silent_timeout_does_not_switch_models() -> None:
-    """生成が大きかっただけでモデルが変わってはいけない（この契約の肝）。"""
-    primary = ScriptedFailureProvider([_silence()])
-    fallback = MockProvider(_done())
-    switching = FallbackProvider(
-        RetryingProvider(primary, _fast()),
-        build_fallback=lambda: fallback,
-        fallback_model="other-model",
-    )
-    with pytest.raises(ProviderError):
-        await _drain(switching)
-    assert primary.attempts == 1
-    assert fallback.requests == []
 
 
 def _runtime(steps: list[Any], tmp_path: Path) -> ConversationRuntime:

@@ -27,7 +27,6 @@ from satsumaestro.engine.events import (
 )
 from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
 from satsumaestro.providers.factory import build_bare, build_provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.openai_provider import _assemble_openai, _stop_reason_for
 from satsumaestro.providers.prompt_cache import PromptCacheMonitor
 from satsumaestro.providers.retry import (
@@ -40,7 +39,7 @@ from satsumaestro.providers.retry import (
 )
 from satsumaestro.session.models import ConversationMessage, TextBlock
 from satsumaestro.util.errors import ProviderError, ProviderTimeoutError, RetriesExhaustedError
-from tests.fixtures.mock_provider import MockProvider, ScriptedFailureProvider
+from tests.fixtures.mock_provider import ScriptedFailureProvider
 
 _FAST = RetryPolicy(max_retries=3, initial_backoff_s=1.0, max_backoff_s=8.0, timeout_s=600.0)
 
@@ -233,15 +232,6 @@ async def test_ordinary_500_still_uses_full_retry_budget(slept: list[float]) -> 
     assert inner.attempts == _FAST.max_retries + 1
 
 
-async def test_tool_parse_exhaustion_still_triggers_fallback() -> None:
-    primary = ScriptedFailureProvider([_tool_parse_failure()])
-    secondary = MockProvider([TextDelta(text="from-fallback"), MessageStop()])
-    policy = RetryPolicy(max_retries=8, tool_parse_max_retries=0)
-    out = await _drain(_fallback(RetryingProvider(primary, policy), secondary))
-    assert out[0] == TextDelta(text="from-fallback")
-    assert primary.attempts == 1
-
-
 def test_backoff_delay_doubles_from_the_first_wait_up_to_the_cap() -> None:
     policy = RetryPolicy(initial_backoff_s=0.5, max_backoff_s=8.0)
     floors = [0.5, 1.0, 2.0, 4.0, 8.0, 8.0]
@@ -267,75 +257,6 @@ def test_retry_after_parses_seconds_and_http_date() -> None:
     past = _wrapped(_http_error(429, {"retry-after": "Wed, 21 Oct 2015 07:28:00 GMT"}))
     assert retry_after_of(past) == 0.0
     assert retry_after_of(_wrapped(_http_error(500))) is None
-
-
-def _fallback(
-    primary: Provider, fallback: Provider, model: str = "claude-sonnet-5"
-) -> FallbackProvider:
-    return FallbackProvider(primary, build_fallback=lambda: fallback, fallback_model=model)
-
-
-async def test_fallback_switches_on_permanent_failure(slept: list[float]) -> None:
-    primary = ScriptedFailureProvider([_wrapped(_http_error(503))])
-    secondary = MockProvider([TextDelta(text="from-fallback"), MessageStop()])
-    provider = _fallback(RetryingProvider(primary, _FAST), secondary)
-
-    out = await _drain(provider)
-    assert out[0] == TextDelta(text="from-fallback")
-    assert secondary.requests[0].model == "claude-sonnet-5"
-    assert provider.kind is secondary.kind
-
-    attempts_after_first = primary.attempts
-    await _drain(provider)
-    assert primary.attempts == attempts_after_first
-    assert len(secondary.requests) == 2
-
-
-async def test_fallback_absent_propagates() -> None:
-    inner = ScriptedFailureProvider([_wrapped(_http_error(401))])
-    with pytest.raises(ProviderError):
-        await _drain(RetryingProvider(inner, _FAST))
-
-
-async def test_fallback_skips_hopeless_status() -> None:
-    primary = ScriptedFailureProvider([_wrapped(_http_error(400))])
-    secondary = MockProvider([TextDelta(text="unused"), MessageStop()])
-    with pytest.raises(ProviderError):
-        await _drain(_fallback(primary, secondary))
-    assert secondary.requests == []
-
-
-async def test_fallback_not_switched_after_first_yield() -> None:
-    primary = ScriptedFailureProvider([[TextDelta(text="partial"), _wrapped(_http_error(401))]])
-    secondary = MockProvider([TextDelta(text="unused"), MessageStop()])
-    collected: list[AssistantEvent] = []
-    with pytest.raises(ProviderError):
-        async for ev in _fallback(primary, secondary).stream(_req()):
-            collected.append(ev)
-    assert collected == [TextDelta(text="partial")]
-    assert secondary.requests == []
-
-
-async def test_fallback_same_model_is_not_switched() -> None:
-    primary = ScriptedFailureProvider([_wrapped(_http_error(401))])
-    secondary = MockProvider([TextDelta(text="unused"), MessageStop()])
-    provider = _fallback(primary, secondary, model="gpt-oss:120b")
-    with pytest.raises(ProviderError):
-        await _drain(provider, _req("gpt-oss:120b"))
-    assert secondary.requests == []
-
-
-async def test_fallback_build_failure_propagates_primary() -> None:
-    primary = ScriptedFailureProvider([_wrapped(_http_error(401))])
-
-    def broken() -> Provider:
-        raise ProviderError("ANTHROPIC_API_KEY is not set")
-
-    provider = FallbackProvider(primary, build_fallback=broken, fallback_model="claude-sonnet-5")
-    with pytest.raises(ProviderError) as excinfo:
-        await _drain(provider)
-    assert "ANTHROPIC_API_KEY" not in str(excinfo.value)
-    assert isinstance(excinfo.value.__cause__, openai.APIStatusError)
 
 
 async def _chunks(items: list[NS]) -> AsyncIterator[NS]:
@@ -630,27 +551,6 @@ def test_factory_wraps_with_retry_only_by_default() -> None:
     provider = build_provider(_cfg(), "qwen2.5-coder", env)
     assert isinstance(provider, RetryingProvider)
     assert provider.kind is ProviderKind.OPENAI
-
-
-def test_factory_wraps_with_fallback_when_configured() -> None:
-    env = {"OLLAMA_HOST": "http://localhost:11434", "ANTHROPIC_API_KEY": "sk-ant-x"}
-    provider = build_provider(_cfg(fallback_model="claude-sonnet-5"), "qwen2.5-coder", env)
-    assert isinstance(provider, FallbackProvider)
-    assert isinstance(provider._primary, RetryingProvider)
-
-
-def test_factory_skips_fallback_when_same_model() -> None:
-    env = {"OLLAMA_HOST": "http://localhost:11434"}
-    provider = build_provider(_cfg(fallback_model="qwen2.5-coder"), "qwen2.5-coder", env)
-    assert isinstance(provider, RetryingProvider)
-
-
-def test_factory_does_not_require_fallback_key_at_build_time() -> None:
-    env = {"OLLAMA_HOST": "http://localhost:11434"}
-    assert isinstance(
-        build_provider(_cfg(fallback_model="claude-sonnet-5"), "qwen2.5-coder", env),
-        FallbackProvider,
-    )
 
 
 def test_factory_passes_request_timeout_to_client() -> None:

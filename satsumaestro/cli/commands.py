@@ -619,8 +619,7 @@ class SlashDispatcher:
     def _role_models(self) -> str:
         """切り替えても替わらないモデルの設定の名前。"""
         cfg = self.rt.config
-        items = ["provider.fallback_model"] if cfg.provider.fallback_model else []
-        items += [f"provider.roles.{r}" for r in ROLE_NAMES if getattr(cfg.provider.roles, r, None)]
+        items = [f"provider.roles.{r}" for r in ROLE_NAMES if getattr(cfg.provider.roles, r, None)]
         if cfg.subagent.default_model:
             items.append("subagent.default_model")
         return ", ".join(items)

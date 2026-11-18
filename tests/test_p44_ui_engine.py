@@ -91,9 +91,6 @@ def test_result_cut_lines() -> None:
 
 
 def test_provider_notices() -> None:
-    assert describe(ProviderNotice(kind="fallback", from_model="a", to_model="b")) == (
-        "'a' is not responding, so switching to 'b'"
-    )
     assert describe(ProviderNotice(kind="rewrite")) == (
         "The model's output kept breaking, so it was asked to rewrite it"
     )

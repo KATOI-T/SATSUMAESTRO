@@ -34,7 +34,6 @@ from satsumaestro.engine.turn import (
     PermissionOutcome,
 )
 from satsumaestro.providers.base import ApiRequest, ProviderKind
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ConversationMessage, TextBlock, ToolResultBlock
 from tests.fixtures.mock_provider import MockProvider
@@ -260,18 +259,6 @@ class _Broken(_Slow):
 async def test_timeout_and_errors_are_failures() -> None:
     assert await explain_call(_Slow(), _req(), timeout_s=0.05) == (None, "timeout")  # type: ignore[arg-type]
     assert await explain_call(_Broken(), _req()) == (None, "error")  # type: ignore[arg-type]
-
-
-async def test_a_failed_explanation_does_not_switch_to_the_fallback_model() -> None:
-    built: list[str] = []
-
-    def build() -> Any:
-        built.append("fallback")
-        return MockProvider([TextDelta(text="fb"), MessageStop()])
-
-    provider = FallbackProvider(_Broken(), build, "other-model")  # type: ignore[arg-type]
-    assert await explain_call(provider, _req()) == (None, "error")
-    assert built == []
 
 
 class _User:

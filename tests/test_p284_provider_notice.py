@@ -10,12 +10,11 @@ from satsumaestro.cli.errors_ui import broken_output_hint, turn_failure
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.engine.events import MessageStop, TextDelta
 from satsumaestro.providers import notices
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.notices import ProviderNotice
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
 from satsumaestro.util.errors import ProviderError, RetriesExhaustedError
-from tests.fixtures.mock_provider import MockProvider, ScriptedFailureProvider
-from tests.test_p15_model_robustness import _drain, _http_error, _wrapped
+from tests.fixtures.mock_provider import ScriptedFailureProvider
+from tests.test_p15_model_robustness import _drain
 
 _FAST = RetryPolicy(initial_backoff_s=0.0, max_backoff_s=0.0)
 
@@ -43,31 +42,16 @@ async def test_without_a_sink_nothing_happens() -> None:
     assert await _drain(provider) == [TextDelta(text="ok"), MessageStop()]
 
 
-async def test_fallback_is_announced_and_still_switches() -> None:
-    seen: list[ProviderNotice] = []
-    primary = RetryingProvider(ScriptedFailureProvider([_wrapped(_http_error(503))]), _FAST)
-    secondary = MockProvider([TextDelta(text="from-fallback"), MessageStop()])
-    provider = FallbackProvider(
-        primary, build_fallback=lambda: secondary, fallback_model="claude-sonnet-5"
-    )
-    with notices.bind(seen.append):
-        out = await _drain(provider)
-    assert TextDelta(text="from-fallback") in out
-    assert seen[-1].kind == "fallback" and seen[-1].to_model == "claude-sonnet-5"
-
-
 def test_the_screen_gets_a_user_facing_line() -> None:
     buf = io.StringIO()
     r = RichRenderer(console=Console(file=buf, force_terminal=True, width=100, color_system=None))
     r.start_turn()
     r.on_provider_notice(ProviderNotice(kind="retry", attempt=1, limit=2, reason="tool_parse"))
     r.on_provider_notice(ProviderNotice(kind="retry", attempt=2, limit=9, delay_s=3.2))
-    r.on_provider_notice(ProviderNotice(kind="fallback", from_model="a", to_model="b"))
     r.end_turn()
     out = buf.getvalue()
     assert "— モデルの出力が途中で壊れたので、もう一度生成します（1/2）" in out
     assert "— モデルの応答に失敗したので、3 秒後にもう一度試します（2/9）" in out
-    assert "— 'a' が応答しないので 'b' に切り替えます" in out
     for developer_words in ("error parsing tool call", "finish_reason", "上限を縮小"):
         assert developer_words not in out
 
