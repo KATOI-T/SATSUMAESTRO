@@ -22,8 +22,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
 - The REPL checks the API keys for `openai`, `anthropic` and `xai` in the background when it
   starts, with a request that spends no tokens (`GET /v1/models`, or `GET /v1/api-key` on xAI).
-  `/provider` and its suggestions show rejected keys in red. `satsumaestro doctor --probe` checks
-  the key on its `api key` line.
+  `/provider` and its suggestions mark rejected keys as invalid in red.
+  `satsumaestro doctor --probe` checks the key on its `api key` line.
   `satsumaestro prompt` and switching with `/provider` do not check.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 

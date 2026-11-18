@@ -18,6 +18,7 @@ from satsumaestro.cli.commands import SlashDispatcher, parse_slash, provider_not
 from satsumaestro.cli.completion import SlashCompleter
 from satsumaestro.cli.completion_menu import SuggestionMenu
 from satsumaestro.config.models import GuidanceConfig, ProviderConfig, RuntimeConfig
+from satsumaestro.i18n.text import pinned_ui_language
 from satsumaestro.providers.key_check import KeyCheck, KeyChecks, check_keys
 from tests.fixtures.mock_provider import MockProvider
 from tests.test_p165_plan_steps import _runtime
@@ -174,6 +175,9 @@ async def test_the_provider_list_and_completion_mark_rejected_keys(
     notes = provider_notes(rt.config.provider, rt.session.model, _KEYS, rejected)
     assert notes["anthropic"] == "Anthropic · 無効な鍵（ANTHROPIC_API_KEY）"
     assert notes["openai"] == "OpenAI · 鍵あり（OPENAI_API_KEY）"
+    with pinned_ui_language("en"):
+        english = provider_notes(rt.config.provider, rt.session.model, _KEYS, rejected)
+    assert english["anthropic"].endswith("invalid key (ANTHROPIC_API_KEY)")
     completer = SlashCompleter(providers=lambda: notes, rejected=lambda: rejected)
     text = "/provider "
     shown = list(completer.get_completions(Document(text), CompleteEvent()))
