@@ -18,7 +18,7 @@ from satsumaestro.cli.render import (
     change_preview,
 )
 from satsumaestro.cli.tool_display import describe, error_reason, known_tool_names, result_note
-from satsumaestro.engine.events import ToolUse
+from satsumaestro.engine.events import MessageStop, TextDelta, ToolUse, ToolUseDelta
 from satsumaestro.engine.repetition import RepetitionVerdict
 from satsumaestro.i18n.text import pinned_ui_language
 from satsumaestro.security.jail import OUTSIDE_WORKSPACE, PATH_ESCAPE_PREFIX
@@ -179,6 +179,7 @@ def test_step_lines() -> None:
 def test_timeout_and_repetition_lines() -> None:
     r, buf = _renderer(width=200)
     r.start_turn()
+    r.on_assistant_event(TextDelta(text="partial"))
     r.on_stream_aborted(None)
     r.on_stream_aborted(120.0)
     r.on_step_timeout_resume(120.0, 2, 5, 2, 2)
@@ -198,6 +199,23 @@ def test_timeout_and_repetition_lines() -> None:
     assert "— Detected repeated content (the same paragraph 7 times), so it was stopped" in out
     assert "asked to write the conclusion only once" in out
     assert not _JAPANESE.search(out)
+
+
+def test_nothing_received_is_not_called_cut_off() -> None:
+    """何も届かずに失敗した要求では「途中で切れた」を出さない（前の通の本文は数えない）。"""
+    r, buf = _renderer(width=200)
+    r.start_turn()
+    r.on_stream_aborted(None)
+    r.on_assistant_event(TextDelta(text="done"))
+    r.on_assistant_event(MessageStop())
+    r.on_stream_aborted(None)
+    r.end_turn()
+    assert "cut off" not in buf.getvalue()
+    r.start_turn()
+    r.on_assistant_event(ToolUseDelta(index=0, name="write_file", args_delta='{"pa'))
+    r.on_stream_aborted(None)
+    r.end_turn()
+    assert "— The response was cut off" in buf.getvalue()
 
 
 def test_turn_summary_line() -> None:

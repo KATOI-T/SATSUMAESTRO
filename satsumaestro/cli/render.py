@@ -339,9 +339,12 @@ class RichRenderer:
         self._refresh_live()
 
     def on_stream_aborted(self, timeout_recovery_s: float | None = None) -> None:
-        """応答が途中で断たれたとき、そこまでの本文を確定して生成中表示を畳む。"""
+        """応答が断たれたとき、本文を確定して生成中表示を畳む（何も届いていなければ切れた行は出さない）。"""
+        received = bool(self._cur_ascii or self._cur_other or self._out_cur)
         self._finalize_segment()
         if timeout_recovery_s is None:
+            if not received:
+                return
             self._emit(
                 Text(
                     ui("cli.render.the_response_was_cut_off"),

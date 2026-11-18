@@ -60,6 +60,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A request refused for reasons of the account now says why, with the provider's message, instead
   of only the raw error: no credits left, a rate limit, or a rejected key.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- "The response was cut off" is no longer shown when nothing had come back yet, for example when
+  the provider refused the request or could not be reached. Only the error is shown.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 
 ## [0.5.2] - 2026-11-17
 

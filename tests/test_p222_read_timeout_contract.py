@@ -147,11 +147,13 @@ async def test_second_silence_in_the_turn_still_fails(tmp_path: Path) -> None:
         await rt.run_turn("hi")
 
 
-def _aborted(timeout_recovery_s: float | None) -> tuple[RichRenderer, str]:
+def _aborted(timeout_recovery_s: float | None, received: str = "") -> tuple[RichRenderer, str]:
     """中断を通知した直後のレンダラと、スクロールバックへ出た本文を返す。"""
     buf = io.StringIO()
     r = RichRenderer(console=Console(file=buf, force_terminal=True, width=80, color_system=None))
     r.start_turn()
+    if received:
+        r.on_assistant_event(TextDelta(text=received))
     r.on_stream_aborted(timeout_recovery_s)
     return r, buf.getvalue()
 
@@ -178,10 +180,11 @@ def test_elapsed_restarts_from_the_abort() -> None:
 
 
 def test_status_line_stays_down_when_the_turn_will_fail() -> None:
-    r, printed = _aborted(None)
-    assert "応答が途中で切れました" in printed
-    assert "出し直しを待っています…" not in _status(r)
-    assert r._live is None
+    for received, cut_off in (("partial", True), ("", False)):
+        r, printed = _aborted(None, received)
+        assert ("応答が途中で切れました" in printed) is cut_off
+        assert "出し直しを待っています…" not in _status(r)
+        assert r._live is None
 
 
 def test_recovering_state_does_not_leak_into_the_next_turn() -> None:
