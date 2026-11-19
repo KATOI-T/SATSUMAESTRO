@@ -26,7 +26,7 @@ from satsumaestro.cli.commands import (
 )
 from satsumaestro.engine.context_fit import list_models
 from satsumaestro.engine.provider_switch import models_for
-from satsumaestro.providers.choice import current_choice
+from satsumaestro.providers.choice import current_choice, switch_endpoint
 from satsumaestro.providers.registry import MODEL_SHORTHANDS
 from satsumaestro.util.environ import ENVIRON
 from satsumaestro.util.errors import SatsumaError
@@ -46,7 +46,7 @@ class ModelSource(Protocol):
     async def names(self, choice: str = "") -> Sequence[Choice]: ...
 
 
-_Target = tuple[str, str, str, str]
+_Target = tuple[str, str, str, str, str]
 
 
 class ModelNames:
@@ -62,8 +62,13 @@ class ModelNames:
         self._tasks: dict[_Target, asyncio.Task[None]] = {}
 
     def _target(self, choice: str) -> _Target:
-        provider = self._rt.config.provider
-        return choice, provider.kind, provider.base_url or "", self._rt.session.model
+        provider, model = self._rt.config.provider, self._rt.session.model
+        endpoint = None
+        if choice:
+            current = current_choice(provider, model, ENVIRON)
+            endpoint = switch_endpoint(provider, choice, ENVIRON, current=current)
+        url = endpoint.url if endpoint is not None else ""
+        return choice, provider.kind, provider.base_url or "", model, url
 
     def prefetch(self, choice: str = "") -> None:
         """一覧が無いか古ければ、裏で取り始める。"""

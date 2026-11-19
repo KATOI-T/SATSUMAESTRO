@@ -14,7 +14,7 @@ from prompt_toolkit.document import Document
 from satsumaestro.cli import completion as completion_mod
 from satsumaestro.cli.commands import SLASH_COMMANDS, provider_notes
 from satsumaestro.cli.completion import ModelNames, SlashCompleter, slash_completions
-from satsumaestro.config.models import ProviderConfig, RuntimeConfig
+from satsumaestro.config.models import ProviderConfig, ProviderProfile, RuntimeConfig
 from satsumaestro.i18n.text import pinned_ui_language, ui
 from satsumaestro.providers.registry import RECOMMENDED_MODELS
 from satsumaestro.util.errors import ConfigError
@@ -333,6 +333,24 @@ async def test_the_models_of_the_switch_target_are_kept_apart(
     current = await names.names()
     assert current[0] == ("gpt-oss:120b", "") and ("sonnet", "→ claude-sonnet-5") in current
     assert len(asked) == 1
+
+
+async def test_the_models_of_a_switch_target_follow_its_remembered_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    servers = {"http://a:11434/v1": ["gpt-oss:120b"], "http://b:11434/v1": ["qwen3:8b"]}
+
+    async def fake_for(rt: Any, choice: str, env: Any, **kwargs: Any) -> list[str] | None:
+        url = rt.config.provider.profiles[choice].base_url
+        return servers[url]
+
+    monkeypatch.setattr(completion_mod, "models_for", fake_for)
+    rt = _runtime("anthropic", "claude-sonnet-5")
+    names = ModelNames(rt)
+    for url, models in servers.items():
+        profiles = {"ollama": ProviderProfile(base_url=url)}
+        rt.config.provider = rt.config.provider.model_copy(update={"profiles": profiles})
+        assert await names.names("ollama") == [(name, "") for name in models]
 
 
 async def test_shorthands_are_offered_for_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
