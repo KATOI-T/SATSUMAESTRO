@@ -96,6 +96,17 @@ async def test_a_blocked_xai_key_is_rejected_with_the_names_of_the_blocks() -> N
     assert found == {"xai": KeyCheck("xai", True, 200, "api_key_disabled, team_blocked")}
 
 
+async def test_a_success_that_cannot_be_read_leaves_the_key_unchecked() -> None:
+    transport = _transport(
+        {
+            "api.openai.com": httpx.Response(200, text="<html>proxy</html>"),
+            "api.anthropic.com": httpx.Response(200, json=[]),
+            "api.x.ai": httpx.Response(200, text="not json"),
+        }
+    )
+    assert await check_keys(_KEYS, transport=transport) == {}
+
+
 async def test_only_set_keys_are_checked_and_unclear_answers_are_left_out() -> None:
     seen: list[httpx.Request] = []
     transport = _transport(

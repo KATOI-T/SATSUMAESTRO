@@ -52,7 +52,10 @@ async def check_key(client: httpx.AsyncClient, choice: str, key: str) -> KeyChec
     except ValueError:
         body = None
     if status == 200:
-        blocked = [name for name in _XAI_BLOCKS if isinstance(body, dict) and body.get(name)]
+        if not isinstance(body, dict):
+            _log.info("key check for %s answered 200 without a readable body", choice)
+            return None
+        blocked = [name for name in _XAI_BLOCKS if body.get(name)]
         _log.info("key check for %s: %s", choice, ", ".join(blocked) or "accepted")
         return KeyCheck(choice, bool(blocked), status, ", ".join(blocked))
     codes, message = body_fields(body)
