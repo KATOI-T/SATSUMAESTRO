@@ -565,6 +565,7 @@ def test_cli_eval_smoke(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
         return MockProvider([TextDelta(text="main.py です"), MessageStop()])
 
     monkeypatch.setattr(cli_app, "build_provider", fake_build_provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
     out = tmp_path / "report.json"
     result = CliRunner().invoke(
         cli_app.app,
@@ -771,6 +772,7 @@ def test_cli_eval_multi_agent_comparison(monkeypatch: pytest.MonkeyPatch, tmp_pa
         return MockProvider([TextDelta(text="main.py です"), MessageStop()])
 
     monkeypatch.setattr(cli_app, "build_provider", fake_build_provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
     echo_spec = f"echoer={sys.executable} -c \"print('nothing found')\" {{prompt}}"
     result = CliRunner().invoke(
         cli_app.app,

@@ -113,6 +113,7 @@ def test_a_baseline_refuses_reports_of_another_prompt_version() -> None:
 def test_cli_eval_sends_the_english_prompt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     provider = MockProvider([TextDelta(text="It is defined in main.py."), MessageStop()])
     monkeypatch.setattr(cli_app, "build_provider", lambda config, model, env: provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
     tasks = _write_tasks(tmp_path)
     out = tmp_path / "report.json"
     result = CliRunner().invoke(

@@ -19,6 +19,7 @@ from satsumaestro.engine import context_fit
 from satsumaestro.engine.provider_switch import (
     MissingModelError,
     ModelNeededError,
+    models_for,
     switch_provider,
 )
 from satsumaestro.engine.runtime import ConversationRuntime
@@ -27,11 +28,10 @@ from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.orchestration.worker import WorkerState
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.anthropic_provider import _to_wire
-from satsumaestro.providers.base import Provider, ProviderKind
+from satsumaestro.providers.base import Provider
 from satsumaestro.providers.detect import note_model_used, used_models
-from satsumaestro.providers.factory import build_provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.local import Unloaded, unload_used
+from satsumaestro.providers.registry import RECOMMENDED_MODELS
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import default_policy
 from satsumaestro.session.models import ConversationMessage, ToolResultBlock, ToolUseBlock
@@ -363,19 +363,38 @@ async def test_the_command_lists_switches_and_saves(
     assert "LM Studio の接続先がありません" in kept and "プロバイダは ollama のままです" in kept
 
 
-def test_a_provider_built_before_a_switch_keeps_its_fallback_endpoint() -> None:
-    cfg = RuntimeConfig(
-        provider=ProviderConfig(base_url=f"{_OLLAMA}/v1", fallback_model="qwen3:8b")
-    )
-    env = {"ANTHROPIC_API_KEY": "k"}
-    provider = build_provider(cfg, "gpt-oss:120b", env)
-    assert isinstance(provider, FallbackProvider)
-    cfg.provider = ProviderConfig(kind="anthropic", default_model="claude-haiku-5-5")
-    env["ANTHROPIC_API_KEY"] = "changed"
+async def test_the_command_lists_the_models_unless_one_is_given(
+    servers: _Servers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.9")
+    rt = _runtime(tmp_path, _llamacpp_cfg(), "gpt-oss-20b")
 
-    fallback = provider._build_fallback()._inner  # type: ignore[attr-defined]
-    assert fallback.kind is ProviderKind.OPENAI
-    assert str(fallback._client.base_url).rstrip("/") == f"{_OLLAMA}/v1"
+    out = await _dispatch(rt, "/provider ollama")
+    assert "provider → ollama（http://10.0.0.9:11434/v1 · モデルは未選択）" in out
+    assert "決められません" not in out
+    assert out.index("モデルは未選択") < out.index("    gpt-oss:120b\n    qwen3:8b\n")
+    assert rt.config.provider.kind == "ollama" and rt.session.model == ""
+
+    await _dispatch(rt, "/model qwen3:8b")
+    again = await _dispatch(rt, "/provider ollama")
+    assert "provider → ollama（http://10.0.0.9:11434/v1 · qwen3:8b）" in again
+    assert "    gpt-oss:120b\n  * qwen3:8b\n" in again
+
+    given = await _dispatch(rt, "/provider ollama gpt-oss:120b")
+    assert "provider → ollama（http://10.0.0.9:11434/v1 · gpt-oss:120b）" in given
+    assert "qwen3:8b" not in given
+
+
+async def test_the_models_after_a_switch_are_read_without_switching(
+    servers: _Servers, tmp_path: Path
+) -> None:
+    rt = _runtime(tmp_path, _llamacpp_cfg(), "gpt-oss-20b")
+    assert await models_for(rt, "ollama", _ENV) == _TAGS
+    assert await models_for(rt, "2", _ENV) is None
+    assert await models_for(rt, "lmstudio", {}) is None
+    assert await models_for(rt, "xai", _ENV) == list(RECOMMENDED_MODELS["xai"])
+    assert rt.config.provider.base_url == f"{_LLAMA}/v1" and rt.session.model == "gpt-oss-20b"
 
 
 def test_anthropic_gets_unique_tool_ids() -> None:

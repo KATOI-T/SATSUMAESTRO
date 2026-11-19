@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -45,6 +46,7 @@ from satsumaestro.engine.turn import (
 )
 from satsumaestro.i18n.text import ui
 from satsumaestro.orchestration.runner import Orchestrator
+from satsumaestro.providers.key_check import KeyCheck, KeyChecks
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import PermissionOutcome
 from satsumaestro.security.remember_guard import blocker_note, remember_blocker
@@ -278,14 +280,21 @@ class InteractivePrompter:
 
 
 def _prompt_session(
-    rt: ConversationRuntime, bindings: KeyBindings, **io: Any
+    rt: ConversationRuntime,
+    bindings: KeyBindings,
+    *,
+    key_checks: KeyChecks | None = None,
+    **io: Any,
 ) -> PromptSession[str]:
     """入力欄（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
     session: PromptSession[str] = PromptSession(
         key_bindings=bindings,
         completer=SlashCompleter(
             ModelNames(rt),
-            providers=lambda: provider_notes(rt.config.provider, rt.session.model, ENVIRON),
+            providers=lambda: provider_notes(
+                rt.config.provider, rt.session.model, ENVIRON, _rejected(key_checks)
+            ),
+            rejected=lambda: _rejected(key_checks),
         ),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
         reserve_space_for_menu=MENU_ROWS + 1,
@@ -293,6 +302,10 @@ def _prompt_session(
     )
     install_menu(session)
     return session
+
+
+def _rejected(checks: KeyChecks | None) -> dict[str, KeyCheck]:
+    return checks.rejected() if checks is not None else {}
 
 
 async def run_repl(
@@ -305,6 +318,7 @@ async def run_repl(
     *,
     trusted: bool = False,
     load_probe: LoadProbe | None = None,
+    key_checks: KeyChecks | None = None,
 ) -> None:
     """行入力ごとに ``run_turn`` を回す対話ループ。"""
     bindings = KeyBindings()
@@ -314,13 +328,17 @@ async def run_repl(
         cycle_main_mode(rt)
         event.app.invalidate()
 
-    session = _prompt_session(rt, bindings)
-    dispatcher = SlashDispatcher(rt, console, trace_log=trace_log, trusted=trusted, render=render)
+    session = _prompt_session(rt, bindings, key_checks=key_checks)
+    dispatcher = SlashDispatcher(
+        rt, console, trace_log=trace_log, trusted=trusted, render=render, key_checks=key_checks
+    )
     banner = ui("cli.repl.satsumaestro_repl_help_for")
     console.print(f"[dim]{banner}[/dim]")
     workdir = escape(str(rt.cwd))
     workdir_line = ui("cli.repl.working_directory", workdir=workdir)
     console.print(f"[dim]{workdir_line}[/dim]")
+    # 結果は /provider の一覧と候補にだけ出す
+    checking = asyncio.create_task(key_checks.run(ENVIRON)) if key_checks else None
     while True:
         try:
             line = await session.prompt_async(lambda: mode_prompt_fragments(rt.session.mode))
@@ -342,6 +360,9 @@ async def run_repl(
                 console.print(f"[red]{failed}[/red]")
             continue
 
+        if not rt.session.model.strip():
+            console.print(Text(ui("cli.repl.choose_a_model_first"), style="yellow"))
+            continue
         if rt.approve_plan_from_text(line):
             mode = mode_markup(rt.session.mode)
             approved = ui("cli.repl.taken_as_an_instruction_to", mode=mode)
@@ -367,7 +388,7 @@ async def run_repl(
         except SatsumaError as e:
             failure = turn_failure(e)
             console.print(Text(failure.headline, style="red"))
-            if not rt.session.plan_steps:
+            if failure.next_step and not rt.session.plan_steps:
                 console.print(Text(f"  {failure.next_step}", style="dim"))
         finally:
             render.end_turn(delegated=summary.delegated_usage if summary else None)
@@ -379,6 +400,8 @@ async def run_repl(
                 unfinished = ui("cli.repl.plan_step_is_not_finished", step=step)
                 console.print(f"[dim]{unfinished}[/dim]")
 
+    if checking is not None:
+        checking.cancel()
     orch = rt.orchestrator
     if isinstance(orch, Orchestrator) and orch.running_count() > 0:
         n = orch.running_count()

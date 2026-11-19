@@ -5,6 +5,72 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with SATSUMAESTRO and
+  marks the current one, so you can pick one. While you type, they are suggested after `/model `
+  and after `/provider <name> `.
+  `satsumaestro models` shows them after the shorthands. Other model IDs work as before; the
+  list only decides what is offered. Code that embeds SATSUMAESTRO gets the same list from
+  `list_models()` on a cloud endpoint, from `ModelNeededError.models`, and from
+  `recommended_models()` in `satsumaestro.providers`. The models are those listed under "Checked
+  models" in 0.5.1, without the ones the providers deprecated, `gpt-6-astra` and `gpt-6.1-sol`,
+  which cannot call tools over Chat Completions, and `chat-latest`, whose name does not fix the
+  model it uses.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- The REPL checks the API keys for `openai`, `anthropic` and `xai` in the background when it
+  starts, with a request that spends no tokens (`GET /v1/models`, or `GET /v1/api-key` on xAI).
+  `/provider` and its suggestions mark rejected keys as invalid in red.
+  `satsumaestro doctor --probe` checks the key on its `api key` line.
+  `satsumaestro prompt` and switching with `/provider` do not check.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+
+### Changed
+
+- `/provider <name>` without a model lists the models there after switching and marks the one in
+  use, as `/model` alone does. When it cannot tell which model to use, it switches without one
+  instead of stopping; choose one with `/model`. Code that calls `switch_provider()` gets this
+  with `model_required=False`; by default it still raises `ModelNeededError`.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- While you type `/provider ollama `, `/provider lmstudio ` or `/provider llamacpp `, the models on
+  that server are suggested, as they are after `/model `. `models_for()` in
+  `satsumaestro.engine.provider_switch` gives the models of a provider without switching to it.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- A request the provider answers with 429 is not sent again. Before, it was retried up to 9 times
+  over about 2 minutes, which does not help when the account has no credits left. Other passing
+  errors (408, 409, 5xx and dropped connections) are retried as before.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- The line shown while waiting to send a request again now says why it failed: a server error with
+  its status, could not connect, the connection dropped, no response, or a busy server.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+
+### Removed
+
+- `provider.fallback_model`, which moved the rest of the session to another model on the same
+  server when a request failed for good. Settings that still have it are rejected, as with any
+  unknown key, so remove it. `FallbackProvider` is gone from `satsumaestro.providers`.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+
+### Fixed
+
+- With no model set (no `--model`, `OLLAMA_MODEL` or `provider.default_model`), nothing is sent.
+  `satsumaestro prompt` stops, says where to set the model and lists the models to choose from:
+  those on the local server, or the recommended ones on a cloud. The REPL starts, and an
+  instruction gets a note to choose a model with `/model` instead of being sent. With `auto`, the
+  model chosen there also decides the provider, as it does at startup. Before, the first request
+  failed with `model is required`. Resuming a session without a model set uses the
+  session's model. Code that embeds SATSUMAESTRO gets `ModelNotSetError` from `connect()`, with the
+  list in `models`, unless it passes `model_required=False`.
+  ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))
+- A request refused for reasons of the account now says why, with the provider's message, instead
+  of only the raw error: no credits left, a rate limit, or a rejected key.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- "The response was cut off" is no longer shown when nothing had come back yet, for example when
+  the provider refused the request or could not be reached. Only the error is shown.
+  ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+
 ## [0.5.2] - 2026-11-17
 
 ### Added

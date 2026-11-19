@@ -6,12 +6,13 @@ from satsumaestro.providers.anthropic_provider import AnthropicProvider
 from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
 from satsumaestro.providers.detect import choose_provider_kind
 from satsumaestro.providers.factory import build_bare, build_provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.openai_provider import OpenAICompatProvider
 from satsumaestro.providers.prompt_cache import CacheLoss, PromptCacheMonitor
 from satsumaestro.providers.registry import (
     MODEL_SHORTHANDS,
+    RECOMMENDED_MODELS,
     expand_model_name,
+    recommended_models,
     vendor_for_model,
 )
 from satsumaestro.providers.retry import (
@@ -25,10 +26,10 @@ from satsumaestro.providers.retry import (
 
 __all__ = [
     "MODEL_SHORTHANDS",
+    "RECOMMENDED_MODELS",
     "AnthropicProvider",
     "ApiRequest",
     "CacheLoss",
-    "FallbackProvider",
     "OpenAICompatProvider",
     "PromptCacheMonitor",
     "Provider",
@@ -42,6 +43,7 @@ __all__ = [
     "expand_model_name",
     "is_retryable",
     "is_tool_call_parse_error",
+    "recommended_models",
     "retry_after_of",
     "vendor_for_model",
 ]

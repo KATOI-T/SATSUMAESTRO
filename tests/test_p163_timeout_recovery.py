@@ -154,10 +154,12 @@ async def test_renderer_is_not_told_recovery_when_turn_fails(tmp_path: Path) -> 
     assert _Recording.seen == [rt.config.read_timeout_s(), None]
 
 
-def _rendered(timeout_recovery_s: float | None) -> str:
+def _rendered(timeout_recovery_s: float | None, received: str = "") -> str:
     buf = io.StringIO()
     r = RichRenderer(console=Console(file=buf, force_terminal=True, width=80, color_system=None))
     r.start_turn()
+    if received:
+        r.on_assistant_event(TextDelta(text=received))
     r.on_stream_aborted(timeout_recovery_s)
     r.end_turn()
     return buf.getvalue()
@@ -170,8 +172,9 @@ def test_recovery_notice_is_one_user_facing_line() -> None:
 
 
 def test_abort_without_recovery_keeps_the_plain_notice() -> None:
-    out = _rendered(None)
+    out = _rendered(None, "partial")
     assert "応答が途中で切れました" in out and "依頼しました" not in out
+    assert "応答が途中で切れました" not in _rendered(None)
 
 
 def test_provider_error_text_does_not_end_with_a_bare_colon() -> None:

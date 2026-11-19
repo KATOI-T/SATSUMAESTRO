@@ -19,14 +19,13 @@ from satsumaestro.hooks.runner import HookRunner
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.providers.base import ApiRequest, Provider
 from satsumaestro.providers.factory import _policy
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.providers.retry import RetryingProvider, RetryPolicy
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import default_policy
 from satsumaestro.session.store import JSONLSessionStore, new_session
 from satsumaestro.tools import default_registry
 from satsumaestro.util.errors import ProviderError, RetriesExhaustedError
-from tests.fixtures.mock_provider import MockProvider, ScriptedFailureProvider
+from tests.fixtures.mock_provider import ScriptedFailureProvider
 
 _REQUEST = httpx.Request("POST", "http://localhost:11434")
 
@@ -105,21 +104,6 @@ def test_the_default_comes_from_config() -> None:
     assert _policy(cfg).read_timeout_max_retries == 2
 
 
-async def test_silent_timeout_does_not_switch_models() -> None:
-    """生成が大きかっただけでモデルが変わってはいけない（この契約の肝）。"""
-    primary = ScriptedFailureProvider([_silence()])
-    fallback = MockProvider(_done())
-    switching = FallbackProvider(
-        RetryingProvider(primary, _fast()),
-        build_fallback=lambda: fallback,
-        fallback_model="other-model",
-    )
-    with pytest.raises(ProviderError):
-        await _drain(switching)
-    assert primary.attempts == 1
-    assert fallback.requests == []
-
-
 def _runtime(steps: list[Any], tmp_path: Path) -> ConversationRuntime:
     """プロバイダ層の再試行を挟んだ状態で、会話層の復帰が従来どおり働くかを見る。"""
     return ConversationRuntime(
@@ -147,11 +131,13 @@ async def test_second_silence_in_the_turn_still_fails(tmp_path: Path) -> None:
         await rt.run_turn("hi")
 
 
-def _aborted(timeout_recovery_s: float | None) -> tuple[RichRenderer, str]:
+def _aborted(timeout_recovery_s: float | None, received: str = "") -> tuple[RichRenderer, str]:
     """中断を通知した直後のレンダラと、スクロールバックへ出た本文を返す。"""
     buf = io.StringIO()
     r = RichRenderer(console=Console(file=buf, force_terminal=True, width=80, color_system=None))
     r.start_turn()
+    if received:
+        r.on_assistant_event(TextDelta(text=received))
     r.on_stream_aborted(timeout_recovery_s)
     return r, buf.getvalue()
 
@@ -178,10 +164,11 @@ def test_elapsed_restarts_from_the_abort() -> None:
 
 
 def test_status_line_stays_down_when_the_turn_will_fail() -> None:
-    r, printed = _aborted(None)
-    assert "応答が途中で切れました" in printed
-    assert "出し直しを待っています…" not in _status(r)
-    assert r._live is None
+    for received, cut_off in (("partial", True), ("", False)):
+        r, printed = _aborted(None, received)
+        assert ("応答が途中で切れました" in printed) is cut_off
+        assert "出し直しを待っています…" not in _status(r)
+        assert r._live is None
 
 
 def test_recovering_state_does_not_leak_into_the_next_turn() -> None:

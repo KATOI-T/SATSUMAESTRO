@@ -22,6 +22,7 @@ from rich.text import Text
 from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
+from satsumaestro.cli.errors_ui import account_turn_failure, rejected_key_text
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
@@ -45,6 +46,7 @@ from satsumaestro.engine.context_fit import (
 )
 from satsumaestro.engine.provider_switch import (
     MissingModelError,
+    ModelNotSetError,
     build_compactor,
     connect,
     unloaded_text,
@@ -98,6 +100,7 @@ from satsumaestro.prompt.instructions import instruction_tokens
 from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
+    CLOUD_KEYS,
     HOST_ENV,
     OPENAI_API_BASE_URL,
     current_choice,
@@ -115,6 +118,7 @@ from satsumaestro.providers.factory import (
     build_provider,
     openai_endpoint,
 )
+from satsumaestro.providers.key_check import KeyChecks, check_keys
 from satsumaestro.providers.local import (
     LlamaCppServer,
     LMStudioServer,
@@ -126,7 +130,7 @@ from satsumaestro.providers.local import (
     unload_used,
     unreached_cause,
 )
-from satsumaestro.providers.registry import MODEL_SHORTHANDS, expand_model_name
+from satsumaestro.providers.registry import MODEL_SHORTHANDS, RECOMMENDED_MODELS, expand_model_name
 from satsumaestro.rag.embed import DEFAULT_EMBED_ENDPOINT as DEFAULT_EMBED_BASE_URL
 from satsumaestro.rag.models import IngestReport
 from satsumaestro.rag.service import RAGService
@@ -249,6 +253,11 @@ def _print_error(e: SatsumaError) -> None:
     """``prompt`` / ``repl`` / ``session`` の終了前のエラー表示（存在しないモデルは色分け）。"""
     if isinstance(e, MissingModelError):
         _console.print(missing_model_text(e.notice, prefix="error: "))
+    elif isinstance(e, ModelNotSetError):
+        out = Text().append("error: " + e.headline, style="red")
+        if e.shown:
+            out.append(f"\n{e.label}: ", style="yellow").append(", ".join(e.shown) + e.more)
+        _console.print(out)
     else:
         _console.print(f"[red]error: {e}[/red]")
 
@@ -387,7 +396,11 @@ async def _assemble_runtime(
     use_screen_language(cfg.language.chosen_ui)
     _show_config_notes(loader)
     resolved = expand_model_name(model or cfg.provider.default_model)
-    connection = await connect(cfg, resolved, ENVIRON, build=build_provider)
+    if not resolved and resume_path is not None:
+        resolved = JSONLSessionStore().load(resume_path).model
+    connection = await connect(
+        cfg, resolved, ENVIRON, build=build_provider, model_required=not interactive
+    )
     provider = connection.provider
     for note in connection.notes:
         _err_console.print(Text(note, style="yellow"))
@@ -833,6 +846,7 @@ async def _repl_session(
             trace_log=trace_log,
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
+            key_checks=KeyChecks(),
         )
     finally:
         try:
@@ -892,7 +906,8 @@ def prompt(
         SessionAbortError,
         MaxIterationsError,
     ) as e:
-        typer.echo(f"error: {e}", err=True)
+        refused = account_turn_failure(e)
+        typer.echo(f"error: {e if refused is None else refused.reason}", err=True)
         raise typer.Exit(1) from e
 
 
@@ -968,7 +983,7 @@ def _redact_config_dump(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-@app.command(help=ui("cli.app.list_the_model_shorthands"))
+@app.command(help=ui("cli.app.list_the_models"))
 def models() -> None:
     table = Table(title="model shorthands")
     table.add_column("shorthand", style="cyan")
@@ -976,6 +991,13 @@ def models() -> None:
     for shorthand, target in sorted(MODEL_SHORTHANDS.items()):
         table.add_row(shorthand, target)
     _console.print(table)
+    tested = Table(title="cloud models tested with SATSUMAESTRO")
+    tested.add_column("provider", style="cyan")
+    tested.add_column("model")
+    for choice, names in RECOMMENDED_MODELS.items():
+        for n, name in enumerate(names):
+            tested.add_row(choice if n == 0 else "", name, end_section=n == len(names) - 1)
+    _console.print(tested)
 
 
 @app.command(
@@ -2028,6 +2050,7 @@ async def _run_repl_resume(model: str | None, cwd: Path, path: Path, *, trusted:
             _console,
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
+            key_checks=KeyChecks(),
         )
     finally:
         try:
@@ -2088,7 +2111,7 @@ def _doctor(cwd: Path, *, probe: bool = False, trust: bool = False) -> None:
     )
     kind = choose_provider_kind(model, ENVIRON, cfg.provider.base_url, choice=cfg.provider.kind)
     table.add_row("provider", "ok", _provider_label(cfg, model, ENVIRON))
-    table.add_row("api key", *_key_status(cfg, model, ENVIRON))
+    table.add_row("api key", *_key_status(cfg, model, ENVIRON, probe=probe))
 
     default_mode = PermissionMode(cfg.permission.default_mode)
     parsed = (
@@ -2618,24 +2641,27 @@ def _provider_label(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> s
     return f"auto ({actual})"
 
 
-def _key_status(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> tuple[str, str]:
-    """doctor の api key の行（実際に使う接続先か、クラウドの鍵）。"""
+def _key_status(
+    cfg: RuntimeConfig, model: str, env: Mapping[str, str], *, probe: bool = False
+) -> tuple[str, str]:
+    """doctor の api key の行（実際に使う接続先か、クラウドの鍵。--probe なら鍵を確かめる）。"""
     provider = cfg.provider
     kind = choose_provider_kind(model, env, provider.base_url, choice=provider.kind)
     if kind is ProviderKind.ANTHROPIC:
         ok = bool(env.get("ANTHROPIC_API_KEY"))
         if ok:
-            return "ok", "ANTHROPIC_API_KEY set"
+            return _cloud_key_row("anthropic", "ANTHROPIC_API_KEY set", env, probe=probe)
         return "warn", ui("cli.app.anthropic_api_key_not_set")
     if kind is ProviderKind.XAI:
         ok = bool(env.get("XAI_API_KEY"))
         if ok:
-            return "ok", "XAI_API_KEY set"
+            return _cloud_key_row("xai", "XAI_API_KEY set", env, probe=probe)
         return "warn", ui("cli.app.xai_api_key_not_set")
     endpoint = resolve_endpoint(provider, env)
     if provider.kind == "openai":
         if env.get("OPENAI_API_KEY"):
-            return "ok", f"OPENAI_API_KEY set ({OPENAI_API_BASE_URL})"
+            shown = f"OPENAI_API_KEY set ({OPENAI_API_BASE_URL})"
+            return _cloud_key_row("openai", shown, env, probe=probe)
         return "warn", ui("providers.choice.key_is_not_set", name="OPENAI_API_KEY")
     if endpoint is not None:
         label = "provider.base_url" if endpoint.source == "settings" else endpoint.source
@@ -2647,6 +2673,21 @@ def _key_status(cfg: RuntimeConfig, model: str, env: Mapping[str, str]) -> tuple
         return ("ok", "OPENAI_API_KEY set")
     names = "(OPENAI_API_KEY / OLLAMA_HOST / OPENAI_BASE_URL / provider.base_url)"
     return "warn", ui("cli.app.no_openai_compatible_endpoint_or", names=names)
+
+
+def _cloud_key_row(
+    choice: str, shown: str, env: Mapping[str, str], *, probe: bool
+) -> tuple[str, str]:
+    """鍵のあるクラウドの行（--probe なら、トークンを使わない要求で各社に確かめる）。"""
+    if not probe:
+        return "ok", shown
+    name = CLOUD_KEYS[choice]
+    found = asyncio.run(check_keys({name: env[name]})).get(choice)
+    if found is None:
+        return "warn", ui("cli.app.key_not_checked", name=name)
+    if found.rejected:
+        return "warn", rejected_key_text(found)
+    return "ok", ui("cli.app.key_accepted", name=name)
 
 
 def _sessions_folder(cwd: Path) -> Path:

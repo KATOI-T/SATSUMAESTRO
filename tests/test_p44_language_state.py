@@ -366,6 +366,7 @@ def _prompt(
 ) -> tuple[object, MockProvider]:
     provider = MockProvider([TextDelta(text="It is cart.py."), MessageStop()])
     monkeypatch.setattr(cli_app, "build_provider", lambda config, model, env: provider)
+    monkeypatch.setenv("OLLAMA_MODEL", "mock-model")
     monkeypatch.setenv("SATSUMA_CONFIG_HOME", str(tmp_path / "home"))
     result = runner.invoke(
         cli_app.app, ["prompt", _JA, "--output-format", "json", "--cwd", str(tmp_path), *extra]

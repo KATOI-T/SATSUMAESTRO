@@ -111,7 +111,8 @@ SATSUMAESTRO does not run natively on Windows. Use it inside WSL2 (Windows Subsy
    ```json
    {"provider": {"base_url": "http://localhost:11434/v1", "default_model": "qwen3:8b"}}
    ```
-   Always set a model: without one, Ollama refuses the first request. The shell variables
+   Always set a model: without one, `satsumaestro prompt` stops before sending anything and lists
+   the models on the server, and the REPL asks you to choose one with `/model`. The shell variables
    `OLLAMA_HOST` and `OLLAMA_MODEL` work too.
 4. Check the setup, then start the REPL in your project:
    ```bash
@@ -242,16 +243,16 @@ satsumaestro prompt "say hi"          # one-shot, non-interactive
 satsumaestro prompt "plan a refactor of the auth code" --mode plan   # plan only; project files are not changed
 satsumaestro prompt "say hi" --output-format json                    # JSON output
 satsumaestro session list             # past sessions; resume with: satsumaestro session resume <id>
-satsumaestro models                   # model shorthands
+satsumaestro models                   # model shorthands and the tested cloud models
 satsumaestro config show              # merged settings
 satsumaestro doctor                   # health check of settings, provider, keys and policy
 ```
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
 current turn. Typing `/` lists the commands under the prompt, and after a command its arguments
-(`/model ` lists the models of the current server), each with a one-line note. ↑/↓ choose, Tab
-fills in the choice, Enter runs it, and Esc closes the list. Not every model takes every `/effort`
-level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
+(`/model ` lists the models of the current server, or the tested models on a cloud, and
+`/provider <name> ` those of that provider), each with a one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
+every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.
@@ -292,7 +293,10 @@ Choose the provider with `/provider` in the REPL or with `provider.kind` in the 
 `lmstudio`, `llamacpp`, `openai`, `anthropic` or `xai`. `/provider` alone lists them with their
 endpoint or key, and `/provider <name> [URL] [model]` switches during the session and saves the
 choice to `~/.satsuma/settings.json`. `/model` saves the model there as well, and the next start
-uses the provider and model chosen last.
+uses the provider and model chosen last. Without a model, `/provider <name>` uses the one used
+there last, or switches without one; either way it lists the models there, and `/model` picks one.
+On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with SATSUMAESTRO (also
+`satsumaestro models`); other model IDs work too.
 
 ```text
 /provider llamacpp http://192.168.1.20:9931/v1
@@ -304,6 +308,9 @@ uses the provider and model chosen last.
 - Local servers use `provider.base_url`, or `OLLAMA_HOST`, `LMSTUDIO_HOST` and `LLAMACPP_HOST`
   (a host, `host:port` or a URL, in the environment or `.env`)
 - The clouds need their API key in the environment or `.env`. Keys are never written to the settings
+- The REPL checks each key when it starts, with a request that spends no tokens, and marks a
+  rejected key as invalid in red in the `/provider` list. `satsumaestro doctor --probe` checks
+  the current provider's key
 - With `provider.kind` set, the model ID and `OLLAMA_HOST` do not change the provider. Set
   `"kind": "auto"` to go back to the automatic choice below
 
@@ -321,7 +328,9 @@ With `auto` (the default), SATSUMAESTRO picks the provider in this order:
 If no endpoint is set, SATSUMAESTRO may choose a cloud provider from the API keys in your
 environment. To keep requests on your own machine or LAN, set `provider.base_url` or `OLLAMA_HOST`.
 
-The model comes from `--model` / `-m`, `OLLAMA_MODEL` or the setting `provider.default_model`.
+The model comes from `--model` / `-m`, `OLLAMA_MODEL` or the setting `provider.default_model`. With
+none of them, `satsumaestro prompt` stops before sending anything, says where to set it, and lists
+the models to choose from. The REPL starts and asks you to choose one with `/model` before it sends.
 
 ## Settings and trust
 

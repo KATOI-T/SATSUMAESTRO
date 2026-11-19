@@ -122,7 +122,6 @@ class ProviderConfig(BaseModel):
     kind: ProviderChoice = "auto"
     profiles: dict[ChosenProvider, ProviderProfile] = Field(default_factory=dict)
     default_model: str = ""
-    fallback_model: str | None = None
     base_url: str | None = None
     retry: RetryConfig = Field(default_factory=RetryConfig)
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)

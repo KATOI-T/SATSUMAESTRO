@@ -10,7 +10,6 @@ from typing import Any
 from satsumaestro.engine.events import ToolUse, closing_stream, fold_events
 from satsumaestro.engine.reminders import language_note
 from satsumaestro.providers.base import ApiRequest, Provider
-from satsumaestro.providers.fallback import FallbackProvider
 from satsumaestro.session.models import ConversationMessage, TextBlock, ToolUseBlock
 
 _log = logging.getLogger(__name__)
@@ -73,11 +72,7 @@ async def explain_call(
     provider: Provider, req: ApiRequest, *, timeout_s: float = EXPLAIN_TIMEOUT_S
 ) -> tuple[str | None, str | None]:
     """説明を 1 回だけ求め、``(説明, 失敗の理由)`` を返す。"""
-    stream = (
-        provider.stream_without_switch(req)
-        if isinstance(provider, FallbackProvider)
-        else provider.stream(req)
-    )
+    stream = provider.stream(req)
 
     async def run() -> ConversationMessage:
         async with closing_stream(stream) as events:
