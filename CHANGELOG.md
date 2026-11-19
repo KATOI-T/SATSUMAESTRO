@@ -58,8 +58,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - With no model set (no `--model`, `OLLAMA_MODEL` or `provider.default_model`), nothing is sent.
   `satsumaestro prompt` stops, says where to set the model and lists the models to choose from:
   those on the local server, or the recommended ones on a cloud. The REPL starts, and an
-  instruction gets a note to choose a model with `/model` instead of being sent. Before, the first
-  request failed with `model is required`. Resuming a session without a model set uses the
+  instruction gets a note to choose a model with `/model` instead of being sent. With `auto`, the
+  model chosen there also decides the provider, as it does at startup. Before, the first request
+  failed with `model is required`. Resuming a session without a model set uses the
   session's model. Code that embeds SATSUMAESTRO gets `ModelNotSetError` from `connect()`, with the
   list in `models`, unless it passes `model_required=False`.
   ([#26](https://github.com/KATOI-T/SATSUMAESTRO/issues/26))

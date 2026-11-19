@@ -461,6 +461,7 @@ class SlashDispatcher:
         from satsumaestro.cli.app import _print_window, missing_model_text
         from satsumaestro.engine.context_fit import check_model, missing_model_notice
         from satsumaestro.engine.provider_switch import build_compactor
+        from satsumaestro.providers import factory
         from satsumaestro.providers.registry import expand_model_name
 
         current = self.rt.session.model
@@ -478,9 +479,16 @@ class SlashDispatcher:
         if current.strip():
             self.rt.session.model = resolved
         else:
-            # 起動時にモデルが無ければ、子と要約にも選んだモデルを使う
-            compactor = build_compactor(self.rt.config, self.rt.provider, resolved, ENVIRON)
-            self.rt.use_provider(self.rt.provider, resolved, compactor=compactor)
+            # 起動時にモデルが無ければ、選んだモデルで組み直す（auto では名前で行き先が決まる）
+            try:
+                provider = factory.build_provider(self.rt.config, resolved, ENVIRON)
+            except SatsumaError as exc:
+                self._print(Text(str(exc), style="yellow"))
+                kept = ui("cli.commands.no_model_chosen")
+                self._print(f"[dim]{ui('cli.commands.model_stays', kept=kept)}[/dim]")
+                return
+            compactor = build_compactor(self.rt.config, provider, resolved, ENVIRON)
+            self.rt.use_provider(provider, resolved, compactor=compactor)
         self._print(self._save_model(resolved))
         fit = await self.rt.refit_for_model()
         await _print_window(self.rt, fit, console=self.console, breakdown_line=True)
