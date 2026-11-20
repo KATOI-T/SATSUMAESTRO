@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from satsumaestro.config.loader import note_base_url_file
 from satsumaestro.providers import local as local_servers
 from satsumaestro.providers.detect import reset_used_models
 from satsumaestro.providers.local.llamacpp import reset_llamacpp_state
@@ -92,6 +93,14 @@ def _no_held_dotenv() -> Iterator[None]:
     yield
     forget_dotenv()
     environ._PASSED.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_noted_base_url_file() -> Iterator[None]:
+    """設定の ``provider.base_url`` を書いたファイルの控えを、テストごとに捨てる。"""
+    note_base_url_file(None, None)
+    yield
+    note_base_url_file(None, None)
 
 
 @pytest.fixture(autouse=True)

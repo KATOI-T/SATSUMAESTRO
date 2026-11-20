@@ -157,6 +157,8 @@ def save_provider(
     path = _user_settings(config_home)
     data = provider_update(_load_json(path), choice, model, base_url, remember=remember)
     write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    if base_url:
+        note_base_url_file(base_url, path)
     return path
 
 
@@ -173,6 +175,26 @@ def save_model(
 def _user_settings(config_home: Path | None) -> Path:
     home = config_home if config_home is not None else default_config_home()
     return home / "settings.json"
+
+
+_BASE_URL_FILE: dict[str, Path] = {}
+
+
+def note_base_url_file(url: str | None, path: Path | None) -> None:
+    """設定の ``provider.base_url`` と、それを書いたファイルを控える（前の控えは捨てる）。"""
+    _BASE_URL_FILE.clear()
+    if url and path is not None:
+        _BASE_URL_FILE[url] = path
+
+
+def base_url_file(url: str | None) -> Path | None:
+    """``url`` を ``provider.base_url`` に書いた設定のファイル（控えに無ければ ``None``）。"""
+    return _BASE_URL_FILE.get(url) if url else None
+
+
+def _sets_base_url(layer: Mapping[str, Any]) -> bool:
+    provider = layer.get("provider")
+    return isinstance(provider, dict) and bool(provider.get("base_url"))
 
 
 def _provider_items(data: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -230,6 +252,7 @@ class ConfigLoader:
         self.config_home = config_home if config_home is not None else default_config_home()
         self.trusted = trusted
         self._moved: list[tuple[Path, tuple[str, ...]]] = []
+        self._base_url_from: Path | None = None
 
     def notes(self) -> list[str]:
         """前の書き方の設定を読んだファイルごとの知らせ（最後に読んだ時の分）。"""
@@ -248,9 +271,11 @@ class ConfigLoader:
         merged = self._merge_layers()
         merged = self._overlay_env(merged)
         try:
-            return RuntimeConfig.model_validate(merged)
+            cfg = RuntimeConfig.model_validate(merged)
         except ValidationError as exc:
             raise ConfigError(_invalid(exc)) from exc
+        note_base_url_file(cfg.provider.base_url, self._base_url_from)
+        return cfg
 
     def load_language(self) -> LanguageConfig:
         """設定ファイルの ``language`` の項目だけを読む（ターンの頭で読み直す）。"""
@@ -290,12 +315,17 @@ class ConfigLoader:
 
     def _merge_layers(self) -> dict[str, Any]:
         self._moved = []
-        user = self._read_layer(self.config_home / "settings.json")
+        user_file = self.config_home / "settings.json"
+        user = self._read_layer(user_file)
+        self._base_url_from = user_file if _sets_base_url(user) else None
         if not self.trusted:
             return user
         merged = user
         for path in self._project_files():
-            merged = deep_merge(merged, self._read_layer(path))
+            layer = self._read_layer(path)
+            if _sets_base_url(layer) and not _sets_base_url(user):
+                self._base_url_from = path
+            merged = deep_merge(merged, layer)
         return _keep_selection(merged, user)
 
     def _read_layer(self, path: Path) -> dict[str, Any]:

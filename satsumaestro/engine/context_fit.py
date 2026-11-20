@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from satsumaestro.config.loader import base_url_file
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.base import ProviderKind
@@ -199,13 +200,13 @@ async def check_reachable(
         endpoint = resolve_endpoint(cfg.provider, env)
         source = endpoint.source if endpoint is not None else None
     head = ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
-    return head + _ollama_url_hint(source)
+    return head + _ollama_url_hint(source, cfg.provider.base_url)
 
 
-def _ollama_url_hint(source: EndpointSource | None) -> str:
+def _ollama_url_hint(source: EndpointSource | None, base_url: str | None) -> str:
     """Ollama の接続先の出どころと、替えるときに直す所（打った URL なら空）。"""
     if source == "settings":
-        path = default_config_home() / "settings.json"
+        path = base_url_file(base_url) or default_config_home() / "settings.json"
         return ui("engine.context_fit.ollama_url_from_settings", path=path)
     if source == "OLLAMA_HOST":
         dotenv = dotenv_file_of("OLLAMA_HOST")

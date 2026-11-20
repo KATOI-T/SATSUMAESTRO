@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
-from satsumaestro.config.loader import ConfigLoader
+from satsumaestro.config.loader import ConfigLoader, base_url_file, save_provider
 from satsumaestro.config.models import ProviderConfig, ProviderProfile, RuntimeConfig
 from satsumaestro.engine.context_fit import check_reachable
 from satsumaestro.engine.provider_switch import switch_provider
@@ -120,3 +121,54 @@ def test_the_loader_notes_ollama_host_from_dotenv(
     assert dotenv_file_of("OLLAMA_MODEL") is None
     ConfigLoader(tmp_path, trusted=False).load()
     assert dotenv_file_of("OLLAMA_HOST") is None
+
+
+def _layers(tmp_path: Path, *, user: bool, project: bool) -> tuple[Path, Path]:
+    home, work = tmp_path / "home", tmp_path / "work"
+    home.mkdir()
+    (work / ".satsuma").mkdir(parents=True)
+    body = json.dumps({"provider": {"kind": "ollama", "base_url": f"{_DOWN}/v1"}})
+    if user:
+        (home / "settings.json").write_text(body, encoding="utf-8")
+    if project:
+        (work / ".satsuma" / "settings.local.json").write_text(body, encoding="utf-8")
+    return home, work
+
+
+@pytest.mark.parametrize(
+    ("user", "project", "trusted", "expected"),
+    [
+        (False, True, True, "project"),
+        (True, True, True, "user"),
+        (True, False, True, "user"),
+        (False, True, False, None),
+    ],
+)
+def test_the_loader_notes_the_file_that_set_base_url(
+    tmp_path: Path, user: bool, project: bool, trusted: bool, expected: str | None
+) -> None:
+    home, work = _layers(tmp_path, user=user, project=project)
+    cfg = ConfigLoader(work, config_home=home, trusted=trusted).load()
+    files = {
+        "user": home / "settings.json",
+        "project": (work / ".satsuma" / "settings.local.json").resolve(),
+    }
+    found = base_url_file(cfg.provider.base_url)
+    assert (found.resolve() if found else None) == (files[expected] if expected else None)
+
+
+async def test_a_url_from_the_project_settings_names_that_file(tmp_path: Path) -> None:
+    home, work = _layers(tmp_path, user=False, project=True)
+    cfg = ConfigLoader(work, config_home=home, trusted=True).load()
+    problem = await _problem(cfg, {})
+    assert "settings.local.json の provider.base_url" in problem
+    assert str(home / "settings.json") not in problem
+
+
+def test_provider_notes_the_user_settings_it_writes(tmp_path: Path) -> None:
+    home, work = _layers(tmp_path, user=False, project=True)
+    ConfigLoader(work, config_home=home, trusted=True).load()
+    url = "http://10.0.0.7:11434/v1"
+    save_provider("ollama", "qwen3:8b", url, config_home=home)
+    assert base_url_file(url) == home / "settings.json"
+    assert base_url_file(f"{_DOWN}/v1") is None

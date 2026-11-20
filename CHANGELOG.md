@@ -71,8 +71,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the provider refused the request or could not be reached. Only the error is shown.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
 - When Ollama cannot be reached, the message says where the URL came from and what to change:
-  `provider.base_url` in the user settings (or `/provider ollama <URL>`), `OLLAMA_HOST` in the
-  `.env` it was read from or in the environment, `OPENAI_BASE_URL`, or the URL `/provider`
+  `provider.base_url` in the settings file that set it (or `/provider ollama <URL>`), `OLLAMA_HOST`
+  in the `.env` it was read from or in the environment, `OPENAI_BASE_URL`, or the URL `/provider`
   remembered. Before, it always pointed to `OLLAMA_HOST` in `.env`, which has no effect when the
   settings name the URL. ([#55](https://github.com/KATOI-T/SATSUMAESTRO/issues/55))
 

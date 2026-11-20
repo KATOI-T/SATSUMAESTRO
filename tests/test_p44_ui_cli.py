@@ -232,8 +232,8 @@ async def test_unreachable_ollama_in_english() -> None:
     settings = default_config_home() / "settings.json"
     assert problem == (
         f"Cannot reach Ollama: {_ROOT} (ConnectError: Connection refused). Check that the "
-        "server is running. The URL comes from provider.base_url in the settings. To change "
-        f"it, edit provider.base_url in {settings} or switch with `/provider ollama <URL>`"
+        f"server is running. The URL comes from provider.base_url in {settings}. To change "
+        "it, edit it there or switch with `/provider ollama <URL>`"
     )
 
 
