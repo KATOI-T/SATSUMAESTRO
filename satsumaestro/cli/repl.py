@@ -360,6 +360,10 @@ async def run_repl(
                 console.print(f"[red]{failed}[/red]")
             continue
 
+        if rt.unconnected is not None:
+            console.print(Text(rt.unconnected, style="yellow"))
+            console.print(Text(ui("cli.repl.not_connected_nothing_sent"), style="yellow"))
+            continue
         if not rt.session.model.strip():
             console.print(Text(ui("cli.repl.choose_a_model_first"), style="yellow"))
             continue

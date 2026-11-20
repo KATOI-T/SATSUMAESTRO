@@ -12,6 +12,7 @@ working_directory_the_base_for = "作業場所（ファイル操作と権限の�
 trusted_recorded_in = "信頼しました: {root}（記録: {record}）"
 untrusted_continuing_without_the_settings = "未信頼: {root} の設定を読まずに続けます（satsumaestro trust で信頼）"
 the_saved_model_was_not = "保存されたモデル '{model}' が見つからないため、'{resolved}' で再開します"
+started_without_a_connection = "接続できないまま起動しました。/provider で別のプロバイダに切り替えられます（/provider だけで一覧を出します）"
 invalid_mode_plan_code_code = "--mode が不正です: {error}（plan | code | code:<sub>）"
 waiting_for_background_tasks_to = "(バックグラウンドタスク {n} 件の完了を待機中)"
 run_a_single_prompt_non = "一発プロンプト（非対話：ask は自動的に deny。plan は自動承認されない）。"
@@ -426,6 +427,7 @@ denied_so_this_turn_was = "(拒否したので、このターンを止めまし�
 session_health_warning_starting_a = "⚠ セッション健全性の警告: {warning} — 新しいセッションの開始を推奨します"
 interrupted_notice = "(中断しました)"
 choose_a_model_first = "モデルが決まっていないので送っていません。/model <名前> で使うモデルを選んでください（/model だけで選べるモデルを出します）"
+not_connected_nothing_sent = "接続できていないので送っていません。/provider で別のプロバイダに切り替えられます（/provider だけで一覧を出します）"
 plan_step_is_not_finished = "(計画の段 {step} が未完です。「続けて」で再開、/clear で破棄)"
 stopping_background_tasks = "(バックグラウンドタスク {n} 件を停止します)"
 

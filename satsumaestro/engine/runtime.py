@@ -484,6 +484,7 @@ class ConversationRuntime:
         self._fixed_tokens = 0
         self.window_unconfirmed = False
         self.fit_base: tuple[int, int] | None = None
+        self.unconnected: str | None = None
         self._window_notes: list[str] = []
         self._prefill = PrefillClock()
         self.aborted_summary: TurnSummary | None = None
@@ -1915,6 +1916,7 @@ class ConversationRuntime:
         self._rate_samples.clear()
         self._prefill = PrefillClock()
         self.window_unconfirmed = False
+        self.unconnected = None
         if self._runtime_factory is not None:
             self._runtime_factory.use_provider(provider, model)
         if self.decomposition is not None:

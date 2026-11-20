@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
@@ -20,7 +20,7 @@ from satsumaestro.engine.context_fit import (
 )
 from satsumaestro.i18n.text import ui
 from satsumaestro.orchestration.worker import WorkerState
-from satsumaestro.providers.base import Provider
+from satsumaestro.providers.base import ApiRequest, Provider, ProviderKind
 from satsumaestro.providers.choice import (
     CHOICE_LABELS,
     CLOUD_KEYS,
@@ -38,11 +38,12 @@ from satsumaestro.providers.detect import same_model
 from satsumaestro.providers.factory import build_provider, resolve_role_model, resolve_role_sampling
 from satsumaestro.providers.local import LlamaCppServer, Unloaded, unload_used
 from satsumaestro.providers.registry import expand_model_name, recommended_models
-from satsumaestro.util.errors import ConfigError, SatsumaError
+from satsumaestro.util.errors import ConfigError, ProviderError, SatsumaError
 from satsumaestro.util.paths import default_config_home
 from satsumaestro.util.urls import host_url, openai_base
 
 if TYPE_CHECKING:
+    from satsumaestro.engine.events import AssistantEvent
     from satsumaestro.engine.runtime import ConversationRuntime
 
 ProviderBuilder = Callable[[RuntimeConfig, str, Mapping[str, str]], Provider]
@@ -94,12 +95,28 @@ class ModelNotSetError(ConfigError):
         return f"{self.headline}\n{self.label}: {', '.join(self.shown)}{self.more}"
 
 
+class UnconnectedProvider:
+    """接続できないまま起動した REPL のプロバイダ（何も送らず、理由で止まる）。"""
+
+    kind = ProviderKind.OPENAI
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def stream(self, req: ApiRequest) -> AsyncIterator[AssistantEvent]:
+        raise ConfigError(self.reason)
+
+    async def count_tokens(self, req: ApiRequest) -> int:
+        raise ConfigError(self.reason)
+
+
 @dataclass(frozen=True)
 class Connection:
-    """組み立てたプロバイダと、起動時に知らせる注意。"""
+    """組み立てたプロバイダと、起動時に知らせる注意（``problem`` は接続できない理由）。"""
 
     provider: Provider
     notes: tuple[str, ...] = ()
+    problem: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,16 +146,24 @@ async def connect(
     startup: bool = True,
     build: ProviderBuilder = build_provider,
     model_required: bool = True,
+    allow_unconnected: bool = False,
 ) -> Connection:
     """サーバの判定 → 名前があるか → 組み立て → 届くか → モデルがあるか → ツールのテンプレート。"""
     await detect_local_server(cfg, model, env)
     unset = not model.strip()
     if unset and model_required:
         raise await _model_not_set(cfg, env)
-    provider = build(cfg, model, env)
+    try:
+        provider = build(cfg, model, env)
+    except ProviderError as exc:
+        if not allow_unconnected:
+            raise
+        return Connection(UnconnectedProvider(str(exc)), problem=str(exc))
     problem = await check_reachable(cfg, model, env)
     if problem is not None:
-        raise ConfigError(problem)
+        if not allow_unconnected:
+            raise ConfigError(problem)
+        return Connection(UnconnectedProvider(problem), problem=problem)
     if unset:
         return Connection(provider, ())
     check = await check_model(cfg, model, env)
@@ -401,6 +426,7 @@ __all__ = [
     "ModelNotSetError",
     "ProviderBuilder",
     "SwitchResult",
+    "UnconnectedProvider",
     "build_compactor",
     "connect",
     "models_for",

@@ -36,6 +36,7 @@ class _FakeRuntime:
         self.session = _FakeSessionState()
         self.orchestrator = None
         self.cwd = Path("/work/project")
+        self.unconnected: str | None = None
 
     def take_window_notes(self) -> list[str]:
         return []

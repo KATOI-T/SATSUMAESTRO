@@ -12,6 +12,7 @@ working_directory_the_base_for = "Working directory (the base for file operation
 trusted_recorded_in = "Trusted: {root} (recorded in {record})"
 untrusted_continuing_without_the_settings = "Untrusted: continuing without the settings of {root} (trust it with satsumaestro trust)"
 the_saved_model_was_not = "The saved model '{model}' was not found; resuming with '{resolved}'"
+started_without_a_connection = "Started without a connection. Switch to another provider with /provider (/provider alone lists them)"
 invalid_mode_plan_code_code = "Invalid --mode: {error} (plan | code | code:<sub>)"
 waiting_for_background_tasks_to = { one = "(Waiting for {n} background task to finish)", other = "(Waiting for {n} background tasks to finish)" }
 run_a_single_prompt_non = "Run a single prompt (non-interactive: ask is denied automatically, and a plan is not approved automatically)."
@@ -426,6 +427,7 @@ denied_so_this_turn_was = "(Denied, so this turn was stopped. Type your next ins
 session_health_warning_starting_a = "⚠ Session health warning: {warning} — starting a new session is recommended"
 interrupted_notice = "(Interrupted)"
 choose_a_model_first = "No model is set, so nothing was sent. Choose one with /model <name> (/model alone lists the models you can choose)"
+not_connected_nothing_sent = "Not connected, so nothing was sent. Switch to another provider with /provider (/provider alone lists them)"
 plan_step_is_not_finished = "(Plan step {step} is not finished. Say \"continue\" to resume, or /clear to discard it)"
 stopping_background_tasks = { one = "(Stopping {n} background task)", other = "(Stopping {n} background tasks)" }
 
