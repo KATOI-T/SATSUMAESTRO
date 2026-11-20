@@ -21,7 +21,7 @@ from satsumaestro.config.models import (
     RuntimeConfig,
 )
 from satsumaestro.i18n.text import ui
-from satsumaestro.util.environ import ENVIRON, forget_dotenv, hold_dotenv
+from satsumaestro.util.environ import ENVIRON, forget_dotenv, hold_dotenv, note_dotenv_file
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.jsonl import write_text_atomic
 from satsumaestro.util.paths import (
@@ -217,7 +217,9 @@ def _dotenv_ollama(path: Path) -> dict[str, str]:
 
 def prefer_dotenv_ollama(path: Path) -> None:
     """``.env`` の ``OLLAMA_*`` を、シェルの環境変数より優先する（空の値は除く）。"""
-    os.environ.update(_dotenv_ollama(path))
+    preferred = _dotenv_ollama(path)
+    os.environ.update(preferred)
+    note_dotenv_file(path, preferred)
 
 
 class ConfigLoader:
@@ -277,7 +279,9 @@ class ConfigLoader:
                 return
             # load_dotenv と同じく、${...} はシェルの値を先に見て展開する
             values = DotEnv(dotenv, encoding="utf-8", override=False).dict()
-            hold_dotenv(values, _dotenv_ollama(dotenv))
+            preferred = _dotenv_ollama(dotenv)
+            hold_dotenv(values, preferred)
+            note_dotenv_file(dotenv, preferred)
             return
         forget_dotenv()
         if dotenv is not None:

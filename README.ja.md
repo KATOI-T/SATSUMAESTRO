@@ -286,7 +286,8 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 ```
 
 - ローカルのサーバの接続先は、`provider.base_url` か、`OLLAMA_HOST`・`LMSTUDIO_HOST`・`LLAMACPP_HOST`
-  （ホスト・`ホスト:ポート`・URL。環境変数か `.env`）
+  （ホスト・`ホスト:ポート`・URL。環境変数か `.env`）。設定の `provider.base_url` がこれらより優先し、
+  `/provider` は切り替えた先の URL をそこに書きます
 - クラウドには、環境変数か `.env` の API の鍵が要ります。鍵は設定に書きません
 - REPL は起動時に、トークンを使わない要求でそれぞれの鍵を確かめ、断られた鍵を `/provider` の一覧に
   赤で「無効な鍵」と出します。`satsumaestro doctor --probe` は今のプロバイダの鍵を確かめます

@@ -235,7 +235,8 @@ async def switch_provider(
     remember = _outgoing_profile(rt.config, previous, chosen, now, env)
     trial = _with_choice(rt.config, chosen, endpoint, remember)
     if chosen in LOCAL_CHOICES:
-        problem = await check_reachable(trial, now, env)
+        source = endpoint.source if endpoint is not None else None
+        problem = await check_reachable(trial, now, env, source=source)
         if problem is not None:
             raise ConfigError(problem)
     try:
