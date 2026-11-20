@@ -9,10 +9,11 @@ from dataclasses import dataclass
 
 import httpx
 
+from satsumaestro.config.loader import base_url_file
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.providers.base import ProviderKind
-from satsumaestro.providers.choice import current_choice
+from satsumaestro.providers.choice import EndpointSource, current_choice, resolve_endpoint
 from satsumaestro.providers.detect import (
     ContextSource,
     LocalKind,
@@ -28,6 +29,8 @@ from satsumaestro.providers.local import (
     unreached_cause,
 )
 from satsumaestro.providers.registry import recommended_models
+from satsumaestro.util.environ import dotenv_file_of
+from satsumaestro.util.paths import default_config_home
 
 _log = logging.getLogger(__name__)
 
@@ -176,8 +179,9 @@ async def check_reachable(
     *,
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 3.0,
+    source: EndpointSource | None = None,
 ) -> str | None:
-    """起動前にローカルのサーバへ届くかを確かめる。"""
+    """起動前にローカルのサーバへ届くかを確かめる（``source`` は接続先の出どころ）。"""
     server = local_server_for(cfg, model, env)
     if server is None:
         return await _check_unreached(cfg, model, env, client=client, timeout_s=timeout_s)
@@ -192,7 +196,28 @@ async def check_reachable(
         return ui(
             "engine.context_fit.cannot_reach_llamacpp_check_that", root=server.root, cause=cause
         )
-    return ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
+    if source is None:
+        endpoint = resolve_endpoint(cfg.provider, env)
+        source = endpoint.source if endpoint is not None else None
+    head = ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
+    return head + _ollama_url_hint(source, cfg.provider.base_url)
+
+
+def _ollama_url_hint(source: EndpointSource | None, base_url: str | None) -> str:
+    """Ollama の接続先の出どころと、替えるときに直す所（打った URL なら空）。"""
+    if source == "settings":
+        path = base_url_file(base_url) or default_config_home() / "settings.json"
+        return ui("engine.context_fit.ollama_url_from_settings", path=path)
+    if source == "OLLAMA_HOST":
+        dotenv = dotenv_file_of("OLLAMA_HOST")
+        if dotenv is not None:
+            return ui("engine.context_fit.ollama_url_from_dotenv", path=dotenv)
+        return ui("engine.context_fit.ollama_url_from_environment")
+    if source == "OPENAI_BASE_URL":
+        return ui("engine.context_fit.ollama_url_from_openai_base_url")
+    if source == "profile":
+        return ui("engine.context_fit.ollama_url_remembered")
+    return ""
 
 
 async def _check_unreached(

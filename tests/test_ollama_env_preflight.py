@@ -64,7 +64,7 @@ async def test_unreachable_ollama_names_the_host() -> None:
             _cfg("http://10.0.0.5:11434/v1"), "gpt-oss:120b", {}, client=client
         )
     assert problem is not None
-    assert "http://10.0.0.5:11434" in problem and "OLLAMA_HOST" in problem
+    assert "http://10.0.0.5:11434" in problem and "provider.base_url" in problem
 
 
 async def test_non_ollama_provider_is_not_probed() -> None:

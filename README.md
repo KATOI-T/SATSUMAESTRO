@@ -306,7 +306,8 @@ On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with 
 ```
 
 - Local servers use `provider.base_url`, or `OLLAMA_HOST`, `LMSTUDIO_HOST` and `LLAMACPP_HOST`
-  (a host, `host:port` or a URL, in the environment or `.env`)
+  (a host, `host:port` or a URL, in the environment or `.env`). `provider.base_url` in the settings
+  wins over them, and `/provider` writes the URL it switches to there
 - The clouds need their API key in the environment or `.env`. Keys are never written to the settings
 - The REPL checks each key when it starts, with a request that spends no tokens, and marks a
   rejected key as invalid in red in the `/provider` list. `satsumaestro doctor --probe` checks

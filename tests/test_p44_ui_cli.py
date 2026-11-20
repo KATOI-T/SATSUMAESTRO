@@ -27,6 +27,7 @@ from satsumaestro.engine.context_fit import (
 from satsumaestro.i18n.text import pinned_ui_language
 from satsumaestro.providers.base import ProviderKind
 from satsumaestro.providers.detect import ModelContextInfo
+from satsumaestro.util.paths import default_config_home
 
 REPO = Path(__file__).resolve().parents[1]
 _JAPANESE = re.compile(r"[　-ヿ一-鿿＀-￯]")
@@ -228,10 +229,11 @@ async def test_unreachable_ollama_in_english() -> None:
     cfg = RuntimeConfig(provider=ProviderConfig(base_url=f"{_ROOT}/v1"))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         problem = await check_reachable(cfg, "gpt-oss:120b", {}, client=client)
+    settings = default_config_home() / "settings.json"
     assert problem == (
         f"Cannot reach Ollama: {_ROOT} (ConnectError: Connection refused). Check that the "
-        "server is running and check OLLAMA_HOST in .env (OLLAMA_* in .env take precedence "
-        "over the shell's environment variables)"
+        f"server is running. The URL comes from provider.base_url in {settings}. To change "
+        "it, edit it there or switch with `/provider ollama <URL>`"
     )
 
 
