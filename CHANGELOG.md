@@ -85,6 +85,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `LLAMACPP_HOST` (in the environment or `.env`) in place of `OLLAMA_HOST`.
   ([#55](https://github.com/KATOI-T/SATSUMAESTRO/issues/55),
   [#54](https://github.com/KATOI-T/SATSUMAESTRO/issues/54))
+- Enter answers the questions (the permission card, the plan approval, the screen language and
+  trust) even when the terminal was left in raw mode, for example by a REPL that was killed. Before,
+  Enter only showed `^M`. The questions are now read in the terminal's line mode, and the mode is
+  put back afterwards. A REPL that gets SIGTERM or SIGHUP at its input line now closes it, puts
+  the terminal mode back, cleans up as `/exit` does, and exits with 128 plus the signal number.
+  Before, it ended at once and left the terminal in raw mode.
+  ([#57](https://github.com/KATOI-T/SATSUMAESTRO/issues/57))
 
 ## [0.5.2] - 2026-11-17
 
