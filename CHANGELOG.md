@@ -45,6 +45,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The line shown while waiting to send a request again now says why it failed: a server error with
   its status, could not connect, the connection dropped, no response, or a busy server.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- The REPL starts when the provider cannot be used: the local server cannot be reached, there is no
+  endpoint, or the key of a cloud is not set. It shows the reason and that `/provider` switches to
+  another provider, and sends nothing until it connects. Each message tries to connect again first,
+  so a server started later needs no restart. Before, the REPL stopped at startup with exit code 1.
+  `satsumaestro prompt` still stops. Code that embeds SATSUMAESTRO gets the reason in
+  `Connection.problem` from `connect()` with `allow_unconnected=True`, and `reconnect()` connects a
+  runtime again. ([#54](https://github.com/KATOI-T/SATSUMAESTRO/issues/54))
 
 ### Removed
 

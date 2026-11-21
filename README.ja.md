@@ -291,6 +291,8 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 - クラウドには、環境変数か `.env` の API の鍵が要ります。鍵は設定に書きません
 - REPL は起動時に、トークンを使わない要求でそれぞれの鍵を確かめ、断られた鍵を `/provider` の一覧に
   赤で「無効な鍵」と出します。`satsumaestro doctor --probe` は今のプロバイダの鍵を確かめます
+- 起動時にプロバイダを使えない（サーバに届かない・接続先が無い・鍵が無い）ときも、REPL は理由を出して開き、
+  つながるまで指示を送りません。`/provider` で切り替えるか、サーバを起こしてから送り直します。`satsumaestro prompt` は止まります
 - `provider.kind` を決めると、モデル ID や `OLLAMA_HOST` ではプロバイダが変わりません。下の自動の選び方に
   戻すには `"kind": "auto"` にします
 
@@ -530,7 +532,7 @@ SATSUMA_WEB_SEARCH_BASE_URL=http://192.168.x.x:8080  # SearXNG（使う場合の
 
 - メインのモデルの接続先は、`provider.base_url`（設定）→ `OLLAMA_HOST` → `OPENAI_BASE_URL` の順に優先します
 - `.env` の `OLLAMA_*`（空の値を除く）は、シェルの環境変数より優先されます。起動時に接続先の `/api/tags` へ
-  届くかを確かめ、届かなければ接続先を示してすぐ止まります
+  届くかを確かめ、届かなければ `prompt` は接続先を示してすぐ止まり、REPL は同じ文を出して開きます
 - keep_alive・文脈の長さの整合などの Ollama 固有の機能は、「ポート 11434」か「`OLLAMA_HOST` と一致」で
   有効になります。リバースプロキシの後ろで `OLLAMA_HOST` を使わない構成では、`provider.ollama.detect: "on"` に
   してください
