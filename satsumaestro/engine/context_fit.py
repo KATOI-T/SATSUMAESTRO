@@ -189,34 +189,39 @@ async def check_reachable(
     if cause is None:
         return None
     if server.kind == "lmstudio":
-        return ui(
+        head = ui(
             "engine.context_fit.cannot_reach_lmstudio_check_that", root=server.root, cause=cause
         )
-    if server.kind == "llamacpp":
-        return ui(
+    elif server.kind == "llamacpp":
+        head = ui(
             "engine.context_fit.cannot_reach_llamacpp_check_that", root=server.root, cause=cause
+        )
+    else:
+        head = ui(
+            "engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause
         )
     if source is None:
         endpoint = resolve_endpoint(cfg.provider, env)
         source = endpoint.source if endpoint is not None else None
-    head = ui("engine.context_fit.cannot_reach_ollama_check_that", root=server.root, cause=cause)
-    return head + _ollama_url_hint(source, cfg.provider.base_url)
+    return head + _url_hint(server.kind, source, cfg.provider.base_url)
 
 
-def _ollama_url_hint(source: EndpointSource | None, base_url: str | None) -> str:
-    """Ollama の接続先の出どころと、替えるときに直す所（打った URL なら空）。"""
+def _url_hint(kind: str, source: EndpointSource | None, base_url: str | None) -> str:
+    """ローカルのサーバの接続先の出どころと、替えるときに直す所（打った URL なら空）。"""
     if source == "settings":
         path = base_url_file(base_url) or default_config_home() / "settings.json"
-        return ui("engine.context_fit.ollama_url_from_settings", path=path)
+        return ui("engine.context_fit.url_from_settings", path=path, kind=kind)
     if source == "OLLAMA_HOST":
         dotenv = dotenv_file_of("OLLAMA_HOST")
         if dotenv is not None:
             return ui("engine.context_fit.ollama_url_from_dotenv", path=dotenv)
         return ui("engine.context_fit.ollama_url_from_environment")
+    if source in ("LMSTUDIO_HOST", "LLAMACPP_HOST"):
+        return ui("engine.context_fit.url_from_host_variable", name=source)
     if source == "OPENAI_BASE_URL":
-        return ui("engine.context_fit.ollama_url_from_openai_base_url")
+        return ui("engine.context_fit.url_from_openai_base_url")
     if source == "profile":
-        return ui("engine.context_fit.ollama_url_remembered")
+        return ui("engine.context_fit.url_remembered", kind=kind)
     return ""
 
 
