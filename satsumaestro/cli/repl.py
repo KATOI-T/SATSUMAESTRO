@@ -397,6 +397,8 @@ async def run_repl(
         except EOFError:
             break
         except KeyboardInterrupt:
+            if received:
+                break
             continue
         if received:
             break

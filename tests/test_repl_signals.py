@@ -74,6 +74,33 @@ async def test_a_signal_at_the_input_line_closes_it_and_ends_the_repl(
     assert signal.getsignal(signum) == signal.SIG_DFL
 
 
+class _InterruptedThenSignalled(_Waiting):
+    """Ctrl-C で閉じた入力欄が片付けている間に ``signum`` が届く（2 回目の入力欄は開かない）。"""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.calls = 0
+
+    async def prompt_async(self, *_: Any, **__: Any) -> str:
+        self.calls += 1
+        if self.calls > 1:
+            raise EOFError
+        self.future = asyncio.get_running_loop().create_future()
+        self.future.set_exception(KeyboardInterrupt())
+        os.kill(os.getpid(), self.signum)
+        await asyncio.sleep(0.05)
+        return await self.future
+
+
+@pytest.mark.parametrize("signum", _SIGNALS)
+async def test_a_signal_after_ctrl_c_still_ends_the_repl(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, signum: int
+) -> None:
+    session = _InterruptedThenSignalled(signum)
+    assert await _run(monkeypatch, tmp_path, session) == signum
+    assert session.calls == 1
+
+
 async def test_a_turn_runs_with_the_default_handlers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
