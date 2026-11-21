@@ -70,8 +70,9 @@ With [Homebrew](https://brew.sh) on macOS or Linux:
 brew install katoi-t/tap/satsumaestro
 ```
 
-Upgrade with `brew upgrade satsumaestro` and remove with `brew uninstall satsumaestro`. The first
-install builds a few dependencies from source and takes a few minutes.
+Upgrade with `brew upgrade satsumaestro` and remove with `brew uninstall satsumaestro`. On Apple
+silicon Macs with macOS 15 or later, Homebrew installs a prebuilt bottle. Elsewhere, installs and
+upgrades build from source and take about 10 minutes.
 
 ### Windows (WSL2)
 

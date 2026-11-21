@@ -52,6 +52,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `satsumaestro prompt` still stops. Code that embeds SATSUMAESTRO gets the reason in
   `Connection.problem` from `connect()` with `allow_unconnected=True`, and `reconnect()` connects a
   runtime again. ([#54](https://github.com/KATOI-T/SATSUMAESTRO/issues/54))
+- With Homebrew, the first start after an install or upgrade is no longer slow: the formula compiles
+  the bytecode and, on macOS, loads the native libraries once when it installs.
+  ([#51](https://github.com/KATOI-T/SATSUMAESTRO/issues/51))
+- With Homebrew on Apple silicon Macs with macOS 15 or later, installs and upgrades pour a prebuilt
+  bottle instead of building from source, and no longer need Rust and LLVM.
+  ([#52](https://github.com/KATOI-T/SATSUMAESTRO/issues/52))
 
 ### Removed
 

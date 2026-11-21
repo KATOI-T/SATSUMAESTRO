@@ -68,8 +68,9 @@ macOS と Linux では [Homebrew](https://brew.sh) でも入れられます。
 brew install katoi-t/tap/satsumaestro
 ```
 
-更新は `brew upgrade satsumaestro`、削除は `brew uninstall satsumaestro` です。最初に入れるときは、
-依存の一部をソースからビルドするので数分かかります。
+更新は `brew upgrade satsumaestro`、削除は `brew uninstall satsumaestro` です。macOS 15 以降の
+Apple シリコンの Mac では、ビルド済みのもの（bottle）を入れます。ほかの環境では、入れるときと更新のたびに
+ソースからビルドするので、10 分ほどかかります。
 
 ### Windows（WSL2）
 
