@@ -18,7 +18,7 @@ from satsumaestro.cli import repl as repl_mod
 from satsumaestro.cli.commands import SlashDispatcher, parse_slash
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 from satsumaestro.engine.events import MessageStop, TextDelta
-from satsumaestro.engine.provider_switch import UnconnectedProvider, connect
+from satsumaestro.engine.provider_switch import UnconnectedProvider, connect, reconnect
 from satsumaestro.providers import factory
 from satsumaestro.providers.base import ApiRequest
 from satsumaestro.util.errors import ConfigError, SatsumaError
@@ -45,16 +45,22 @@ _CASES = [
 
 
 @pytest.fixture(autouse=True)
-def _server(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
-    """Ollama の代役（``up`` が偽の間は接続を断る）。"""
+def _server(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Ollama の代役（``up`` が偽の間は断る・``window`` で窓を返し ``loaded`` で載せる）。"""
     for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY"):
         monkeypatch.delenv(key, raising=False)
-    state = {"up": False}
+    state: dict[str, Any] = {"up": False, "window": None, "loaded": False}
     ollama = _ollama()
 
     def handler(request: httpx.Request) -> httpx.Response:
         if not state["up"]:
             raise httpx.ConnectError("Connection refused")
+        window = state["window"]
+        if window is not None and request.url.path == "/api/show":
+            return httpx.Response(200, json={"model_info": {"x.context_length": window}})
+        if window is not None and request.url.path == "/api/ps" and state["loaded"]:
+            entry = {"name": "gpt-oss:120b", "context_length": window}
+            return httpx.Response(200, json={"models": [entry]})
         return ollama(request)
 
     real = httpx.AsyncClient
@@ -208,7 +214,7 @@ _NOT_SENT = "接続できていないので送っていません"
 
 
 async def test_a_message_is_sent_once_the_server_answers(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _server: dict[str, bool]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _server: dict[str, Any]
 ) -> None:
     built = _mock_builds(monkeypatch)
     _settings({"kind": "ollama", "base_url": f"{_DOWN}/v1", "default_model": "gpt-oss:120b"})
@@ -216,6 +222,27 @@ async def test_a_message_is_sent_once_the_server_answers(
     assert out.count(_NOT_SENT) == 1
     assert rt.unconnected is None and rt.provider is built[-1]
     assert [req.model for req in built[-1].requests] == ["gpt-oss:120b"]
+
+
+@pytest.mark.parametrize(("loaded", "unconfirmed"), [(False, True), (True, False)])
+async def test_a_reconnect_keeps_a_window_that_is_not_confirmed_yet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    _server: dict[str, Any],
+    loaded: bool,
+    unconfirmed: bool,
+) -> None:
+    _mock_builds(monkeypatch)
+    _settings({"kind": "ollama", "base_url": f"{_DOWN}/v1", "default_model": "gpt-oss:120b"})
+    monkeypatch.setattr(cli_app, "_err_console", Console(record=True))
+    rt, _, _ = await cli_app._assemble_runtime(None, tmp_path, interactive=True, trusted=True)
+    try:
+        _server.update(up=True, window=32768, loaded=loaded)
+        connection = await reconnect(rt, {}, build=factory.build_provider)
+        assert connection.problem is None and rt.unconnected is None
+        assert rt.window_unconfirmed is unconfirmed
+    finally:
+        await cli_app._shutdown(rt.mcp, rt.rag, rt.orchestrator, rt.background, rt.lsp)
 
 
 async def test_a_model_chosen_in_auto_decides_where_the_next_message_goes(
@@ -251,7 +278,7 @@ async def test_a_model_chosen_while_unconnected_waits_for_the_server(
 async def test_provider_switches_from_an_unreachable_server(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    _server: dict[str, bool],
+    _server: dict[str, Any],
     line: str,
     up: bool,
     kind: str,

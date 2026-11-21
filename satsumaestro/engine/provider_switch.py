@@ -330,7 +330,9 @@ async def reconnect(
         rt.unconnected = str(exc)
         return Connection(rt.provider, problem=str(exc))
     rt.use_provider(connection.provider, model, compactor=compactor)
-    await rt.refit_for_model(env)
+    fit = await rt.refit_for_model(env)
+    if fit is not None and fit.context_length is not None and fit.info.unconfirmed:
+        rt.window_unconfirmed = True
     return connection
 
 
