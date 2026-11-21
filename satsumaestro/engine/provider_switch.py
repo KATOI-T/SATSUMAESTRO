@@ -307,6 +307,33 @@ async def switch_provider(
     )
 
 
+async def reconnect(
+    rt: ConversationRuntime, env: Mapping[str, str], *, build: ProviderBuilder = build_provider
+) -> Connection:
+    """接続できないまま起動したランタイムを、今の設定とモデルでつなぎ直す（だめなら理由を持つ）。"""
+    model = rt.session.model
+    connection = await connect(
+        rt.config,
+        model,
+        env,
+        startup=False,
+        build=build,
+        model_required=False,
+        allow_unconnected=True,
+    )
+    if connection.problem is not None:
+        rt.unconnected = connection.problem
+        return connection
+    try:
+        compactor = build_compactor(rt.config, connection.provider, model, env, build=build)
+    except ProviderError as exc:
+        rt.unconnected = str(exc)
+        return Connection(rt.provider, problem=str(exc))
+    rt.use_provider(connection.provider, model, compactor=compactor)
+    await rt.refit_for_model(env)
+    return connection
+
+
 async def models_for(
     rt: ConversationRuntime, choice: str, env: Mapping[str, str], *, timeout_s: float = 3.0
 ) -> list[str] | None:
@@ -430,6 +457,7 @@ __all__ = [
     "build_compactor",
     "connect",
     "models_for",
+    "reconnect",
     "switch_provider",
     "tools_note",
     "unloaded_text",
