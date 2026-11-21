@@ -33,6 +33,7 @@ from satsumaestro.cli.render import RichRenderer, action_preview
 from satsumaestro.engine.events import ToolUse
 from satsumaestro.engine.plan_budget import BudgetVerdict, PlanBudget
 from satsumaestro.engine.plan_steps import PlanStep, parse_steps
+from satsumaestro.engine.provider_switch import MissingModelError, reconnect
 from satsumaestro.engine.recovery import SessionAbortError
 from satsumaestro.engine.runtime import ConversationRuntime
 from satsumaestro.engine.trace import TurnObserver
@@ -46,6 +47,7 @@ from satsumaestro.engine.turn import (
 )
 from satsumaestro.i18n.text import ui
 from satsumaestro.orchestration.runner import Orchestrator
+from satsumaestro.providers import factory
 from satsumaestro.providers.key_check import KeyCheck, KeyChecks
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.security.policy import PermissionOutcome
@@ -308,6 +310,24 @@ def _rejected(checks: KeyChecks | None) -> dict[str, KeyCheck]:
     return checks.rejected() if checks is not None else {}
 
 
+async def _reconnected(rt: ConversationRuntime, console: Console) -> bool:
+    """接続できないまま起動したランタイムを、送る前につなぎ直す（だめなら理由と案内を出す）。"""
+    from satsumaestro.cli.app import missing_model_text
+
+    try:
+        connection = await reconnect(rt, ENVIRON, build=factory.build_provider)
+    except MissingModelError as exc:
+        console.print(missing_model_text(exc.notice))
+        return False
+    if connection.problem is not None:
+        console.print(Text(connection.problem, style="yellow"))
+        console.print(Text(ui("cli.repl.not_connected_nothing_sent"), style="yellow"))
+        return False
+    for note in connection.notes:
+        console.print(Text(note, style="yellow"))
+    return True
+
+
 async def run_repl(
     rt: ConversationRuntime,
     prompter: InteractivePrompter,
@@ -360,6 +380,8 @@ async def run_repl(
                 console.print(f"[red]{failed}[/red]")
             continue
 
+        if rt.unconnected is not None and not await _reconnected(rt, console):
+            continue
         if not rt.session.model.strip():
             console.print(Text(ui("cli.repl.choose_a_model_first"), style="yellow"))
             continue

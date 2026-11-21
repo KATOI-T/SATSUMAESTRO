@@ -1,4 +1,4 @@
-"""Ollama に届かないときの文は、接続先の出どころと直す所を出す。"""
+"""Ollama・LM Studio・llama.cpp に届かないときの文は、接続先の出どころと直す所を出す。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from satsumaestro.config.models import ProviderConfig, ProviderProfile, RuntimeC
 from satsumaestro.engine.context_fit import check_reachable
 from satsumaestro.engine.provider_switch import switch_provider
 from satsumaestro.i18n.text import pinned_ui_language
+from satsumaestro.providers.choice import HOST_ENV
 from satsumaestro.util.environ import dotenv_file_of, note_dotenv_file
 from satsumaestro.util.errors import ConfigError
 from satsumaestro.util.paths import default_config_home
@@ -34,10 +35,10 @@ def _refused(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError("Connection refused")
 
 
-async def _problem(cfg: RuntimeConfig, env: dict[str, str]) -> str:
+async def _problem(cfg: RuntimeConfig, env: dict[str, str], root: str = _DOWN) -> str:
     async with httpx.AsyncClient(transport=httpx.MockTransport(_refused)) as client:
         problem = await check_reachable(cfg, "qwen3:8b", env, client=client)
-    assert problem is not None and _DOWN in problem
+    assert problem is not None and root in problem
     return problem
 
 
@@ -172,3 +173,43 @@ def test_provider_notes_the_user_settings_it_writes(tmp_path: Path) -> None:
     save_provider("ollama", "qwen3:8b", url, config_home=home)
     assert base_url_file(url) == home / "settings.json"
     assert base_url_file(f"{_DOWN}/v1") is None
+
+
+_OTHERS = [
+    pytest.param("lmstudio", "http://127.0.0.1:1234", "LM Studio に接続できません", id="lmstudio"),
+    pytest.param("llamacpp", "http://127.0.0.1:9931", "llama.cpp に接続できません", id="llamacpp"),
+]
+
+
+@pytest.mark.parametrize(("kind", "root", "head"), _OTHERS)
+async def test_lmstudio_and_llamacpp_point_to_the_settings(kind: str, root: str, head: str) -> None:
+    cfg = RuntimeConfig(provider=ProviderConfig(kind=kind, base_url=f"{root}/v1"))
+    problem = await _problem(cfg, {}, root)
+    assert head in problem
+    assert f"{default_config_home() / 'settings.json'} の provider.base_url" in problem
+    assert f"/provider {kind} <URL>" in problem
+
+
+@pytest.mark.parametrize(("kind", "root", "head"), _OTHERS)
+async def test_lmstudio_and_llamacpp_name_their_host_variable(
+    kind: str, root: str, head: str
+) -> None:
+    var = HOST_ENV[kind]
+    problem = await _problem(RuntimeConfig(provider=ProviderConfig(kind=kind)), {var: root}, root)
+    assert head in problem and f"接続先は環境変数か .env の {var} です" in problem
+    assert "provider.base_url" not in problem
+
+
+@pytest.mark.usefixtures("_all_down")
+@pytest.mark.parametrize(("kind", "root", "head"), _OTHERS)
+async def test_a_remembered_lmstudio_or_llamacpp_url_points_to_provider(
+    tmp_path: Path, kind: str, root: str, head: str
+) -> None:
+    profiles = {kind: ProviderProfile(base_url=f"{root}/v1", model="m")}
+    cfg = RuntimeConfig(provider=ProviderConfig(kind="anthropic", profiles=profiles))
+    rt = _runtime(tmp_path, cfg, "m")
+    with pytest.raises(ConfigError) as caught:
+        await switch_provider(rt, kind, env={})
+    text = str(caught.value)
+    assert head in text and "`/provider` が覚えた URL" in text
+    assert f"/provider {kind} <URL>" in text

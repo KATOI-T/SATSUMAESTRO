@@ -45,6 +45,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The line shown while waiting to send a request again now says why it failed: a server error with
   its status, could not connect, the connection dropped, no response, or a busy server.
   ([#56](https://github.com/KATOI-T/SATSUMAESTRO/issues/56))
+- The REPL starts when the provider cannot be used: the local server cannot be reached, there is no
+  endpoint, or the key of a cloud is not set. It shows the reason and that `/provider` switches to
+  another provider, and sends nothing until it connects. Each message tries to connect again first,
+  so a server started later needs no restart. Before, the REPL stopped at startup with exit code 1.
+  `satsumaestro prompt` still stops. Code that embeds SATSUMAESTRO gets the reason in
+  `Connection.problem` from `connect()` with `allow_unconnected=True`, and `reconnect()` connects a
+  runtime again. ([#54](https://github.com/KATOI-T/SATSUMAESTRO/issues/54))
 
 ### Removed
 
@@ -74,7 +81,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `provider.base_url` in the settings file that set it (or `/provider ollama <URL>`), `OLLAMA_HOST`
   in the `.env` it was read from or in the environment, `OPENAI_BASE_URL`, or the URL `/provider`
   remembered. Before, it always pointed to `OLLAMA_HOST` in `.env`, which has no effect when the
-  settings name the URL. ([#55](https://github.com/KATOI-T/SATSUMAESTRO/issues/55))
+  settings name the URL. LM Studio and llama.cpp now get the same note, with `LMSTUDIO_HOST` or
+  `LLAMACPP_HOST` (in the environment or `.env`) in place of `OLLAMA_HOST`.
+  ([#55](https://github.com/KATOI-T/SATSUMAESTRO/issues/55),
+  [#54](https://github.com/KATOI-T/SATSUMAESTRO/issues/54))
 
 ## [0.5.2] - 2026-11-17
 

@@ -786,3 +786,24 @@ def test_provider_switches_between_llamacpp_and_ollama(scenario: Runner, tmp_pat
     assert provider["default_model"] == FAKE_MODEL
     assert set(provider["profiles"]) == {"ollama", "llamacpp"}
     assert tr.turn_ends(text) == 3
+
+
+def test_repl_starts_without_a_key_and_provider_switches(scenario: Runner, tmp_path: Path) -> None:
+    """鍵の無いクラウドの設定でも REPL が開き、送らずに案内し、/provider で替えた先へ送る。"""
+    result = scenario(
+        "provider_switch.jsonl",
+        settings={"provider": {"kind": "anthropic"}},
+        commands=(
+            ("一つ目を答えて", r"接続できていないので送っていません"),
+            ("/provider ollama", r"provider → ollama"),
+        ),
+        turns=("二つ目を答えて",),
+        plan=False,
+        cols=400,
+    )
+    text = result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert "ANTHROPIC_API_KEY が設定されていません" in text
+    assert "接続できないまま起動しました" in text
+    assert [r["note"] for r in result.requests] == ["二つ目"]
+    assert tr.turn_ends(text) == 1

@@ -399,11 +399,19 @@ async def _assemble_runtime(
     if not resolved and resume_path is not None:
         resolved = JSONLSessionStore().load(resume_path).model
     connection = await connect(
-        cfg, resolved, ENVIRON, build=build_provider, model_required=not interactive
+        cfg,
+        resolved,
+        ENVIRON,
+        build=build_provider,
+        model_required=not interactive,
+        allow_unconnected=interactive,
     )
     provider = connection.provider
     for note in connection.notes:
         _err_console.print(Text(note, style="yellow"))
+    if connection.problem is not None:
+        _err_console.print(Text(connection.problem, style="yellow"))
+        _err_console.print(Text(ui("cli.app.started_without_a_connection"), style="yellow"))
     fit_base = (cfg.compact_token_threshold, cfg.compaction.context_window)
     fit = await apply_context_fit(cfg, resolved, ENVIRON)
     orch_enabled, workers_enabled = _orchestration_flags(cfg, ENVIRON)
@@ -513,7 +521,14 @@ async def _assemble_runtime(
             store=store,
             hooks=hooks,
             config=cfg,
-            compactor=build_compactor(cfg, provider, resolved, ENVIRON, build=build_provider),
+            compactor=build_compactor(
+                cfg,
+                provider,
+                resolved,
+                ENVIRON,
+                # 接続できないときは要約のモデルが別でも組み立てない
+                build=build_provider if connection.problem is None else lambda *_: provider,
+            ),
             mcp=mcp_manager,
             rag=rag,
             runtime_factory=factory,
@@ -524,6 +539,7 @@ async def _assemble_runtime(
             language=language,
         )
         rt.fit_base = fit_base
+        rt.unconnected = connection.problem
         prompter: PermissionPrompter = (
             InteractivePrompter(
                 _console, plan_steps=cfg.guidance.plan_steps, redact=cfg.redaction.live

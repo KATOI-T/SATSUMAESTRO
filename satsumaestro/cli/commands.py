@@ -476,7 +476,8 @@ class SlashDispatcher:
             kept = escape(current)
             self._print(f"[dim]{ui('cli.commands.model_stays', kept=kept)}[/dim]")
             return
-        if current.strip():
+        if current.strip() or self.rt.unconnected is not None:
+            # 接続できない間は名前だけ替え、送る前につなぎ直す
             self.rt.session.model = resolved
         else:
             # 起動時にモデルが無ければ、選んだモデルで組み直す（auto では名前で行き先が決まる）

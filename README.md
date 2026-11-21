@@ -312,6 +312,9 @@ On `openai`, `anthropic` and `xai`, `/model` alone lists the models tested with 
 - The REPL checks each key when it starts, with a request that spends no tokens, and marks a
   rejected key as invalid in red in the `/provider` list. `satsumaestro doctor --probe` checks
   the current provider's key
+- When the provider cannot be used at startup (the server cannot be reached, there is no endpoint,
+  or the key is not set), the REPL still opens with the reason and sends nothing until it connects:
+  switch with `/provider`, or start the server and send again. `satsumaestro prompt` stops instead
 - With `provider.kind` set, the model ID and `OLLAMA_HOST` do not change the provider. Set
   `"kind": "auto"` to go back to the automatic choice below
 
@@ -570,7 +573,8 @@ SATSUMA_WEB_SEARCH_BASE_URL=http://192.168.x.x:8080  # SearXNG (only if used)
 - For the main model, `provider.base_url` (settings) wins over `OLLAMA_HOST`, which wins over
   `OPENAI_BASE_URL`.
 - Non-empty `OLLAMA_*` values in `.env` take precedence over the shell. At startup SATSUMAESTRO checks
-  that `/api/tags` is reachable and stops right away with the endpoint if it is not.
+  that `/api/tags` is reachable. If it is not, `prompt` stops right away with the endpoint, and the
+  REPL opens with the same message.
 - Ollama-specific features (keep_alive, matching the context length) are enabled when the port is
   11434 or the URL matches `OLLAMA_HOST`. Behind a reverse proxy without `OLLAMA_HOST`, set
   `provider.ollama.detect: "on"`.
