@@ -23,6 +23,7 @@ from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
 from satsumaestro.cli.errors_ui import account_turn_failure, rejected_key_text
+from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
@@ -284,7 +285,7 @@ def _ask_trust(root: Path) -> str:
         _console.print(line)
     while True:
         try:
-            answer = _console.input(QUESTION, markup=False).strip().lower()
+            answer = ask_line(_console, QUESTION).strip().lower()
         except EOFError:
             return "n"
         except KeyboardInterrupt:
@@ -335,7 +336,7 @@ def _ask_screen_language() -> str | None:
         _console.print(line)
     while True:
         try:
-            answer = _console.input(language_gate.question(default), markup=False)
+            answer = ask_line(_console, language_gate.question(default))
         except EOFError:
             return None
         except KeyboardInterrupt:

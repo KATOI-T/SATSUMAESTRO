@@ -55,6 +55,14 @@ class ReplExited(DriverError):
     pass
 
 
+def _leave_raw(fd: int) -> None:
+    """シグナルで終わった REPL の後に zsh が残すモード（``-icrnl -ixon -isig -iexten``）にする。"""
+    attrs = termios.tcgetattr(fd)
+    attrs[0] &= ~(termios.ICRNL | termios.IXON)
+    attrs[3] &= ~(termios.ISIG | termios.IEXTEN)
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+
+
 class ReplDriver:
     """pty で ``satsumaestro repl`` を 1 つ動かす。"""
 
@@ -75,8 +83,10 @@ class ReplDriver:
         base_url_env: str = "OLLAMA_HOST",
         extra_env: Mapping[str, str] | None = None,
         command: Sequence[str] = ("repl",),
+        tty_left_raw: bool = False,
     ) -> None:
         self.workspace = workspace
+        self.tty_left_raw = tty_left_raw
         self.command = tuple(command)
         self.extra_env = dict(extra_env or {})
         self.base_url = base_url
@@ -137,6 +147,8 @@ class ReplDriver:
         pid, fd = pty.fork()
         if pid == 0:
             os.chdir(self.workspace)
+            if self.tty_left_raw:
+                _leave_raw(0)
             os.execve(self.python, argv, env)
         self._pid, self._fd = pid, fd
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
@@ -333,6 +345,7 @@ def run_scenario(
     before: Callable[[int, ReplDriver], None] | None = None,
     env: Mapping[str, str] | None = None,
     command: Sequence[str] = ("repl",),
+    tty_left_raw: bool = False,
 ) -> ScenarioResult:
     """擬似サーバと REPL を起動し、plan → 依頼（→ 削除）を流して転写と検査結果を返す。"""
     workspace.mkdir(parents=True, exist_ok=True)
@@ -365,6 +378,7 @@ def run_scenario(
         locale=locale,
         extra_env=env,
         command=command,
+        tty_left_raw=tty_left_raw,
     )
     try:
         driver.start()

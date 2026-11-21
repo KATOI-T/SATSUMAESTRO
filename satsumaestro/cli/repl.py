@@ -27,6 +27,7 @@ from satsumaestro.cli.commands import (
 from satsumaestro.cli.completion import ModelNames, SlashCompleter
 from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
+from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
 from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
 from satsumaestro.cli.render import RichRenderer, action_preview
@@ -217,7 +218,7 @@ class InteractivePrompter:
     def _ask(self, prompt: str) -> str:
         """1 行受け取る。"""
         try:
-            return self.console.input(prompt, markup=False).strip().lower()
+            return ask_line(self.console, prompt).strip().lower()
         except (EOFError, KeyboardInterrupt):
             self.console.print(f"[dim]{ui('cli.repl.denied')}[/dim]")
             return _INTERRUPTED
@@ -255,7 +256,7 @@ class InteractivePrompter:
                     markup=True,
                 )
         try:
-            answer = self.console.input(_plan_prompt(), markup=False).strip().lower()
+            answer = ask_line(self.console, _plan_prompt()).strip().lower()
         except (EOFError, KeyboardInterrupt):
             staying = ui("cli.repl.not_approved_staying_in_plan")
             self.console.print(f"[dim]{staying}[/dim]")
@@ -264,18 +265,12 @@ class InteractivePrompter:
             return PlanExitVerdict(approved=True)
         if answer in _PLAN_APPROVE_WITH_NOTE_ANSWERS:
             try:
-                note = self.console.input(
-                    ui("cli.repl.a_note_to_apply_while"),
-                    markup=False,
-                ).strip()
+                note = ask_line(self.console, ui("cli.repl.a_note_to_apply_while")).strip()
             except (EOFError, KeyboardInterrupt):
                 note = ""
             return PlanExitVerdict(approved=True, note=note or None)
         try:
-            feedback = self.console.input(
-                ui("cli.repl.what_to_change_empty_to"),
-                markup=False,
-            ).strip()
+            feedback = ask_line(self.console, ui("cli.repl.what_to_change_empty_to")).strip()
         except (EOFError, KeyboardInterrupt):
             feedback = ""
         return PlanExitVerdict(approved=False, feedback=feedback or None)
