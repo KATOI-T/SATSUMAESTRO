@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import signal
+import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -15,6 +18,7 @@ import pytest
 from tests.smoke import transcript as tr
 from tests.smoke.fake_ollama import FAKE_MODEL, SCRIPTS_DIR, FakeOllama
 from tests.smoke.repl_driver import (
+    CODE_PROMPT,
     DELETE_REQUEST,
     REQUEST,
     DriverError,
@@ -57,6 +61,7 @@ def scenario(tmp_path: Path) -> Runner:
         before: Callable[[int, ReplDriver], None] | None = None,
         env: dict[str, str] | None = None,
         command: Sequence[str] = ("repl",),
+        tty_left_raw: bool = False,
     ) -> ScenarioResult:
         try:
             result = run_scenario(
@@ -80,6 +85,7 @@ def scenario(tmp_path: Path) -> Runner:
                 before=before,
                 env=env,
                 command=command,
+                tty_left_raw=tty_left_raw,
             )
         except DriverError as e:
             _dump(e.transcript, e.requests)
@@ -161,6 +167,47 @@ def test_plan_three_steps_in_english(scenario: Runner, tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     for name in ("a.txt", "b.txt", "c.txt"):
         assert not (ws / name).exists(), name
+
+
+def test_questions_take_enter_in_a_terminal_left_raw(scenario: Runner) -> None:
+    """raw のまま残った端末でも、言語・信頼・承認・権限の問いは Enter で答えられる。"""
+    result = scenario("plan_three_steps.jsonl", trust_answer="y", tty_left_raw=True)
+    plain = result.transcript.plain
+    assert "このディレクトリを初めて開きます" in tr.flat(result.transcript.text)
+    assert result.report.problems == []
+    assert result.report.completed == [1, 2, 3]
+    assert plain.count("[y=許可 / n=拒否 / d=詳細]") == 3
+    assert "^M" not in plain
+
+
+def test_sigterm_at_the_input_line_puts_the_terminal_back(tmp_path: Path) -> None:
+    """入力欄で SIGTERM を受けた REPL は、端末のモードを戻して 128 + 15 で終わる。"""
+    ws, home = tmp_path / "ws", tmp_path / "home" / ".satsuma"
+    home.mkdir(parents=True)
+    (home / "settings.json").write_text(json.dumps({"language": {"ui": "ja"}}), encoding="utf-8")
+    fake = FakeOllama(SCRIPTS_DIR / "plan_three_steps.jsonl", workspace=ws)
+    fake.bind()
+    driver = ReplDriver(workspace=ws, base_url=fake.base_url, config_home=home, then="stty -a")
+    try:
+        driver.start()
+        fake.serve()
+        driver.wait_for(CODE_PROMPT)
+        driver.pump(0.5)
+        children = subprocess.run(
+            ["pgrep", "-P", str(driver.pid)], capture_output=True, text=True, check=True
+        )
+        os.kill(int(children.stdout.split()[0]), signal.SIGTERM)
+        driver.wait_for(r"exit=\d+")
+        driver.wait_for(r"iexten")
+    finally:
+        driver.exit()
+        fake.stop()
+    _dump(driver.transcript, list(fake.requests))
+    plain = driver.transcript.plain
+    assert "exit=143" in plain
+    after = plain.split("exit=143", 1)[1]
+    for flag in ("icrnl", "icanon", "isig", "iexten", "echo"):
+        assert re.search(rf"(?<![-\w]){flag}\b", after), flag
 
 
 def test_empty_plan_card_is_reported(scenario: Runner, tmp_path: Path) -> None:

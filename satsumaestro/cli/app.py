@@ -23,6 +23,7 @@ from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.banner import print_banner
 from satsumaestro.cli.errors_ui import account_turn_failure, rejected_key_text
+from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
@@ -284,7 +285,7 @@ def _ask_trust(root: Path) -> str:
         _console.print(line)
     while True:
         try:
-            answer = _console.input(QUESTION, markup=False).strip().lower()
+            answer = ask_line(_console, QUESTION).strip().lower()
         except EOFError:
             return "n"
         except KeyboardInterrupt:
@@ -335,7 +336,7 @@ def _ask_screen_language() -> str | None:
         _console.print(line)
     while True:
         try:
-            answer = _console.input(language_gate.question(default), markup=False)
+            answer = ask_line(_console, language_gate.question(default))
         except EOFError:
             return None
         except KeyboardInterrupt:
@@ -839,7 +840,7 @@ async def _repl_session(
     *,
     trusted: bool,
     lang: str | None = None,
-) -> None:
+) -> int | None:
     print_banner(_console)
     rt, prompter, render = await _assemble_runtime(
         model,
@@ -853,7 +854,7 @@ async def _repl_session(
     assert isinstance(prompter, InteractivePrompter)
     recorder, trace_log = _build_telemetry(rt)
     try:
-        await run_repl(
+        return await run_repl(
             rt,
             prompter,
             render,
@@ -944,12 +945,19 @@ def repl(
         workspace = cwd or Path.cwd()
         _choose_screen_language(workspace, trust=trust)
         trusted = _decide_trust(workspace, trust=trust, interactive=True)
-        asyncio.run(
+        ended_by = asyncio.run(
             _repl_session(model, workspace, allowed_tools, mode, trusted=trusted, lang=lang)
         )
     except (ProviderError, ConfigError) as e:
         _print_error(e)
         raise typer.Exit(1) from e
+    _exit_for_signal(ended_by)
+
+
+def _exit_for_signal(signum: int | None) -> None:
+    """入力欄でシグナルを受けて終わった REPL は、終了コードを 128 + 番号にする。"""
+    if signum is not None:
+        raise typer.Exit(128 + signum)
 
 
 @app.command(help=ui("cli.app.check_the_health_of_the"))
@@ -1101,10 +1109,11 @@ def session_cmd(
         try:
             _choose_screen_language(cwd, trust=trust)
             trusted = _decide_trust(cwd, trust=trust, interactive=True)
-            asyncio.run(_run_repl_resume(model, cwd, path, trusted=trusted))
+            ended_by = asyncio.run(_run_repl_resume(model, cwd, path, trusted=trusted))
         except (ProviderError, ConfigError) as e:
             _print_error(e)
             raise typer.Exit(1) from e
+        _exit_for_signal(ended_by)
     else:
         typer.echo(
             ui("cli.app.unknown_action_use_choices", action=action, choices="list | resume"),
@@ -2052,14 +2061,16 @@ def _save_eval_report(report: EvalReport, out: Path | None, cwd: Path) -> Path:
     return out
 
 
-async def _run_repl_resume(model: str | None, cwd: Path, path: Path, *, trusted: bool) -> None:
+async def _run_repl_resume(
+    model: str | None, cwd: Path, path: Path, *, trusted: bool
+) -> int | None:
     print_banner(_console)
     rt, prompter, render = await _assemble_runtime(
         model, cwd, interactive=True, resume_path=path, trusted=trusted
     )
     assert isinstance(prompter, InteractivePrompter)
     try:
-        await run_repl(
+        return await run_repl(
             rt,
             prompter,
             render,
