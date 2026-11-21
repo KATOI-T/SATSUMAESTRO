@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+import signal
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -323,6 +325,39 @@ async def _reconnected(rt: ConversationRuntime, console: Console) -> bool:
     return True
 
 
+# Windows でも読み込めるように（起動の入口が WSL2 を案内して止める）
+_STOP_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
+
+
+@contextmanager
+def _closing_on_signals(session: PromptSession[str], received: list[int]) -> Iterator[None]:
+    """入力欄を待つ間だけ、SIGTERM・SIGHUP で入力欄を閉じる（端末のモードは入力欄が戻す）。"""
+    loop = asyncio.get_running_loop()
+
+    def stop(signum: int) -> None:
+        received.append(signum)
+        app = session.app
+        if app.is_running and app.future is not None and not app.future.done():
+            app.exit(exception=EOFError())
+
+    installed: list[int] = []
+    for signum in _STOP_SIGNALS:
+        if signal.getsignal(signum) is not signal.SIG_DFL:
+            continue
+        try:
+            loop.add_signal_handler(signum, stop, signum)
+        except (NotImplementedError, RuntimeError, ValueError):
+            continue
+        installed.append(signum)
+    try:
+        yield
+    finally:
+        for signum in installed:
+            loop.remove_signal_handler(signum)
+
+
 async def run_repl(
     rt: ConversationRuntime,
     prompter: InteractivePrompter,
@@ -334,8 +369,8 @@ async def run_repl(
     trusted: bool = False,
     load_probe: LoadProbe | None = None,
     key_checks: KeyChecks | None = None,
-) -> None:
-    """行入力ごとに ``run_turn`` を回す対話ループ。"""
+) -> int | None:
+    """行入力ごとに ``run_turn`` を回す対話ループ（入力欄で受けて終わったシグナルを返す）。"""
     bindings = KeyBindings()
 
     @bindings.add(Keys.BackTab)
@@ -354,13 +389,17 @@ async def run_repl(
     console.print(f"[dim]{workdir_line}[/dim]")
     # 結果は /provider の一覧と候補にだけ出す
     checking = asyncio.create_task(key_checks.run(ENVIRON)) if key_checks else None
+    received: list[int] = []
     while True:
         try:
-            line = await session.prompt_async(lambda: mode_prompt_fragments(rt.session.mode))
+            with _closing_on_signals(session, received):
+                line = await session.prompt_async(lambda: mode_prompt_fragments(rt.session.mode))
         except EOFError:
             break
         except KeyboardInterrupt:
             continue
+        if received:
+            break
 
         line = line.strip()
         if not line:
@@ -424,3 +463,4 @@ async def run_repl(
         n = orch.running_count()
         stopping = ui("cli.repl.stopping_background_tasks", n=n)
         console.print(f"[dim]{stopping}[/dim]")
+    return received[0] if received else None

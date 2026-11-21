@@ -84,9 +84,11 @@ class ReplDriver:
         extra_env: Mapping[str, str] | None = None,
         command: Sequence[str] = ("repl",),
         tty_left_raw: bool = False,
+        then: str | None = None,
     ) -> None:
         self.workspace = workspace
         self.tty_left_raw = tty_left_raw
+        self.then = then
         self.command = tuple(command)
         self.extra_env = dict(extra_env or {})
         self.base_url = base_url
@@ -144,14 +146,23 @@ class ReplDriver:
             self.model,
         ]
         env = self._env()
+        program = self.python
+        if self.then is not None:
+            program = "/bin/sh"
+            argv = [program, "-c", f'"$@"; echo "exit=$?"; {self.then}', "sh", *argv]
         pid, fd = pty.fork()
         if pid == 0:
             os.chdir(self.workspace)
             if self.tty_left_raw:
                 _leave_raw(0)
-            os.execve(self.python, argv, env)
+            os.execve(program, argv, env)
         self._pid, self._fd = pid, fd
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
+
+    @property
+    def pid(self) -> int:
+        """pty で起こしたプロセス（``then`` があればシェル）。"""
+        return self._pid
 
     def _reap(self, *, block: bool = False) -> None:
         if self.exited or self._pid < 0:
