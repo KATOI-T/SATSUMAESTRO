@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,8 +15,10 @@ from typing import Literal
 
 import httpx
 from rich.console import Console
+from rich.text import Text
 
 from satsumaestro.__about__ import __version__
+from satsumaestro.cli.line_input import ask_line
 from satsumaestro.config.models import RuntimeConfig
 from satsumaestro.i18n.text import ui
 from satsumaestro.orchestration.worker_supervisor import WORKER_CHILD_ENV
@@ -37,6 +42,18 @@ _TIMEOUT_S = 5.0
 _VERSION = re.compile(r"\d+(?:\.\d+)*")
 # resource の url と取り違えないよう、本体の配布物の名前で絞る
 _FORMULA_URL = re.compile(r'^\s*url\s+"[^"]*/satsumaestro-(\d+(?:\.\d+)*)\.tar\.gz"', re.M)
+_PROGRAMS = frozenset({"satsumaestro", "satsuma", "stro"})
+
+
+def program_name(argv0: str | None = None) -> str:
+    """利用者が起動に使った名前（知らない名前なら ``satsumaestro``）。"""
+    name = Path(sys.argv[0] if argv0 is None else argv0).stem
+    return name if name in _PROGRAMS else "satsumaestro"
+
+
+def update_command() -> str:
+    """知らせと ``/update`` が案内する更新のコマンド。"""
+    return f"{program_name()} update"
 
 
 def source_for(install: Install) -> Source:
@@ -200,7 +217,7 @@ class UpdateCheck:
             "cli.updates.satsumaestro_is_available",
             latest=cached.latest,
             current=self.current,
-            command=self.install.shown,
+            command=update_command(),
         )
 
     async def refresh(self) -> None:
@@ -210,6 +227,91 @@ class UpdateCheck:
                 await check_now(self.source, self.path, transport=self._transport)
         except Exception:
             _log.info("update check failed", exc_info=True)
+
+
+def _where(source: Source) -> str:
+    return ui("cli.updates.the_homebrew_tap") if source == "tap" else "PyPI"
+
+
+async def update_hint(console: Console, *, current: str = __version__) -> None:
+    """``/update``: 版と更新のコマンドを出す（REPL の中では回さない）。"""
+    install = detect_install()
+    if install.kind == "editable":
+        console.print(ui("cli.updates.this_is_an_editable_install"))
+        return
+    source = source_for(install)
+    latest = (await check_now(source, cache_path())).latest
+    if latest is None:
+        unknown = ui("cli.updates.could_not_get_the", where=_where(source))
+        console.print(Text(unknown, style="yellow"))
+    elif not is_newer(latest, current):
+        console.print(ui("cli.updates.is_the_latest_version", current=current))
+        return
+    else:
+        console.print(
+            Text(
+                ui("cli.updates.satsumaestro_is_newer", latest=latest, current=current),
+                style="yellow",
+            )
+        )
+    console.print(ui("cli.updates.leave_the_repl_and", command=update_command()))
+
+
+def run_update(
+    console: Console, *, yes: bool, interactive: bool, current: str = __version__
+) -> int:
+    """``satsumaestro update``: 入れ方に合ったコマンドを、確かめてから回す（終了コードを返す）。"""
+    install = detect_install()
+    if install.kind == "editable":
+        console.print(ui("cli.updates.this_is_an_editable_install"))
+        return 0
+    source = source_for(install)
+    latest = asyncio.run(latest_version(source))
+    command = install.shown
+    if latest is None:
+        console.print(Text(ui("cli.updates.could_not_get_the", where=_where(source)), style="red"))
+        console.print(ui("cli.updates.command", command=command))
+        return 1
+    save_cached(cache_path(), CachedCheck(now_ms(), source, latest))
+    if not is_newer(latest, current):
+        console.print(ui("cli.updates.is_the_latest_version", current=current))
+        return 0
+    console.print(ui("cli.updates.satsumaestro_is_newer", latest=latest, current=current))
+    console.print(ui("cli.updates.command", command=command))
+    if not install.runnable:
+        console.print(ui("cli.updates.run_it_yourself"))
+        return 0
+    if not yes:
+        if not interactive:
+            console.print(ui("cli.updates.not_a_terminal"))
+            return 1
+        if not _confirmed(console):
+            console.print(ui("cli.updates.not_upgraded"))
+            return 0
+    # 更新は自分のファイルを置き換えるので、後で出す文はここで作る
+    finished = ui("cli.updates.the_upgrade_finished", check=f"{program_name()} --version")
+    failed = ui("cli.updates.the_upgrade_failed", code="{code}")
+    console.print(Text(ui("cli.updates.running", command=command), style="dim"))
+    try:
+        code = subprocess.run(install.argv, check=False).returncode
+    except OSError as exc:
+        _log.info("could not run %s: %s", install.argv, exc)
+        code = 127
+    if code == 0:
+        console.print(Text(finished, style="green"))
+        return 0
+    console.print(Text(failed.replace("{code}", str(code)), style="red"))
+    return code
+
+
+def _confirmed(console: Console) -> bool:
+    while True:
+        try:
+            answer = ask_line(console, ui("cli.updates.upgrade_now_y_n")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        if answer in ("y", "n"):
+            return answer == "y"
 
 
 __all__ = [
@@ -227,6 +329,10 @@ __all__ = [
     "latest_version",
     "load_cached",
     "parse_version",
+    "program_name",
+    "run_update",
     "save_cached",
     "source_for",
+    "update_command",
+    "update_hint",
 ]

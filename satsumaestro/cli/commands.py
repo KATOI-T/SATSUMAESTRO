@@ -16,6 +16,7 @@ from rich.text import Text
 
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
+from satsumaestro.cli.updates import update_hint
 from satsumaestro.config.loader import save_model, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffort
 from satsumaestro.i18n.text import screen_languages, ui, use_screen_language
@@ -132,6 +133,10 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
     ReplCommand(
         "insights",
         lambda: ui("cli.commands.show_telemetry_turns_runs_and"),
+    ),
+    ReplCommand(
+        "update",
+        lambda: ui("cli.commands.show_the_latest_version_and"),
     ),
     ReplCommand("exit", lambda: ui("cli.commands.exit_the_repl"), also=("quit", "q")),
 )
@@ -644,6 +649,9 @@ class SlashDispatcher:
         from satsumaestro.cli.app import _doctor
 
         _doctor(self.rt.cwd, probe=False, trust=self.trusted)
+
+    async def _cmd_update(self, args: list[str]) -> None:
+        await update_hint(self.console)
 
     async def _cmd_mode(self, args: list[str]) -> None:
         """``/mode`` = 現在値と一覧、``/mode plan``、``/mode code [<sub>]``。"""

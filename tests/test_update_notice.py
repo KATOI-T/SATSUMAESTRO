@@ -43,22 +43,34 @@ def _check(path: Path, install: Install = _UV, **kwargs: object) -> UpdateCheck:
 # ── 知らせ ──────────────────────────────────────────────
 
 
-def test_a_newer_stored_version_gives_one_line_with_the_command(tmp_path: Path) -> None:
+def test_a_newer_stored_version_gives_one_line_pointing_to_the_update_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "update_check.json"
     save_cached(path, CachedCheck(1, "pypi", "0.5.4"))
+    monkeypatch.setattr(updates.sys, "argv", ["/opt/homebrew/bin/stro"])
 
     with pinned_ui_language("en"):
         english = _check(path).notice()
     with pinned_ui_language("ja"):
         japanese = _check(path).notice()
 
-    assert english == (
-        "SATSUMAESTRO 0.5.4 is available (you have 0.5.3). To upgrade: uv tool upgrade satsumaestro"
-    )
-    assert (
-        japanese
-        == "SATSUMAESTRO 0.5.4 が出ています（今は 0.5.3）。更新: uv tool upgrade satsumaestro"
-    )
+    assert english == "SATSUMAESTRO 0.5.4 is available (you have 0.5.3). To upgrade: stro update"
+    assert japanese == "SATSUMAESTRO 0.5.4 が出ています（今は 0.5.3）。更新: stro update"
+
+
+@pytest.mark.parametrize(
+    ("argv0", "name"),
+    [
+        ("/opt/homebrew/bin/satsuma", "satsuma"),
+        ("satsumaestro", "satsumaestro"),
+        ("C:/Users/me/.local/bin/stro.exe", "stro"),
+        ("/repo/satsumaestro/__main__.py", "satsumaestro"),
+        ("/usr/bin/pytest", "satsumaestro"),
+    ],
+)
+def test_the_update_command_uses_the_name_the_user_started_with(argv0: str, name: str) -> None:
+    assert updates.program_name(argv0) == name
 
 
 @pytest.mark.parametrize(
@@ -88,7 +100,7 @@ def test_homebrew_reads_the_version_from_the_tap(tmp_path: Path) -> None:
     with pinned_ui_language("en"):
         line = _check(path, _BREW).notice()
 
-    assert line is not None and line.endswith("To upgrade: brew upgrade satsumaestro")
+    assert line is not None and line.startswith("SATSUMAESTRO 0.5.4 is available")
 
 
 # ── 裏の取り直し ────────────────────────────────────────
