@@ -10,9 +10,10 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 import satsumaestro.cli.app as cli_app
+from satsumaestro.__about__ import __version__
 from satsumaestro.cli import updates
 from satsumaestro.cli.commands import SlashDispatcher, parse_slash
-from satsumaestro.cli.updates import cache_path, load_cached, run_update
+from satsumaestro.cli.updates import CachedCheck, cache_path, load_cached, run_update, save_cached
 from satsumaestro.i18n.text import pinned_ui_language
 from satsumaestro.util.install import Install
 from tests.fixtures.mock_provider import MockProvider
@@ -241,6 +242,20 @@ async def test_slash_update_without_an_answer_still_points_to_the_command(
 
     assert "Could not get the latest version from PyPI." in out
     assert "To upgrade, leave the REPL and run: stro update" in out
+
+
+async def test_slash_update_offline_does_not_trust_or_touch_the_saved_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = CachedCheck(123, "pypi", __version__)
+    save_cached(cache_path(), saved)
+    _Fake(monkeypatch, _UV, None)
+
+    out = await _slash_update(tmp_path)
+
+    assert "Could not get the latest version from PyPI." in out
+    assert "is the latest version" not in out
+    assert load_cached(cache_path()) == saved
 
 
 async def test_slash_update_in_an_editable_install(

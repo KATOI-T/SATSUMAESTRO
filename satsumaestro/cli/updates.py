@@ -233,6 +233,14 @@ def _where(source: Source) -> str:
     return ui("cli.updates.the_homebrew_tap") if source == "tap" else "PyPI"
 
 
+async def _ask_latest(source: Source) -> str | None:
+    """利用者が頼んだ確かめ（前の結果は使わず、取れたときだけ書く）。"""
+    latest = await latest_version(source)
+    if latest is not None:
+        save_cached(cache_path(), CachedCheck(now_ms(), source, latest))
+    return latest
+
+
 async def update_hint(console: Console, *, current: str = __version__) -> None:
     """``/update``: 版と更新のコマンドを出す（REPL の中では回さない）。"""
     install = detect_install()
@@ -240,7 +248,7 @@ async def update_hint(console: Console, *, current: str = __version__) -> None:
         console.print(ui("cli.updates.this_is_an_editable_install"))
         return
     source = source_for(install)
-    latest = (await check_now(source, cache_path())).latest
+    latest = await _ask_latest(source)
     if latest is None:
         unknown = ui("cli.updates.could_not_get_the", where=_where(source))
         console.print(Text(unknown, style="yellow"))
@@ -266,13 +274,12 @@ def run_update(
         console.print(ui("cli.updates.this_is_an_editable_install"))
         return 0
     source = source_for(install)
-    latest = asyncio.run(latest_version(source))
+    latest = asyncio.run(_ask_latest(source))
     command = install.shown
     if latest is None:
         console.print(Text(ui("cli.updates.could_not_get_the", where=_where(source)), style="red"))
         console.print(ui("cli.updates.command", command=command))
         return 1
-    save_cached(cache_path(), CachedCheck(now_ms(), source, latest))
     if not is_newer(latest, current):
         console.print(ui("cli.updates.is_the_latest_version", current=current))
         return 0
