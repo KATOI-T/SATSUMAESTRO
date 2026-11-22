@@ -35,6 +35,7 @@ from satsumaestro.cli.trust_gate import (
     question_lines,
     untrusted_notice,
 )
+from satsumaestro.cli.updates import UpdateCheck, run_update
 from satsumaestro.config.loader import ConfigLoader, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, RuntimeConfig
 from satsumaestro.engine.context_fit import (
@@ -864,6 +865,7 @@ async def _repl_session(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
+            updates=UpdateCheck.for_repl(rt.config, _console),
         )
     finally:
         try:
@@ -1022,6 +1024,15 @@ def models() -> None:
         for n, name in enumerate(names):
             tested.add_row(choice if n == 0 else "", name, end_section=n == len(names) - 1)
     _console.print(tested)
+
+
+@app.command(help=ui("cli.app.upgrade_satsumaestro_with_the"))
+def update(
+    yes: bool = typer.Option(False, "--yes", "-y", help=ui("cli.app.upgrade_without_asking")),
+) -> None:
+    code = run_update(_console, yes=yes, interactive=_on_terminal())
+    if code:
+        raise typer.Exit(code)
 
 
 @app.command(
@@ -2078,6 +2089,7 @@ async def _run_repl_resume(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
+            updates=UpdateCheck.for_repl(rt.config, _console),
         )
     finally:
         try:

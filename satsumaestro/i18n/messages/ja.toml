@@ -216,6 +216,8 @@ screen_language_chosen = "{name}（設定の language.ui）"
 screen_language_auto = "auto: 会話の言語に合わせる（決まるまでは環境の言語の {name}）"
 screen_language_not_set = "未設定: 端末の REPL が起動時に一度だけ聞く（それまでは環境の言語の {name}）"
 windows_is_not_supported = "SATSUMAESTRO は Windows では直接動きません。WSL2（Windows Subsystem for Linux）の中で使ってください（`wsl --install` で Ubuntu を入れ、その中に SATSUMAESTRO を入れます）。"
+upgrade_satsumaestro_with_the = "入れ方に合ったコマンドで SATSUMAESTRO を更新する"
+upgrade_without_asking = "確認せずに更新する"
 
 [cli.commands]
 use_mode_plan_mode_code = "[yellow]/mode plan | /mode code [{subs}] で指定してください[/yellow]"
@@ -303,6 +305,7 @@ choice_plan_off = "code モードに戻る"
 choice_language_auto = "会話の言語に合わせる"
 provider_stays = "プロバイダは {name} のままです"
 provider_roles_kept = "{items} のモデルは替えていません（{name} にあるか確かめます）"
+show_the_latest_version_and = "最新の版と更新のしかたを表示する"
 
 [cli.errors_ui]
 the_turn_could_not_be = "⚠ ターンを最後まで進められませんでした"
@@ -531,6 +534,23 @@ if_you_trust_it_the = "信頼すると、リポジトリに置かれた設定（
 hooks_mcp_servers_lsp_servers = "そこに書かれたフック・MCP サーバ・LSP サーバ・権限モード・接続先も、起動時に効きます。"
 trust_and_remember_continue_without = "[y] 信頼して記録する  [n] 今回は読み込まずに続ける  [q] 終了"
 untrusted_directory_continuing_without_the = "未信頼のディレクトリです: {root}。リポジトリの設定（{files}）を読まずに続けます。信頼するなら satsumaestro trust --cwd {root}、今回だけなら --trust を付けてください。"
+
+[cli.updates]
+satsumaestro_is_available = "SATSUMAESTRO {latest} が出ています（今は {current}）。更新: {command}"
+the_homebrew_tap = "Homebrew の tap（GitHub）"
+satsumaestro_is_newer = "SATSUMAESTRO {latest} が出ています（今は {current}）。"
+is_the_latest_version = "SATSUMAESTRO {current} は最新の版です。"
+could_not_get_the = "{where} から最新の版を取れませんでした。"
+command = "コマンド: {command}"
+leave_the_repl_and = "更新するには、REPL を出てから回してください: {command}"
+this_is_an_editable_install = "編集可能な形（editable）で入っています。元のソースの checkout を更新してください。"
+run_it_yourself = "この入れ方では、SATSUMAESTRO はこのコマンドを回しません。手で回してください。"
+not_a_terminal = "端末でないので聞きません。更新するなら --yes を付けるか、コマンドを手で回してください。"
+upgrade_now_y_n = "今すぐ更新しますか？ (y/n): "
+not_upgraded = "更新しませんでした。"
+running = "実行: {command}"
+the_upgrade_finished = "更新が終わりました。確かめるには: {check}"
+the_upgrade_failed = "更新に失敗しました（終了コード {code}）。"
 
 [config.loader]
 invalid_env_flag = "環境変数 {name} の値が不正: {raw!r}（{yes} または {no} を指定する）"

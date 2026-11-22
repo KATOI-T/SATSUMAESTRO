@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- When a newer version is out, the REPL says so in one line when it starts, with the command to
+  upgrade. It asks PyPI, or the Homebrew tap for a Homebrew install, at most once a day in the
+  background, and shows the answer at the next start. Nothing is checked for `satsumaestro prompt`,
+  for an editable install or when the output is not a terminal. `update_check: false` in the
+  settings or `SATSUMA_NO_UPDATE_CHECK=1` turns it off.
+  ([#21](https://github.com/KATOI-T/SATSUMAESTRO/issues/21))
+- `satsumaestro update` (also `satsuma update` and `stro update`) finds how SATSUMAESTRO was
+  installed (Homebrew, `uv tool` or pipx), shows the installed and the latest version with the
+  upgrade command for that install, and runs it after asking. `-y` skips the question. For other
+  installs it prints the command and runs nothing. In the REPL, `/update` shows the versions and
+  the command to run after leaving the REPL.
+  ([#53](https://github.com/KATOI-T/SATSUMAESTRO/issues/53))
+
 ## [0.5.3] - 2026-11-22
 
 ### Added

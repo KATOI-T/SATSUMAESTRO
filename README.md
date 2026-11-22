@@ -61,7 +61,7 @@ GitHub instead:
 uv tool install git+https://github.com/KATOI-T/SATSUMAESTRO
 ```
 
-Upgrade with `uv tool upgrade satsumaestro` and remove with `uv tool uninstall satsumaestro`.
+Remove it with `uv tool uninstall satsumaestro`.
 If you do not have [uv](https://docs.astral.sh/uv/) yet: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
 
 With [Homebrew](https://brew.sh) on macOS or Linux:
@@ -70,9 +70,25 @@ With [Homebrew](https://brew.sh) on macOS or Linux:
 brew install katoi-t/tap/satsumaestro
 ```
 
-Upgrade with `brew upgrade satsumaestro` and remove with `brew uninstall satsumaestro`. On Apple
-silicon Macs with macOS 15 or later, Homebrew installs a prebuilt bottle. Elsewhere, installs and
-upgrades build from source and take about 10 minutes.
+Remove it with `brew uninstall satsumaestro`. On Apple silicon Macs with macOS 15 or later,
+Homebrew installs a prebuilt bottle. Elsewhere, installs and upgrades build from source and take
+about 10 minutes.
+
+### Updating
+
+`satsumaestro update` (or `stro update`) finds how SATSUMAESTRO was installed, shows the installed
+and the latest version with the command for that install, and runs it once you confirm (`-y` skips
+the question):
+
+| Installed with | Command |
+|---|---|
+| uv | `uv tool upgrade satsumaestro` |
+| pipx | `pipx upgrade satsumaestro` |
+| Homebrew | `brew upgrade satsumaestro` |
+| pip | `pip install -U satsumaestro` (shown, not run) |
+
+When a newer version is out, the REPL says so in one line when it starts. In the REPL, `/update`
+shows the versions; leave the REPL to run the update.
 
 ### Windows (WSL2)
 
@@ -470,7 +486,9 @@ has read. It reads such a key as `[redacted]`, so rewriting a whole file that ho
 
 **Telemetry**: SATSUMAESTRO sends no usage data anywhere. `telemetry.enabled` (off by default) only
 counts turns and tool runs in memory for `/insights`, or in a local file set with
-`telemetry.jsonl_file`.
+`telemetry.jsonl_file`. Once a day, the REPL asks PyPI (or the Homebrew tap on GitHub, for a
+Homebrew install) for the latest version. The request carries only the SATSUMAESTRO version in its
+User-Agent. Turn it off with `update_check: false` in the settings or `SATSUMA_NO_UPDATE_CHECK=1`.
 
 Found a vulnerability? Please report it privately, as described in [SECURITY.md](https://github.com/KATOI-T/SATSUMAESTRO/blob/main/SECURITY.md).
 

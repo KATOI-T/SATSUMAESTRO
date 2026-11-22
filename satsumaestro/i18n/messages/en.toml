@@ -216,6 +216,8 @@ screen_language_chosen = "{name} (language.ui in the settings)"
 screen_language_auto = "auto: follows the conversation's language (until it is decided: {name}, from the environment)"
 screen_language_not_set = "not set: the REPL asks once at startup in a terminal (until then: {name}, from the environment)"
 windows_is_not_supported = "SATSUMAESTRO does not run natively on Windows. Use it inside WSL2 (Windows Subsystem for Linux): run `wsl --install` to set up Ubuntu, then install SATSUMAESTRO there."
+upgrade_satsumaestro_with_the = "Upgrade SATSUMAESTRO with the command for the way it was installed"
+upgrade_without_asking = "Upgrade without asking"
 
 [cli.commands]
 use_mode_plan_mode_code = "[yellow]Use /mode plan | /mode code [{subs}][/yellow]"
@@ -303,6 +305,7 @@ choice_plan_off = "Go back to code mode"
 choice_language_auto = "Follow the language of the conversation"
 provider_stays = "provider stays {name}"
 provider_roles_kept = "{items} keep their models; check that {name} has them"
+show_the_latest_version_and = "Show the latest version and how to upgrade"
 
 [cli.errors_ui]
 the_turn_could_not_be = "⚠ The turn could not be finished"
@@ -531,6 +534,23 @@ if_you_trust_it_the = "If you trust it, the settings stored in the repository ({
 hooks_mcp_servers_lsp_servers = "Hooks, MCP servers, LSP servers, the permission mode and the endpoint written there also take effect at startup."
 trust_and_remember_continue_without = "[y] trust and remember  [n] continue without them this time  [q] quit"
 untrusted_directory_continuing_without_the = "Untrusted directory: {root}. Continuing without the repository settings ({files}). To trust it, run satsumaestro trust --cwd {root}; for this run only, add --trust."
+
+[cli.updates]
+satsumaestro_is_available = "SATSUMAESTRO {latest} is available (you have {current}). To upgrade: {command}"
+the_homebrew_tap = "the Homebrew tap (GitHub)"
+satsumaestro_is_newer = "SATSUMAESTRO {latest} is available (you have {current})."
+is_the_latest_version = "SATSUMAESTRO {current} is the latest version."
+could_not_get_the = "Could not get the latest version from {where}."
+command = "Command: {command}"
+leave_the_repl_and = "To upgrade, leave the REPL and run: {command}"
+this_is_an_editable_install = "This is an editable install. Update it from its source checkout."
+run_it_yourself = "SATSUMAESTRO does not run this command for this install. Run it yourself."
+not_a_terminal = "Not asking without a terminal. Add --yes to upgrade, or run the command yourself."
+upgrade_now_y_n = "Upgrade now? (y/n): "
+not_upgraded = "Not upgraded."
+running = "Running: {command}"
+the_upgrade_finished = "The upgrade finished. To check it: {check}"
+the_upgrade_failed = "The upgrade failed (exit code {code})."
 
 [config.loader]
 invalid_env_flag = "Invalid value for the environment variable {name}: {raw!r} (use {yes} or {no})"

@@ -59,7 +59,7 @@ satsumaestro --version
 uv tool install git+https://github.com/KATOI-T/SATSUMAESTRO
 ```
 
-更新は `uv tool upgrade satsumaestro`、削除は `uv tool uninstall satsumaestro` です。
+削除は `uv tool uninstall satsumaestro` です。
 [uv](https://docs.astral.sh/uv/) が無ければ `curl -LsSf https://astral.sh/uv/install.sh | sh` で入れます。
 
 macOS と Linux では [Homebrew](https://brew.sh) でも入れられます。
@@ -68,9 +68,23 @@ macOS と Linux では [Homebrew](https://brew.sh) でも入れられます。
 brew install katoi-t/tap/satsumaestro
 ```
 
-更新は `brew upgrade satsumaestro`、削除は `brew uninstall satsumaestro` です。macOS 15 以降の
-Apple シリコンの Mac では、ビルド済みのもの（bottle）を入れます。ほかの環境では、入れるときと更新のたびに
-ソースからビルドするので、10 分ほどかかります。
+削除は `brew uninstall satsumaestro` です。macOS 15 以降の Apple シリコンの Mac では、ビルド済みのもの
+（bottle）を入れます。ほかの環境では、入れるときと更新のたびにソースからビルドするので、10 分ほどかかります。
+
+### 更新
+
+`satsumaestro update`（`stro update` でも同じ）は、SATSUMAESTRO の入れ方を調べ、入っている版と最新の版、
+その入れ方の更新のコマンドを出し、確かめてから回します（`-y` で問いを飛ばします）。
+
+| 入れ方 | コマンド |
+|---|---|
+| uv | `uv tool upgrade satsumaestro` |
+| pipx | `pipx upgrade satsumaestro` |
+| Homebrew | `brew upgrade satsumaestro` |
+| pip | `pip install -U satsumaestro`（出すだけで、回しません） |
+
+新しい版が出ていれば、REPL の起動時に 1 行で知らせます。REPL の中の `/update` は版を出すだけで、
+更新は REPL を出てから回します。
 
 ### Windows（WSL2）
 
@@ -435,7 +449,9 @@ MCP のツール・サブエージェント・さらなる web への問い合�
 
 **テレメトリー**: SATSUMAESTRO は利用状況をどこにも送りません。`telemetry.enabled`（既定で無効）は、
 `/insights` のためにターンとツールの実行をメモリの中で数えるだけです（`telemetry.jsonl_file` を設定すれば
-手元のファイルにも書きます）。
+手元のファイルにも書きます）。REPL は 1 日に 1 回、PyPI（Homebrew で入れたときは GitHub の tap）に
+最新の版を聞きます。送るのは User-Agent の SATSUMAESTRO の版だけです。止めるには、設定に
+`update_check: false` を書くか、`SATSUMA_NO_UPDATE_CHECK=1` を設定します。
 
 脆弱性を見つけたら、[SECURITY.md](SECURITY.md)（英語）の手順で非公開に報告してください。
 

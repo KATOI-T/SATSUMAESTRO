@@ -480,6 +480,7 @@ class RuntimeConfig(BaseModel):
     orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     decomposition: DecompositionConfig = Field(default_factory=DecompositionConfig)
     show_thinking: bool = False
+    update_check: bool = True
     stream_tool_args: bool = True
     planning_guidance: bool = False
     parallel_guidance: bool = False
