@@ -5,15 +5,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import httpx
+from rich.console import Console
 
 from satsumaestro.__about__ import __version__
+from satsumaestro.config.models import RuntimeConfig
+from satsumaestro.i18n.text import ui
+from satsumaestro.orchestration.worker_supervisor import WORKER_CHILD_ENV
 from satsumaestro.util.clock import now_ms
-from satsumaestro.util.install import Install
+from satsumaestro.util.environ import ENVIRON
+from satsumaestro.util.install import Install, detect_install
 from satsumaestro.util.jsonl import write_text_atomic
 from satsumaestro.util.paths import default_config_home
 
@@ -154,6 +160,58 @@ async def check_now(
     return check
 
 
+class UpdateCheck:
+    """REPL の起動時の確かめ（知らせは前に保存した結果から出し、裏で取り直す）。"""
+
+    def __init__(
+        self,
+        install: Install,
+        path: Path,
+        *,
+        current: str = __version__,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.install = install
+        self.source = source_for(install)
+        self.path = path
+        self.current = current
+        self._transport = transport
+
+    @classmethod
+    def for_repl(
+        cls, cfg: RuntimeConfig, console: Console, env: Mapping[str, str] = ENVIRON
+    ) -> UpdateCheck | None:
+        """確かめるときだけ作る（設定で止めた・端末でない・worker・editable では ``None``）。"""
+        if not cfg.update_check or not console.is_terminal or env.get(WORKER_CHILD_ENV) == "1":
+            return None
+        install = detect_install()
+        if install.kind == "editable":
+            return None
+        return cls(install, cache_path())
+
+    def notice(self) -> str | None:
+        """保存した最新の版が今の版より新しければ、知らせの 1 行。"""
+        cached = load_cached(self.path)
+        if cached is None or cached.source != self.source or cached.latest is None:
+            return None
+        if not is_newer(cached.latest, self.current):
+            return None
+        return ui(
+            "cli.updates.satsumaestro_is_available",
+            latest=cached.latest,
+            current=self.current,
+            command=self.install.shown,
+        )
+
+    async def refresh(self) -> None:
+        """1 日を過ぎていれば取り直す（失敗しても何も出さない）。"""
+        try:
+            if is_due(load_cached(self.path), self.source):
+                await check_now(self.source, self.path, transport=self._transport)
+        except Exception:
+            _log.info("update check failed", exc_info=True)
+
+
 __all__ = [
     "CACHE_FILE",
     "CHECK_INTERVAL_MS",
@@ -161,6 +219,7 @@ __all__ = [
     "TAP_FORMULA_URL",
     "CachedCheck",
     "Source",
+    "UpdateCheck",
     "cache_path",
     "check_now",
     "is_due",

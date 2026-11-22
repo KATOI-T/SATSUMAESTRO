@@ -35,6 +35,7 @@ from satsumaestro.cli.trust_gate import (
     question_lines,
     untrusted_notice,
 )
+from satsumaestro.cli.updates import UpdateCheck
 from satsumaestro.config.loader import ConfigLoader, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, RuntimeConfig
 from satsumaestro.engine.context_fit import (
@@ -864,6 +865,7 @@ async def _repl_session(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
+            updates=UpdateCheck.for_repl(rt.config, _console),
         )
     finally:
         try:
@@ -2078,6 +2080,7 @@ async def _run_repl_resume(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
+            updates=UpdateCheck.for_repl(rt.config, _console),
         )
     finally:
         try:

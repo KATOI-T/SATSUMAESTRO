@@ -33,6 +33,7 @@ from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
 from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
 from satsumaestro.cli.render import RichRenderer, action_preview
+from satsumaestro.cli.updates import UpdateCheck
 from satsumaestro.engine.events import ToolUse
 from satsumaestro.engine.plan_budget import BudgetVerdict, PlanBudget
 from satsumaestro.engine.plan_steps import PlanStep, parse_steps
@@ -369,6 +370,7 @@ async def run_repl(
     trusted: bool = False,
     load_probe: LoadProbe | None = None,
     key_checks: KeyChecks | None = None,
+    updates: UpdateCheck | None = None,
 ) -> int | None:
     """行入力ごとに ``run_turn`` を回す対話ループ（入力欄で受けて終わったシグナルを返す）。"""
     bindings = KeyBindings()
@@ -387,8 +389,13 @@ async def run_repl(
     workdir = escape(str(rt.cwd))
     workdir_line = ui("cli.repl.working_directory", workdir=workdir)
     console.print(f"[dim]{workdir_line}[/dim]")
+    newer = updates.notice() if updates else None
+    if newer:
+        console.print(Text(newer, style="yellow"))
     # 結果は /provider の一覧と候補にだけ出す
     checking = asyncio.create_task(key_checks.run(ENVIRON)) if key_checks else None
+    # 取り直した結果は次の起動で知らせる
+    refreshing = asyncio.create_task(updates.refresh()) if updates else None
     received: list[int] = []
     while True:
         try:
@@ -460,6 +467,8 @@ async def run_repl(
 
     if checking is not None:
         checking.cancel()
+    if refreshing is not None:
+        refreshing.cancel()
     orch = rt.orchestrator
     if isinstance(orch, Orchestrator) and orch.running_count() > 0:
         n = orch.running_count()

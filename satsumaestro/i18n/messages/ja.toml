@@ -532,6 +532,9 @@ hooks_mcp_servers_lsp_servers = "そこに書かれたフック・MCP サーバ�
 trust_and_remember_continue_without = "[y] 信頼して記録する  [n] 今回は読み込まずに続ける  [q] 終了"
 untrusted_directory_continuing_without_the = "未信頼のディレクトリです: {root}。リポジトリの設定（{files}）を読まずに続けます。信頼するなら satsumaestro trust --cwd {root}、今回だけなら --trust を付けてください。"
 
+[cli.updates]
+satsumaestro_is_available = "SATSUMAESTRO {latest} が出ています（今は {current}）。更新: {command}"
+
 [config.loader]
 invalid_env_flag = "環境変数 {name} の値が不正: {raw!r}（{yes} または {no} を指定する）"
 invalid_settings = "設定の検証に失敗: {exc}"

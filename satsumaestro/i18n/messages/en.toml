@@ -532,6 +532,9 @@ hooks_mcp_servers_lsp_servers = "Hooks, MCP servers, LSP servers, the permission
 trust_and_remember_continue_without = "[y] trust and remember  [n] continue without them this time  [q] quit"
 untrusted_directory_continuing_without_the = "Untrusted directory: {root}. Continuing without the repository settings ({files}). To trust it, run satsumaestro trust --cwd {root}; for this run only, add --trust."
 
+[cli.updates]
+satsumaestro_is_available = "SATSUMAESTRO {latest} is available (you have {current}). To upgrade: {command}"
+
 [config.loader]
 invalid_env_flag = "Invalid value for the environment variable {name}: {raw!r} (use {yes} or {no})"
 invalid_settings = "Invalid settings: {exc}"

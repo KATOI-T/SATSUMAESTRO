@@ -411,6 +411,10 @@ class ConfigLoader:
         if wf_flag is not None and "enabled" not in web_fetch:
             web_fetch["enabled"] = wf_flag
 
+        # 止める側だけなので、書いた設定より優先する
+        if _env_bool("SATSUMA_NO_UPDATE_CHECK"):
+            merged["update_check"] = False
+
         if provider:
             merged["provider"] = provider
         if rag:
