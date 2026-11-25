@@ -265,8 +265,9 @@ satsumaestro config show              # merged settings
 satsumaestro doctor                   # health check of settings, provider, keys and policy
 ```
 
-In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C interrupts the
-current turn. Typing `/` lists the commands under the prompt, and after a command its arguments
+In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C stops the current
+turn and returns to the prompt; at a question, such as a permission card or the plan approval, it
+answers no. Typing `/` lists the commands under the prompt, and after a command its arguments
 (`/model ` lists the models of the current server, or the tested models on a cloud, and
 `/provider <name> ` those of that provider), each with a one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
 every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
