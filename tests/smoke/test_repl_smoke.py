@@ -328,12 +328,45 @@ def _wait_until(driver: ReplDriver, ready: Callable[[], bool], what: str) -> Non
         driver.answer_cards()
 
 
+def _descendants(root: int) -> dict[int, str]:
+    """``root`` の子孫のプロセス（pid → コマンド行）。"""
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True, check=True
+    ).stdout
+    children: dict[int, list[tuple[int, str]]] = {}
+    for line in listing.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3:
+            children.setdefault(int(parts[1]), []).append((int(parts[0]), parts[2]))
+    found: dict[int, str] = {}
+    stack = [root]
+    while stack:
+        for pid, command in children.get(stack.pop(), []):
+            found[pid] = command
+            stack.append(pid)
+    return found
+
+
+def _command_of(pid: int) -> str:
+    shown = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=False
+    )
+    return shown.stdout.strip()
+
+
 def test_ctrl_c_stops_only_the_turn(scenario: Runner) -> None:
     """ターン中の Ctrl+C（bash の実行中・応答の待ち）は、そのターンだけを止めて入力待ちへ戻る。"""
+    sleeping: list[int] = []
+
+    def sleep_started(driver: ReplDriver) -> bool:
+        found = _descendants(driver.pid).items()
+        sleeping[:] = [pid for pid, command in found if command == "sleep 37"]
+        return bool(sleeping)
 
     def press_ctrl_c(index: int, driver: ReplDriver, fake: FakeOllama) -> None:
         if index == 0:
             _wait_until(driver, lambda: "コマンド実行中" in driver.transcript.plain, "bash")
+            _wait_until(driver, lambda: sleep_started(driver), "sleep 37")
         elif index == 1:
             stalled = "応答を待っている間に Ctrl+C"
             _wait_until(driver, lambda: any(r["note"] == stalled for r in fake.requests), stalled)
@@ -354,8 +387,8 @@ def test_ctrl_c_stops_only_the_turn(scenario: Runner) -> None:
     assert "三つ目に答えました。" in result.transcript.plain
     assert result.report.failures == [], result.report.failures
     assert [r["role"] for r in result.requests] == ["user", "user", "tool", "user"]
-    leftover = subprocess.run(["pgrep", "-f", "sleep 37"], capture_output=True, check=False)
-    assert leftover.returncode == 1, leftover.stdout
+    assert sleeping
+    assert [pid for pid in sleeping if _command_of(pid) == "sleep 37"] == []
 
 
 def test_detail_explains_what_the_call_does(scenario: Runner, tmp_path: Path) -> None:
