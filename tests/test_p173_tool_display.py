@@ -158,8 +158,9 @@ def test_edit_diff_uses_file_line_numbers(tmp_path: Path) -> None:
     (tmp_path / "m.py").write_text(src, encoding="utf-8")
     call = _call("edit_file", path="m.py", old="line20\n", new="LINE20\nadded\n")
     out = _plain(change_preview(call, tmp_path))
-    assert "20 - line20" in out and "20 + LINE20" in out and "21 + added" in out
-    assert "18   line18" in out
+    assert "2 行を追加、1 行を削除" in out
+    assert "20 -line20" in out and "20 +LINE20" in out and "21 +added" in out
+    assert "18  line18" in out and "17  line17" in out
     assert "line1\n" not in out and "@@" not in out
 
 
@@ -168,7 +169,7 @@ def test_edit_replace_all_shows_every_site(tmp_path: Path) -> None:
     (tmp_path / "m.py").write_text(src, encoding="utf-8")
     call = _call("edit_file", path="m.py", old="foo", new="bar", replace_all=True)
     out = _plain(change_preview(call, tmp_path))
-    assert "3 + bar" in out and "25 + bar" in out and "⋮" in out
+    assert " 3 +bar" in out and "25 +bar" in out and "\n...\n" in out
 
 
 def test_write_existing_file_shows_only_changed_lines(tmp_path: Path) -> None:
@@ -176,14 +177,14 @@ def test_write_existing_file_shows_only_changed_lines(tmp_path: Path) -> None:
     (tmp_path / "w.txt").write_text(before, encoding="utf-8")
     after = before.replace("row40\n", "ROW40\n")
     out = _plain(change_preview(_call("write_file", path="w.txt", content=after), tmp_path))
-    assert "40 - row40" in out and "40 + ROW40" in out
+    assert "40 -row40" in out and "40 +ROW40" in out
     assert "row10" not in out
 
 
 def test_write_new_file_is_marked(tmp_path: Path) -> None:
     call = _call("write_file", path="new.py", content="a\nb\n")
     out = _plain(change_preview(call, tmp_path))
-    assert "（新規ファイル）" in out and "1 + a" in out and "2 + b" in out
+    assert "2 行を書き込み" in out and " 1 a" in out and " 2 b" in out
 
 
 def test_falls_back_when_file_unreadable_or_outside(tmp_path: Path) -> None:
@@ -209,7 +210,7 @@ def test_renderer_shows_numbered_diff_under_item(tmp_path: Path) -> None:
     r.end_turn()
     out = buf.getvalue()
     assert "・編集" in out and "- a.py" in out
-    assert "2 - b" in out and "2 + B" in out
+    assert " 2 -b" in out and " 2 +B" in out
     assert "replaced 1 occurrence" not in out
 
 

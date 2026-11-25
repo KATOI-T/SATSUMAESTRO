@@ -108,6 +108,8 @@ _SAMPLES = {
     "閉じフェンスの直後に本文": f"```html\n{CODE}\n```\nNext para\n\nMore.\n",
     "2 つの長いフェンス": f"```html\n{CODE}\n```\n\n```css\n{CODE}\n```\n",
     "閉じていないフェンスのまま終わる": f"```html\n{CODE}\n",
+    "言語名の無いフェンス": f"Intro\n\n```\n{CODE}\n```\n\nDone.\n",
+    "知らない言語のフェンス": f"```zig9\n{CODE}\n```\n",
 }
 
 
@@ -167,13 +169,13 @@ def test_partial_closing_fence_at_segment_end_is_a_closer_not_code() -> None:
 
 def test_open_fence_helpers() -> None:
     assert _fence_opener("```python\nx = 1\n") == (0, 10, "python")
-    assert _fence_opener("text\n```\nx\n") == (5, 9, "text")
+    assert _fence_opener("text\n```\nx\n") == (5, 9, "")
     assert _fence_opener("```python") is None
     assert _fence_opener("```python\nx\n```\n") is None
     assert _fence_opener("```python\nx\n```python\ny\n") == (0, 10, "python")
     assert _fence_opener("```\na\n```\n\n```css\nb\n") == (11, 18, "css")
     assert _fence_opener("  ```python\nx\n") is None
-    assert _tall_open_fence("```\n" + "x\n" * 3, 3) == (0, 4, "text")
+    assert _tall_open_fence("```\n" + "x\n" * 3, 3) == (0, 4, "")
     assert _tall_open_fence("```\n" + "x\n" * 2, 3) is None
 
 
@@ -231,9 +233,9 @@ def test_non_tty_output_is_unchanged_for_long_fences() -> None:
     r.end_turn()
     out = buf.getvalue()
     expected = io.StringIO()
-    from rich.markdown import Markdown
+    from satsumaestro.cli.markdown import ReplyMarkdown
 
     Console(file=expected, force_terminal=False, width=WIDTH, height=10, color_system=None).print(
-        Markdown(f"Intro\n\n```html\n{CODE}\n```\n\nDone.\n")
+        ReplyMarkdown(f"Intro\n\n```html\n{CODE}\n```\n\nDone.\n")
     )
     assert expected.getvalue() in out

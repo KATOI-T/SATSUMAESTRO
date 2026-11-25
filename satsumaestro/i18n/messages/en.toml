@@ -384,11 +384,15 @@ done = "✓ Done"
 done_with_summary = "✓ Done {shown}"
 permission = "Permission: {name} ({required})"
 no_changes = "(no changes)"
-rest_omitted = "… (rest omitted)\n"
+diff_added = { one = "Added {n} line", other = "Added {n} lines" }
+diff_removed = { one = "removed {n} line", other = "removed {n} lines" }
+diff_removed_only = { one = "Removed {n} line", other = "Removed {n} lines" }
+diff_join = ", "
+wrote_lines = { one = "Wrote {n} line", other = "Wrote {n} lines" }
+more_rows = { one = "… +{n} line", other = "… +{n} lines" }
 empty_directory = "(empty directory)"
 deletes_everything_inside_entries = { one = "Deletes everything inside ({n} entry)\n", other = "Deletes everything inside ({n} entries)\n" }
 and_more = "  … and {rest} more\n"
-new_file = "(new file)\n"
 diff_shown_above_d_for = " (diff shown above; d for full text)"
 append_lines_bytes = { one = " (append, {n} line, {size} bytes)", other = " (append, {n} lines, {size} bytes)" }
 card_lines_bytes = { one = " ({n} line, {size} bytes)", other = " ({n} lines, {size} bytes)" }

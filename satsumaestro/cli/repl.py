@@ -13,7 +13,6 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.markup import escape
 from rich.panel import Panel
 from rich.status import Status
@@ -33,6 +32,7 @@ from satsumaestro.cli.input_box import InputBox
 from satsumaestro.cli.interrupts import run_cancellable
 from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
+from satsumaestro.cli.markdown import ReplyMarkdown
 from satsumaestro.cli.modes import mode_hint_fragments, mode_markup, mode_prompt_fragments
 from satsumaestro.cli.render import RichRenderer, action_preview
 from satsumaestro.cli.updates import UpdateCheck
@@ -230,7 +230,7 @@ class InteractivePrompter:
 
     def confirm_plan_exit(self, plan_text: str | None) -> PlanExitVerdict:
         """モデルの ``exit_plan_mode`` を承認カードで確認する。"""
-        body = Markdown(plan_text) if plan_text else ui("cli.repl.no_plan_file")
+        body = ReplyMarkdown(plan_text) if plan_text else ui("cli.repl.no_plan_file")
         title = ui("cli.repl.plan_approval")
         self.console.print(Panel(body, title=title, border_style="yellow"))
         steps = parse_steps(plan_text) if self._plan_steps else []

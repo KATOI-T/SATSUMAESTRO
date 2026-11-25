@@ -41,7 +41,7 @@ _CASES = [
         "edit_file",
         {"old": "API_KEY=oldsecret123", "new": "API_KEY=newsecret456"},
         "API_KEY=oldsecret123\nname=demo\n",
-        ("1 - API_KEY=[redacted]", "1 + API_KEY=[redacted]"),
+        ("1 -API_KEY=[redacted]", "1 +API_KEY=[redacted]"),
         ("oldsecret123", "newsecret456"),
     ),
     _Case(
@@ -49,15 +49,15 @@ _CASES = [
         "edit_file",
         {"old": "API_KEY=bbbb33334444", "new": "API_KEY=cccc55556666"},
         "API_KEY=aaaa11112222\nname=demo\nAPI_KEY=bbbb33334444\n",
-        ("1   API_KEY=[redacted]", "3 - API_KEY=[redacted]", "3 + API_KEY=[redacted]"),
-        ("aaaa11112222", "bbbb33334444", "cccc55556666", "1 - "),
+        (" 1  API_KEY=[redacted]", "3 -API_KEY=[redacted]", "3 +API_KEY=[redacted]"),
+        ("aaaa11112222", "bbbb33334444", "cccc55556666", " 1 -"),
     ),
     _Case(
         "edit-replace-all",
         "edit_file",
         {"old": "API_KEY=k1k1k1k1k1", "new": "API_KEY=k2k2k2k2k2", "replace_all": True},
         "API_KEY=k1k1k1k1k1\nname=demo\nAPI_KEY=k1k1k1k1k1\n",
-        ("1 - API_KEY=[redacted]", "1 + API_KEY=[redacted]", "3 - API_KEY=[redacted]"),
+        ("1 -API_KEY=[redacted]", "1 +API_KEY=[redacted]", "3 -API_KEY=[redacted]"),
         ("k1k1k1k1k1", "k2k2k2k2k2"),
     ),
     _Case(
@@ -68,7 +68,7 @@ _CASES = [
             "new": 'def f(self):\n    API_KEY = "wxyz98765432"',
         },
         _CLASS,
-        ('3 -         API_KEY = "[redacted]"', '3 +         API_KEY = "[redacted]"'),
+        ('3 -        API_KEY = "[redacted]"', '3 +        API_KEY = "[redacted]"'),
         ("abcd12345678", "wxyz98765432"),
     ),
     _Case(
@@ -84,7 +84,7 @@ _CASES = [
         "write_file",
         {"content": "API_KEY=newsecret456\nname=demo\n"},
         "API_KEY=oldsecret123\nname=demo\n",
-        ("1 - API_KEY=[redacted]", "1 + API_KEY=[redacted]"),
+        ("1 -API_KEY=[redacted]", "1 +API_KEY=[redacted]"),
         ("oldsecret123", "newsecret456"),
     ),
     _Case(
@@ -92,7 +92,7 @@ _CASES = [
         "write_file",
         {"content": "API_KEY=newsecret456\nname=demo\n"},
         None,
-        ("1 + API_KEY=[redacted]", "2 + name=demo"),
+        (" 1 API_KEY=[redacted]", " 2 name=demo"),
         ("newsecret456",),
     ),
     _Case(
@@ -108,7 +108,7 @@ _CASES = [
         "append_file",
         {"content": "API_KEY=newsecret456\n"},
         "name=demo\n",
-        ("1   name=demo", "2 + API_KEY=[redacted]"),
+        (" 1  name=demo", " 2 +API_KEY=[redacted]"),
         ("newsecret456",),
     ),
     _Case(
@@ -116,7 +116,7 @@ _CASES = [
         "append_file",
         {"content": "API_KEY=newsecret456\n"},
         None,
-        ("1 + API_KEY=[redacted]",),
+        (" 1 API_KEY=[redacted]",),
         ("newsecret456",),
     ),
     _Case(
@@ -124,7 +124,7 @@ _CASES = [
         "edit_file",
         {"old": "tail=1", "new": "tail=2"},
         "name=demo\n" + _PEM + "tail=1\n",
-        ("4   [redacted]", "5   [redacted]", "6 - tail=1", "6 + tail=2"),
+        (" 3  [redacted]", " 4  [redacted]", " 5  [redacted]", " 6 -tail=1", " 6 +tail=2"),
         (*_BODY, "PRIVATE KEY"),
     ),
     _Case(
@@ -132,7 +132,7 @@ _CASES = [
         "write_file",
         {"content": "name=demo\n" + _PEM + "tail=1\n"},
         None,
-        ("2 + [redacted]", "5 + [redacted]", "6 + tail=1"),
+        (" 2 [redacted]", " 5 [redacted]", " 6 tail=1"),
         (*_BODY, "PRIVATE KEY"),
     ),
     _Case(
@@ -140,7 +140,7 @@ _CASES = [
         "write_file",
         {"content": "name=demo\n" + _PEM + "tail=1\n"},
         f"name=demo\n{_KEY_LINES}\ntail=1\n",
-        ("2 + [redacted]", "2   [redacted]", "3   [redacted]", "5 + [redacted]"),
+        (" 2 +[redacted]", " 3  [redacted]", " 4  [redacted]", " 5 +[redacted]"),
         (*_BODY, "PRIVATE KEY"),
     ),
     _Case(
@@ -148,7 +148,7 @@ _CASES = [
         "write_file",
         {"content": f"name=demo\n{_KEY_LINES}\ntail=1\n"},
         "name=demo\n" + _PEM + "tail=1\n",
-        ("2 - [redacted]", "3   [redacted]", "4   [redacted]", "5 - [redacted]"),
+        (" 2 -[redacted]", " 2  [redacted]", " 3  [redacted]", " 5 -[redacted]"),
         (*_BODY, "PRIVATE KEY"),
     ),
     _Case(
@@ -172,7 +172,7 @@ _CASES = [
         "edit_file",
         {"old": "tail=1", "new": "tail=2"},
         ("name=demo\n" + _PEM + "tail=1\n").replace("\n", "\r\n"),
-        ("4   [redacted]", "5   [redacted]", "6 - tail=1", "6 + tail=2"),
+        (" 3  [redacted]", " 4  [redacted]", " 5  [redacted]", " 6 -tail=1", " 6 +tail=2"),
         (*_BODY, "PRIVATE KEY"),
     ),
     _Case(
@@ -180,7 +180,7 @@ _CASES = [
         "edit_file",
         {"old": "name=demo", "new": "name=demo2"},
         "Authorization: Bearer\n    abcdefgh12345678\nname=demo\n",
-        ("2       [redacted]", "3 - name=demo", "3 + name=demo2"),
+        (" 2      [redacted]", " 3 -name=demo", " 3 +name=demo2"),
         ("abcdefgh12345678",),
     ),
     _Case(
@@ -188,7 +188,7 @@ _CASES = [
         "edit_file",
         {"old": "name=demo", "new": "name=demo2"},
         f"provider {_KEY}\nname=demo\n",
-        ("1   provider [redacted]", "2 - name=demo", "2 + name=demo2"),
+        (" 1  provider [redacted]", " 2 -name=demo", " 2 +name=demo2"),
         (_KEY,),
     ),
     _Case(
@@ -196,7 +196,7 @@ _CASES = [
         "edit_file",
         {"old": "name=demo", "new": "name=demo2"},
         "DB_PASSWORD=abc$example-secret\nname=demo\n",
-        ("1   DB_PASSWORD=[redacted]",),
+        (" 1  DB_PASSWORD=[redacted]",),
         ("example-secret",),
     ),
 ]
@@ -233,14 +233,25 @@ def test_previews_when_on(ws: Path, case: _Case) -> None:
 
 
 @pytest.mark.parametrize("case", _CASES, ids=_IDS)
+def test_colored_previews_hide_the_values_too(ws: Path, case: _Case) -> None:
+    out = StringIO()
+    console = Console(file=out, width=200, force_terminal=True, color_system="truecolor")
+    console.print(change_preview(_call(ws, case), ws, redact=True))
+    text = re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
+    assert [s for s in case.hidden if s in text] == []
+
+
+@pytest.mark.parametrize("case", _CASES, ids=_IDS)
 def test_previews_when_off_show_the_values(ws: Path, case: _Case) -> None:
     text = _text(change_preview(_call(ws, case), ws))
     assert "[redacted]" not in text
     assert any(s in text for s in case.hidden)
 
 
-def _shape(text: str) -> list[str]:
-    return [m.group(0) for line in text.splitlines() if (m := re.match(r"\s*\d*\s?[-+@]?", line))]
+def _shape(text: str, *, marked: bool) -> list[str]:
+    """行番号と記号（新規ファイルの行には記号が無い）。"""
+    pattern = r"\s*\d*\s?[-+@]?" if marked else r"\s*\d*\s?"
+    return [m.group(0) for line in text.splitlines() if (m := re.match(pattern, line))]
 
 
 @pytest.mark.parametrize("case", _CASES, ids=_IDS)
@@ -248,7 +259,8 @@ def test_on_and_off_differ_only_in_values(ws: Path, case: _Case) -> None:
     call = _call(ws, case)
     on = _text(change_preview(call, ws, redact=True))
     off = _text(change_preview(call, ws))
-    assert _shape(on) == _shape(off)
+    marked = case.before is not None
+    assert _shape(on, marked=marked) == _shape(off, marked=marked)
 
 
 @pytest.mark.parametrize(
@@ -306,10 +318,10 @@ def test_the_renderer_previews_from_the_real_call(ws: Path, redact: bool) -> Non
     r.on_tool_start(_call(ws, _CASES[0]))
     out = buf.getvalue()
     if redact:
-        assert "1 - API_KEY=[redacted]" in out and "1 + API_KEY=[redacted]" in out
+        assert "1 -API_KEY=[redacted]" in out and "1 +API_KEY=[redacted]" in out
         assert "oldsecret123" not in out and "newsecret456" not in out
     else:
-        assert "1 - API_KEY=oldsecret123" in out and "1 + API_KEY=newsecret456" in out
+        assert "1 -API_KEY=oldsecret123" in out and "1 +API_KEY=newsecret456" in out
 
 
 def test_the_renderer_reads_the_keys_when_it_draws(

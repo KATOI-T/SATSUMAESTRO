@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
-from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress_bar import ProgressBar
@@ -21,7 +20,9 @@ from rich.spinner import Spinner
 from rich.syntax import Syntax
 from rich.text import Text
 
+from satsumaestro.cli.diff_view import diff_view, new_file_view, shown_context
 from satsumaestro.cli.live_region import LiveRegion
+from satsumaestro.cli.markdown import ReplyMarkdown, code_block
 from satsumaestro.cli.tool_display import (
     ToolDisplay,
     describe,
@@ -56,12 +57,12 @@ from satsumaestro.util.partial_json import partial_json_string
 _TOOL_RESULT_LIMIT = 2000
 _WRITE_PREVIEW_LINES = 20
 _DIFF_PREVIEW_LINES = 40
+_NEW_FILE_PREVIEW_LINES = 10
 _STREAM_ARG_LINES = 12
 _ITEM_INDENT = 4
 
 _LIVE_RESERVE_LINES = 3
 _LIVE_MIN_LINES = 3
-_FENCE_THEME = "monokai"
 _FENCE_CONTEXT_LINES = 50
 
 
@@ -158,7 +159,7 @@ class _TailLines:
 class _FenceStream:
     """画面の高さを超えたコードフェンスを行ごとに確定している間の状態。"""
 
-    lexer: str
+    lang: str  # info 文字列の先頭語（無ければ空）
     printed: bool = False
     context: list[str] = field(default_factory=list)
 
@@ -527,7 +528,7 @@ class RichRenderer:
             commit, _remaining = _committable_prefix(self._tail())
             if commit:
                 self._committed_len += len(commit)
-                self._print_body(Markdown(commit))
+                self._print_body(ReplyMarkdown(commit))
             self._maybe_open_fence()
         if self._fence is not None:
             self._stream_fence(final=False)
@@ -542,12 +543,12 @@ class RichRenderer:
         opened = _tall_open_fence(tail, self._live_budget())
         if opened is None:
             return
-        start, body_start, lexer = opened
+        start, body_start, lang = opened
         before = tail[:start]
         self._committed_len += body_start
-        self._fence = _FenceStream(lexer=lexer)
+        self._fence = _FenceStream(lang=lang)
         if before.strip():
-            self._print_body(Markdown(before))
+            self._print_body(ReplyMarkdown(before))
             self.console.print()
 
     def _stream_fence(self, *, final: bool) -> None:
@@ -581,23 +582,16 @@ class RichRenderer:
         self._print_fence_chunk(fence, chunk, last=False)
 
     def _print_fence_chunk(self, fence: _FenceStream, lines: list[str], *, last: bool) -> None:
-        """コード行を ``Syntax`` で出す。"""
+        """コード行を、Markdown のコードブロックと同じ描き方で出す。"""
         if last:
             code = "\n".join(lines).rstrip()
             lines = code.split("\n") if code else []
-        elif not lines:
+        if not lines:
             return
-        pad = (0 if fence.printed else 1, 1, 1 if last else 0, 1)
-        context = fence.context[-_FENCE_CONTEXT_LINES:] if lines else []
-        syntax = Syntax(
-            "\n".join([*context, *lines]),
-            fence.lexer,
-            theme=_FENCE_THEME,
-            word_wrap=True,
-            padding=pad,
-            line_range=(len(context) + 1, None) if context else None,
+        context = fence.context[-_FENCE_CONTEXT_LINES:]
+        self._print_body(
+            code_block("\n".join(lines), fence.lang, head=not fence.printed, context=context)
         )
-        self._print_body(syntax)
         fence.printed = True
         fence.context = [*fence.context, *lines][-_FENCE_CONTEXT_LINES:]
 
@@ -752,12 +746,10 @@ class RichRenderer:
         if self._fence is not None:
             shown = tail.rstrip("\n")
             if shown:
-                lexer = self._fence.lexer
-                body.append(
-                    Syntax(shown, lexer, theme=_FENCE_THEME, word_wrap=True, padding=(0, 1))
-                )
+                fence = self._fence
+                body.append(code_block(shown, fence.lang, head=not fence.printed))
         elif tail.strip():
-            body.append(Markdown(tail))
+            body.append(ReplyMarkdown(tail))
         panel = self._tool_arg_panel()
         if panel is not None:
             body.append(panel)
@@ -815,13 +807,13 @@ class RichRenderer:
                 self._resolve_gap()
             tail = self._tail()
             if tail.strip():
-                self._print_body(Markdown(tail))
+                self._print_body(ReplyMarkdown(tail))
         elif "".join(self._text).strip() or self._thinking:
             parts: list[RenderableType] = []
             if self._thinking:
                 parts.append(Text("".join(self._thinking), style="dim italic"))
             if "".join(self._text).strip():
-                parts.append(Markdown("".join(self._text)))
+                parts.append(ReplyMarkdown("".join(self._text)))
             self._emit(Group(*parts))
         self._reset_segment()
 
@@ -891,7 +883,7 @@ _FENCE_CLOSE_LINE = re.compile(r" {0,3}```[ \t]*")
 
 
 def _fence_opener(s: str) -> tuple[int, int, str] | None:
-    """``s`` の中で閉じていない列 0 の開きフェンスの ``(開始位置, 本体の開始位置, lexer)``。"""
+    """``s`` の中で閉じていない列 0 の開きフェンスの ``(開始位置, 本体の開始位置, 言語名)``。"""
     offset = 0
     opened: tuple[int, int, str] | None = None
     for line in s.splitlines(keepends=True):
@@ -901,8 +893,7 @@ def _fence_opener(s: str) -> tuple[int, int, str] | None:
             if m is not None:
                 if not line.endswith("\n"):
                     return None
-                lexer = m.group(1).partition(" ")[0] or "text"
-                opened = (offset, offset + len(line), lexer)
+                opened = (offset, offset + len(line), m.group(1))
         elif _FENCE_CLOSE_LINE.fullmatch(bare):
             opened = None
         offset += len(line)
@@ -994,12 +985,12 @@ def change_preview(
                 if inp.get("replace_all")
                 else current.replace(old, new, 1)
             )
-            return _numbered_diff(current, after, split)
+            return diff_view(current, after, path, max_rows=_DIFF_PREVIEW_LINES, split=split)
         if isinstance(current, str) and old:
             shifted = edit_match.reindent_edit(current, old, new)
             if shifted is not None:
                 after = current.replace(shifted.old, shifted.new, 1)
-                return _numbered_diff(current, after, split)
+                return diff_view(current, after, path, max_rows=_DIFF_PREVIEW_LINES, split=split)
         return _diff_preview(shown_path, old, new, False, split)
     if call.name == "delete_path":
         return _delete_preview(path, cwd)
@@ -1007,17 +998,18 @@ def change_preview(
         content = str(inp.get("content", ""))
         current = _read_current(cwd, path)
         if current is _MISSING:
-            return _numbered_new_file(content, split)
+            return new_file_view(content, path, max_rows=_NEW_FILE_PREVIEW_LINES, split=split)
         if isinstance(current, str):
-            return _numbered_diff(current, content, split)
+            return diff_view(current, content, path, max_rows=_DIFF_PREVIEW_LINES, split=split)
         return _write_preview(shown_path, content, False, split)
     if call.name == "append_file":
         content = str(inp.get("content", ""))
         current = _read_current(cwd, path)
         if current is _MISSING:
-            return _numbered_new_file(content, split)
+            return new_file_view(content, path, max_rows=_NEW_FILE_PREVIEW_LINES, split=split)
         if isinstance(current, str):
-            return _numbered_diff(current, current + content, split)
+            after = current + content
+            return diff_view(current, after, path, max_rows=_DIFF_PREVIEW_LINES, split=split)
         return _write_preview(shown_path, content, False, split)
     return None
 
@@ -1025,11 +1017,6 @@ def change_preview(
 def _shown_lines(text: str) -> list[str]:
     """画面に出す行（行の数を変えずに秘密を伏せる）。"""
     return redact_lines(text, values=secret_values())
-
-
-def _context(real: str, before: str, after: str) -> str:
-    """変わらない行は、前と後のうち伏せた方を出す。"""
-    return before if before != real else after
 
 
 _PREVIEW_READ_LIMIT = 1_000_000
@@ -1051,41 +1038,6 @@ def _read_current(cwd: Path | None, path: str) -> str | object | None:
         return target.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-
-
-def _numbered_diff(
-    before: str, after: str, split: Callable[[str], list[str]] = str.splitlines
-) -> RenderableType:
-    """ファイル内の行番号付きで、変わる箇所（前後 2 行の文脈つき）だけを出す。"""
-    a, b = before.splitlines(), after.splitlines()
-    sa, sb = split(before), split(after)
-    width = len(str(max(len(a), len(b), 1)))
-    rows: list[tuple[str, str]] = []
-    matcher = difflib.SequenceMatcher(None, a, b)
-    for n, group in enumerate(matcher.get_grouped_opcodes(2)):
-        if n:
-            rows.append((" " * width + " ⋮", "dim"))
-        for tag, i1, i2, j1, j2 in group:
-            if tag == "equal":
-                rows.extend(
-                    (f"{i + 1:>{width}}   {_context(a[i], sa[i], sb[j])}", "dim")
-                    for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
-                )
-                continue
-            rows.extend((f"{i + 1:>{width}} - {sa[i]}", "red") for i in range(i1, i2))
-            rows.extend((f"{j + 1:>{width}} + {sb[j]}", "green") for j in range(j1, j2))
-    if not rows:
-        return Text(ui("cli.render.no_changes"), style="dim")
-    text = Text()
-    for line, style in rows[:_DIFF_PREVIEW_LINES]:
-        text.append(line + "\n", style=style)
-    if len(rows) > _DIFF_PREVIEW_LINES:
-        text.append(_rest_omitted(), style="dim italic")
-    return text
-
-
-def _rest_omitted() -> str:
-    return ui("cli.render.rest_omitted")
 
 
 _DELETE_PREVIEW_ENTRIES = 10
@@ -1123,20 +1075,6 @@ def _delete_preview(path: str, cwd: Path | None) -> RenderableType | None:
     if total > len(entries):
         rest = total - len(entries)
         text.append(ui("cli.render.and_more", rest=rest), style="dim italic")
-    return text
-
-
-def _numbered_new_file(
-    content: str, split: Callable[[str], list[str]] = str.splitlines
-) -> RenderableType:
-    """新規ファイルは先頭を行番号付きで出す。"""
-    lines = split(content)
-    width = len(str(max(min(len(lines), _WRITE_PREVIEW_LINES), 1)))
-    text = Text(ui("cli.render.new_file"), style="bold")
-    for i, line in enumerate(lines[:_WRITE_PREVIEW_LINES]):
-        text.append(f"{i + 1:>{width}} + {line}\n", style="green")
-    if len(lines) > _WRITE_PREVIEW_LINES:
-        text.append(_rest_omitted(), style="dim italic")
     return text
 
 
@@ -1259,7 +1197,7 @@ def _shown_unified(
         for tag, i1, i2, j1, j2 in group:
             if tag == "equal":
                 out.extend(
-                    " " + _context(a[i], sa[i], sb[j])
+                    " " + shown_context(a[i], sa[i], sb[j])
                     for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
                 )
                 continue
