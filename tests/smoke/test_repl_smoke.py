@@ -316,6 +316,48 @@ def test_user_deny_stops_the_turn(scenario: Runner, tmp_path: Path) -> None:
     assert not (tmp_path / "ws" / "built.txt").exists()
 
 
+def _wait_until(driver: ReplDriver, ready: Callable[[], bool], what: str) -> None:
+    """``ready`` が真になるまで、カードに答えつつ待つ。"""
+    deadline = time.monotonic() + 20.0
+    while not ready():
+        if driver.exited:
+            raise AssertionError(f"REPL exited (status={driver.status}) before {what}")
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timeout waiting for {what}")
+        driver.pump(0.2)
+        driver.answer_cards()
+
+
+def test_ctrl_c_stops_only_the_turn(scenario: Runner) -> None:
+    """ターン中の Ctrl+C（bash の実行中・応答の待ち）は、そのターンだけを止めて入力待ちへ戻る。"""
+
+    def press_ctrl_c(index: int, driver: ReplDriver, fake: FakeOllama) -> None:
+        if index == 0:
+            _wait_until(driver, lambda: "コマンド実行中" in driver.transcript.plain, "bash")
+        elif index == 1:
+            stalled = "応答を待っている間に Ctrl+C"
+            _wait_until(driver, lambda: any(r["note"] == stalled for r in fake.requests), stalled)
+        else:
+            return
+        time.sleep(1.0)
+        driver.send(b"\x03")
+        notice = "(中断しました)"
+        _wait_until(driver, lambda: driver.transcript.plain.count(notice) > index, notice)
+
+    result = scenario(
+        "turn_interrupt.jsonl",
+        turns=("長いコマンドを走らせて", "一覧を見て", "三つ目の依頼"),
+        plan=False,
+        during=press_ctrl_c,
+    )
+    assert result.transcript.plain.count("(中断しました)") == 2
+    assert "三つ目に答えました。" in result.transcript.plain
+    assert result.report.failures == [], result.report.failures
+    assert [r["role"] for r in result.requests] == ["user", "user", "tool", "user"]
+    leftover = subprocess.run(["pgrep", "-f", "sleep 37"], capture_output=True, check=False)
+    assert leftover.returncode == 1, leftover.stdout
+
+
 def test_detail_explains_what_the_call_does(scenario: Runner, tmp_path: Path) -> None:
     """d → モデルが会話から説明 → y / n / a だけで受け直す → 許可して実行。"""
     result = scenario(

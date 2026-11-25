@@ -1,0 +1,5 @@
+# ターン中の Ctrl+C を 2 回（bash の実行中と、ツールの後の応答の待ち）。どちらも入力待ちへ戻り、3 つ目の依頼が通る。
+{"when": {"role": "user", "contains": "長いコマンド"}, "reply": {"text": "走らせます。", "tool_calls": [{"name": "bash", "args": {"command": "sleep 37"}}]}, "note": "bash の実行中に Ctrl+C"}
+{"when": {"role": "user", "contains": "一覧"}, "reply": {"tool_calls": [{"name": "list_directory", "args": {"path": "."}}]}, "note": "読み取りの後で応答を待たせる"}
+{"when": {"role": "tool", "tool": "list_directory"}, "reply": {"text": "遅れて返します。", "stall_ms": 8000}, "note": "応答を待っている間に Ctrl+C"}
+{"reply": {"text": "三つ目に答えました。"}, "note": "catch-all"}

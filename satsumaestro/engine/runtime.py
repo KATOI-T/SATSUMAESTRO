@@ -874,8 +874,26 @@ class ConversationRuntime:
                         exc_info=True,
                     )
             raise
+        except asyncio.CancelledError:
+            self._answer_unanswered_calls()
+            raise
         finally:
             self._turn_snapshot = None
+
+    def _answer_unanswered_calls(self) -> None:
+        """取り消したターンが残した、結果の無いツール呼び出しを中断の結果で閉じて保存する。"""
+        messages = self.session.messages
+        if not messages or messages[-1].role != "assistant":
+            return
+        calls = [b for b in messages[-1].blocks if isinstance(b, ToolUseBlock)]
+        if not calls:
+            return
+        reason = "interrupted: the user stopped the turn before this call returned a result."
+        messages.append(_tool_result_msg([_err_block(c, reason) for c in calls]))
+        try:
+            self.store.save(self.session)
+        except Exception:  # 保存の失敗で取り消しを別の失敗に変えない
+            _log.warning("could not save the session after an interrupted turn", exc_info=True)
 
     async def _run_turn(
         self,

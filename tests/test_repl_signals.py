@@ -108,7 +108,7 @@ async def test_a_turn_runs_with_the_default_handlers(
 
     async def turn(*_: Any, **__: Any) -> Any:
         seen.extend(signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP))
-        raise KeyboardInterrupt
+        raise asyncio.CancelledError
 
     monkeypatch.setattr(ConversationRuntime, "run_turn", turn)
     assert await _run(monkeypatch, tmp_path, _Lines(["1+1"])) is None

@@ -29,6 +29,7 @@ from satsumaestro.cli.commands import (
 from satsumaestro.cli.completion import ModelNames, SlashCompleter
 from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
+from satsumaestro.cli.interrupts import run_cancellable
 from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
 from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
@@ -436,7 +437,9 @@ async def run_repl(
         summary: TurnSummary | None = None
         try:
             async with watching_model_load(render, load_probe):
-                summary = await rt.run_turn(line, prompter, render, observer=observer)
+                summary = await run_cancellable(
+                    rt.run_turn(line, prompter, render, observer=observer)
+                )
             if summary.stop_reason == "user_denied":
                 stopped = ui("cli.repl.denied_so_this_turn_was")
                 console.print(f"[dim]{stopped}[/dim]")
@@ -445,6 +448,7 @@ async def run_repl(
                 health = ui("cli.repl.session_health_warning_starting_a", warning=warning)
                 console.print(f"[yellow]{health}[/yellow]")
         except KeyboardInterrupt:
+            render.pause()
             console.print(f"[dim]{ui('cli.repl.interrupted_notice')}[/dim]")
         except SessionAbortError as e:
             console.print(f"[red]⚠ {e}[/red]")
