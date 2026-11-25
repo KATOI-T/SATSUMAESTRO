@@ -6,10 +6,14 @@ import re
 
 from prompt_toolkit.input import Input
 from prompt_toolkit.input.vt100_parser import Vt100Parser
+from prompt_toolkit.keys import Keys
 
 # 旗 1（曖昧なキーを区別する）を積む／1 段おろす
 ENABLE = "\x1b[>1u"
 DISABLE = "\x1b[<u"
+# prompt_toolkit に Shift+Enter のキーが無いので、Esc+Enter と分けるため F24 の列で渡す
+NEWLINE = "\x1b[24;2~"
+NEWLINE_KEY = Keys.F24
 
 # 問い合わせへの返事・CSI 符号[:別キー][;修飾[:種別][;文字]] u・
 # modifyOtherKeys（CSI 27;修飾;符号 ~）
@@ -96,8 +100,8 @@ def _replace(match: re.Match[str]) -> str:
 def _legacy_key(code: int, mods: int) -> str:
     shift, alt, ctrl = mods & _SHIFT, mods & _ALT, mods & _CTRL
     if code in (_ENTER, _KEYPAD_ENTER):
-        # Shift / Alt 付きは Esc+Enter（入力欄の改行）。Ctrl+Enter は送信
-        return "\x1b\r" if (shift or alt) and not ctrl else "\r"
+        # Shift / Alt 付きは入力欄の改行。Ctrl+Enter は送信
+        return NEWLINE if (shift or alt) and not ctrl else "\r"
     if code == _TAB:
         return "\x1b[Z" if shift else "\t"
     if code == _ESCAPE:

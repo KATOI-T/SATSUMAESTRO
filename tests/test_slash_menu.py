@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import io
+from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 from typing import Any
 
@@ -17,13 +18,17 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import FloatContainer
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.output import DummyOutput
+from rich.console import Console
 
 from satsumaestro.cli import completion as completion_mod
+from satsumaestro.cli import key_protocol
 from satsumaestro.cli.completion import slash_completions
 from satsumaestro.cli.completion_menu import SuggestionMenu, install_menu
-from satsumaestro.cli.repl import _prompt_session
+from satsumaestro.cli.input_box import InputBox
+from satsumaestro.cli.repl import _prompt_session, _slash_completer
 from satsumaestro.config.models import ProviderConfig, RuntimeConfig
 
 
@@ -129,17 +134,44 @@ def _shown(buffer: Buffer, text: str) -> list[str] | None:
     return [c.display_text for c in state.completions]
 
 
-class _Prompt:
-    """パイプの入力で動かす本物の入力欄。"""
+@pytest.fixture(params=["box", "line"])
+def kind(request: pytest.FixtureRequest) -> str:
+    return str(request.param)
 
-    def __init__(self, bindings: KeyBindings | None = None, **options: Any) -> None:
+
+class _Prompt:
+    """パイプの入力で動かす本物の入力欄（``box`` は端末の入力欄、``line`` は 1 行入力）。"""
+
+    def __init__(
+        self, kind: str, *, bindings: KeyBindings | None = None, history: Sequence[str] = ()
+    ) -> None:
         self._pipe_cm = create_pipe_input()
         self.pipe = self._pipe_cm.__enter__()
-        self.session = _prompt_session(
-            _runtime(), bindings or KeyBindings(), input=self.pipe, output=DummyOutput(), **options
+        bindings = bindings or KeyBindings()
+        if kind == "box":
+            self.box = InputBox(
+                console=Console(file=io.StringIO()),
+                hint=lambda: [],
+                status=lambda: "",
+                fallback_prompt=lambda: "> ",
+                key_bindings=bindings,
+                completer=_slash_completer(_runtime(), None),
+                input=self.pipe,
+                output=DummyOutput(),
+            )
+            for line in history:
+                self.box._history.append_string(line)
+            self.buffer = self.box._buffer
+            self.answer = asyncio.create_task(self.box.prompt_async())
+            return
+        past = InMemoryHistory()
+        for line in history:
+            past.append_string(line)
+        session = _prompt_session(
+            _runtime(), bindings, input=self.pipe, output=DummyOutput(), history=past
         )
-        self.buffer = self.session.default_buffer
-        self.answer = asyncio.create_task(self.session.prompt_async(set_exception_handler=False))
+        self.buffer = session.default_buffer
+        self.answer = asyncio.create_task(session.prompt_async(set_exception_handler=False))
 
     async def type(self, text: str, *, then: Callable[[], object] | None = None) -> None:
         self.pipe.send_text(text)
@@ -154,14 +186,14 @@ class _Prompt:
             self._pipe_cm.__exit__(None, None, None)
 
 
-async def test_enter_runs_the_chosen_command(models: None) -> None:
-    prompt = _Prompt()
+async def test_enter_runs_the_chosen_command(models: None, kind: str) -> None:
+    prompt = _Prompt(kind)
     await prompt.type("/mo", then=lambda: _shown(prompt.buffer, "/mo") == ["/model", "/mode"])
     assert await prompt.result("\r") == "/model "
 
 
-async def test_down_tab_and_enter_choose_a_model(models: None) -> None:
-    prompt = _Prompt()
+async def test_down_tab_and_enter_choose_a_model(models: None, kind: str) -> None:
+    prompt = _Prompt(kind)
     buffer = prompt.buffer
     await prompt.type("/mo", then=lambda: _shown(buffer, "/mo"))
     await prompt.type("\x1b[B\t", then=lambda: _shown(buffer, "/mode ") == ["plan", "code"])
@@ -171,15 +203,15 @@ async def test_down_tab_and_enter_choose_a_model(models: None) -> None:
     assert await prompt.result("\x1b[B\x1b[B\r") == "/model gpt-oss:20b"
 
 
-async def test_enter_after_tab_runs_the_command_itself(models: None) -> None:
-    prompt = _Prompt()
+async def test_enter_after_tab_runs_the_command_itself(models: None, kind: str) -> None:
+    prompt = _Prompt(kind)
     await prompt.type("/pro", then=lambda: _shown(prompt.buffer, "/pro"))
     await prompt.type("\t", then=lambda: _shown(prompt.buffer, "/provider "))
     assert await prompt.result("\r") == "/provider "
 
 
-async def test_escape_closes_and_backspace_reopens(models: None) -> None:
-    prompt = _Prompt()
+async def test_escape_closes_and_backspace_reopens(models: None, kind: str) -> None:
+    prompt = _Prompt(kind)
     buffer = prompt.buffer
     await prompt.type("/mod", then=lambda: _shown(buffer, "/mod"))
     await prompt.type("\x1b", then=lambda: buffer.complete_state is None)
@@ -188,11 +220,8 @@ async def test_escape_closes_and_backspace_reopens(models: None) -> None:
     assert await prompt.result("\r") == "/mo"
 
 
-async def test_history_is_not_taken_over_by_the_list(models: None) -> None:
-    history = InMemoryHistory()
-    for line in ("older", "/model gpt-oss:20b"):
-        history.append_string(line)
-    prompt = _Prompt(history=history)
+async def test_history_is_not_taken_over_by_the_list(models: None, kind: str) -> None:
+    prompt = _Prompt(kind, history=("older", "/model gpt-oss:20b"))
     await prompt.type("\x1b[A", then=lambda: prompt.buffer.text == "/model gpt-oss:20b")
     await asyncio.sleep(0.1)
     assert prompt.buffer.complete_state is None
@@ -200,7 +229,9 @@ async def test_history_is_not_taken_over_by_the_list(models: None) -> None:
     assert await prompt.result("\r") == "older"
 
 
-async def test_shift_tab_keeps_its_binding_and_plain_lines_get_no_list(models: None) -> None:
+async def test_shift_tab_keeps_its_binding_and_plain_lines_get_no_list(
+    models: None, kind: str
+) -> None:
     bindings = KeyBindings()
     pressed: list[str] = []
 
@@ -208,7 +239,7 @@ async def test_shift_tab_keeps_its_binding_and_plain_lines_get_no_list(models: N
     def _cycle(event: KeyPressEvent) -> None:
         pressed.append(event.current_buffer.text)
 
-    prompt = _Prompt(bindings)
+    prompt = _Prompt(kind, bindings=bindings)
     buffer = prompt.buffer
     await prompt.type("/mo", then=lambda: _shown(buffer, "/mo"))
     await prompt.type("\x1b[Z", then=lambda: pressed)
@@ -217,3 +248,32 @@ async def test_shift_tab_keeps_its_binding_and_plain_lines_get_no_list(models: N
     await asyncio.sleep(0.1)
     assert buffer.complete_state is None
     assert await prompt.result("\r") == "hello mo"
+
+
+def _hint_and_list(prompt: _Prompt) -> tuple[int, int]:
+    """見えているヒント行の窓の数と、一覧の窓の数。"""
+    windows = prompt.box.app.layout.visible_windows
+    hints = sum(isinstance(w.content, FormattedTextControl) for w in windows)
+    lists = sum(type(w.content).__name__ == "_MenuControl" for w in windows)
+    return hints, lists
+
+
+async def test_the_list_takes_the_place_of_the_hint_line(models: None) -> None:
+    prompt = _Prompt("box")
+    await _until(lambda: _hint_and_list(prompt) == (2, 0))
+    await prompt.type("/mo", then=lambda: _shown(prompt.buffer, "/mo"))
+    await _until(lambda: _hint_and_list(prompt) == (0, 1))
+    await prompt.type("\x1b", then=lambda: prompt.buffer.complete_state is None)
+    await _until(lambda: _hint_and_list(prompt) == (2, 0))
+    assert await prompt.result("\r") == "/mo"
+
+
+async def test_shift_enter_with_the_list_open_starts_a_new_line(models: None) -> None:
+    prompt = _Prompt("box")
+    buffer = prompt.buffer
+    await prompt.type("/mo", then=lambda: _shown(buffer, "/mo"))
+    shift_enter = "\x1b[13;2u"
+    assert key_protocol.to_legacy(shift_enter) == key_protocol.NEWLINE
+    await prompt.type(shift_enter, then=lambda: buffer.text == "/mo\n")
+    assert buffer.complete_state is None
+    assert await prompt.result("next\r") == "/mo\nnext"

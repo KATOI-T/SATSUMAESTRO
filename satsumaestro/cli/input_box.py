@@ -8,7 +8,8 @@ from collections.abc import Callable
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.filters import Condition, has_focus
+from prompt_toolkit.completion import Completer
+from prompt_toolkit.filters import Condition, Filter, has_focus, is_done
 from prompt_toolkit.formatted_text import AnyFormattedText, StyleAndTextTuples
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input import Input, create_input
@@ -18,7 +19,8 @@ from prompt_toolkit.key_binding import (
     KeyPressEvent,
     merge_key_bindings,
 )
-from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout.containers import AnyContainer
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.output import Output
@@ -30,6 +32,7 @@ from rich.table import Table
 from rich.text import Text
 
 from satsumaestro.cli import key_protocol
+from satsumaestro.cli.completion_menu import SuggestionMenu, menu_bindings, menu_window
 from satsumaestro.i18n.text import ui
 
 # 入力欄の高さの上限（端末の高さに対する割合と最低の行数）。超えた分は欄の中でスクロールする
@@ -58,6 +61,7 @@ class InputBox:
         status: Callable[[], str],
         fallback_prompt: Callable[[], AnyFormattedText],
         key_bindings: KeyBindings | None = None,
+        completer: Completer | None = None,
         fallback: Callable[[], PromptSession[str]] | None = None,
         input: Input | None = None,
         output: Output | None = None,
@@ -70,7 +74,13 @@ class InputBox:
         self._make_fallback = fallback
         self._history = InMemoryHistory()
         self._fallback: PromptSession[str] | None = None
-        self._buffer = Buffer(multiline=True, history=self._history)
+        # 1 行で / から始まる間だけ、打ちながら候補を出す
+        self._buffer = Buffer(
+            multiline=True,
+            history=self._history,
+            completer=completer,
+            complete_while_typing=Condition(self._is_slash_line),
+        )
         self._app: Application[str] | None = None
         # 解析器を替えられない入力では、端末に区別して送るよう頼まない（届いた列を読めない）
         self._distinguish_keys = False
@@ -136,13 +146,21 @@ class InputBox:
                 ),
             ]
         )
-        layout = Layout(
-            HSplit([_rule(), body, search, _rule(), hint_row]),
-            focused_element=body,
-        )
+        # 候補の一覧は、開いている間だけヒント行の代わりに出す
+        menu = SuggestionMenu(buffer)
+        shown = Condition(menu.is_open) & has_focus(buffer) & ~is_done
+        rows: list[AnyContainer] = [
+            _rule(),
+            body,
+            search,
+            _rule(),
+            ConditionalContainer(hint_row, filter=~shown),
+            ConditionalContainer(menu_window(menu), filter=shown),
+        ]
+        layout = Layout(HSplit(rows), focused_element=body)
         return Application(
             layout=layout,
-            key_bindings=self._bindings(),
+            key_bindings=self._bindings(menu, shown),
             style=_STYLE,
             erase_when_done=True,
             input=input,
@@ -153,23 +171,29 @@ class InputBox:
         rows = self._app.output.get_size().rows if self._app is not None else 0
         return Dimension(max=max(_MIN_MAX_HEIGHT, int(rows * _MAX_HEIGHT_RATIO)))
 
+    def _is_slash_line(self) -> bool:
+        text = self._buffer.text
+        return text.startswith("/") and "\n" not in text
+
     def _hint_fragments(self) -> StyleAndTextTuples:
         mode = self._hint()
         return [("", "  "), *mode, ("class:hint", ui("cli.input_box.mode_hint"))]
 
-    def _bindings(self) -> KeyBindingsBase:
+    def _bindings(self, menu: SuggestionMenu, shown: Filter) -> KeyBindingsBase:
         kb = KeyBindings()
         buffer = self._buffer
         # Ctrl+R の検索中（検索の行にフォーカス）は、Enter を検索の確定に残す
         editing = has_focus(buffer)
 
-        @kb.add("enter", filter=editing)
-        def _submit(event: KeyPressEvent) -> None:
+        def submit(event: KeyPressEvent) -> None:
             buffer.append_to_history()
             event.app.exit(result=buffer.text)
 
-        # Shift+Enter は Esc+Enter に読み替えて届く。Ctrl+J（\n）は送信のまま: ターン中に
-        # 押した Enter は端末が \n に変えて溜めるので、改行にすると先に打った依頼が送れない
+        kb.add("enter", filter=editing)(submit)
+
+        # Shift+Enter は区別して届けば NEWLINE_KEY、端末の設定によっては Esc+Enter。Ctrl+J（\n）は
+        # 送信のまま: ターン中に押した Enter は端末が \n に変えて溜めるので、改行にすると送れない
+        @kb.add(key_protocol.NEWLINE_KEY, filter=editing)
         @kb.add("escape", "enter", filter=editing)
         @kb.add("escape", "c-j", filter=editing)
         def _newline(event: KeyPressEvent) -> None:
@@ -184,9 +208,9 @@ class InputBox:
         def _end(event: KeyPressEvent) -> None:
             event.app.exit(exception=EOFError())
 
-        if self._extra_bindings is None:
-            return kb
-        return merge_key_bindings([kb, self._extra_bindings])
+        # 一覧のキーを最後に重ね、出ている間は Enter・上下・Tab・Esc を一覧が受ける
+        extra = [self._extra_bindings] if self._extra_bindings is not None else []
+        return merge_key_bindings([kb, *extra, menu_bindings(menu, shown, submit=submit)])
 
     def _echo(self, text: str) -> None:
         """送った本文を ``> 本文`` の形で残す（折り返しも本文の位置に揃える）。"""

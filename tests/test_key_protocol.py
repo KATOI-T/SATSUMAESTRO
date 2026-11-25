@@ -7,18 +7,18 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
-from satsumaestro.cli.key_protocol import LegacyKeyParser, install, to_legacy
+from satsumaestro.cli.key_protocol import NEWLINE, NEWLINE_KEY, LegacyKeyParser, install, to_legacy
 
 
 @pytest.mark.parametrize(
     ("sequence", "legacy"),
     [
-        pytest.param("\x1b[13;2u", "\x1b\r", id="shift-enter"),
-        pytest.param("\x1b[27;2;13~", "\x1b\r", id="shift-enter-modify-other-keys"),
-        pytest.param("\x1b[13;2:1u", "\x1b\r", id="shift-enter-with-event-type"),
-        pytest.param("\x1b[13;3u", "\x1b\r", id="alt-enter"),
+        pytest.param("\x1b[13;2u", NEWLINE, id="shift-enter"),
+        pytest.param("\x1b[27;2;13~", NEWLINE, id="shift-enter-modify-other-keys"),
+        pytest.param("\x1b[13;2:1u", NEWLINE, id="shift-enter-with-event-type"),
+        pytest.param("\x1b[13;3u", NEWLINE, id="alt-enter"),
         pytest.param("\x1b[13;5u", "\r", id="ctrl-enter"),
-        pytest.param("\x1b[57414;2u", "\x1b\r", id="shift-keypad-enter"),
+        pytest.param("\x1b[57414;2u", NEWLINE, id="shift-keypad-enter"),
         pytest.param("\x1b[99;5u", "\x03", id="ctrl-c"),
         pytest.param("\x1b[99;69u", "\x03", id="ctrl-c-with-caps-lock"),
         pytest.param("\x1b[100;5u", "\x04", id="ctrl-d"),
@@ -60,7 +60,7 @@ def _parse(*chunks: str, flush: bool = False) -> list[KeyPress]:
 
 def test_sequence_split_across_reads_is_joined() -> None:
     keys = _parse("a\x1b[13;", "2ub")
-    assert [k.key for k in keys] == ["a", Keys.Escape, Keys.ControlM, "b"]
+    assert [k.key for k in keys] == ["a", NEWLINE_KEY, "b"]
 
 
 def test_lone_escape_is_released_on_flush() -> None:

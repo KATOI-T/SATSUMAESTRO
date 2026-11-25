@@ -291,19 +291,23 @@ def _prompt_session(
     """端末でないときの 1 行入力（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
     session: PromptSession[str] = PromptSession(
         key_bindings=bindings,
-        completer=SlashCompleter(
-            ModelNames(rt),
-            providers=lambda: provider_notes(
-                rt.config.provider, rt.session.model, ENVIRON, _rejected(key_checks)
-            ),
-            rejected=lambda: _rejected(key_checks),
-        ),
+        completer=_slash_completer(rt, key_checks),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
         reserve_space_for_menu=MENU_ROWS + 1,
         **io,
     )
     install_menu(session)
     return session
+
+
+def _slash_completer(rt: ConversationRuntime, key_checks: KeyChecks | None) -> SlashCompleter:
+    return SlashCompleter(
+        ModelNames(rt),
+        providers=lambda: provider_notes(
+            rt.config.provider, rt.session.model, ENVIRON, _rejected(key_checks)
+        ),
+        rejected=lambda: _rejected(key_checks),
+    )
 
 
 def _rejected(checks: KeyChecks | None) -> dict[str, KeyCheck]:
@@ -388,6 +392,7 @@ async def run_repl(
         status=lambda: rt.session.model,
         fallback_prompt=lambda: mode_prompt_fragments(rt.session.mode),
         key_bindings=bindings,
+        completer=_slash_completer(rt, key_checks),
         fallback=lambda: _prompt_session(rt, bindings, key_checks=key_checks),
     )
     dispatcher = SlashDispatcher(
