@@ -334,6 +334,10 @@ the_server_truncated_the_request = "The server truncated the request (sent about
 the_reply_was_not_used = "The reply was not used. Fold the conversation with /compact, or check the model's window (Ollama num_ctx)."
 the_same_content_kept_repeating = "The same content kept repeating (the same paragraph {n} times)"
 
+[cli.input_box]
+mode_hint = " mode"
+more_lines = { one = "… {n} more line", other = "… {n} more lines" }
+
 [cli.language_gate]
 choose_the_screen_language = "Choose the screen language"
 

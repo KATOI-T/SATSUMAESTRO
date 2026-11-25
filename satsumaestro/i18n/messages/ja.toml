@@ -334,6 +334,10 @@ the_server_truncated_the_request = "サーバが要求を切り詰めました�
 the_reply_was_not_used = "応答は使っていません。/compact で会話を畳むか、モデルの窓（Ollama の num_ctx）を確かめてください。"
 the_same_content_kept_repeating = "同じ内容の繰り返しが止まりませんでした（同じ段落が {n} 回）"
 
+[cli.input_box]
+mode_hint = " モード"
+more_lines = "… ほか {n} 行"
+
 [cli.language_gate]
 choose_the_screen_language = "画面の言語を選んでください"
 

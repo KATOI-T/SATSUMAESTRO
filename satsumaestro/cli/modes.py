@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.formatted_text import FormattedText, StyleAndTextTuples
 
 from satsumaestro.session.models import MainMode, ModeState
 
@@ -17,6 +17,15 @@ def mode_prompt_fragments(state: ModeState) -> FormattedText:
         fragments.append(("", f":{state.sub.value}"))
     fragments.append(("", "] satsuma> "))
     return FormattedText(fragments)
+
+
+def mode_hint_fragments(state: ModeState) -> StyleAndTextTuples:
+    """入力欄のヒント行のモード表記（``plan`` / ``code`` / ``code:read-only``）。"""
+    color = MAIN_MODE_COLORS[state.main]
+    fragments: StyleAndTextTuples = [(f"fg:ansi{color} bold", state.main)]
+    if state.main == "code" and state.short_label() != "code":
+        fragments.append(("class:hint", f":{state.sub.value}"))
+    return fragments
 
 
 def mode_markup(state: ModeState, *, full: bool = False) -> str:
