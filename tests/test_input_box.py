@@ -228,6 +228,35 @@ async def test_non_terminal_input_falls_back_to_a_single_line_prompt(
     assert seen[-1] == "[code] satsuma> "
 
 
+async def test_non_terminal_input_uses_the_given_one_line_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    made: list[Any] = []
+
+    class _Session:
+        app = object()
+
+        async def prompt_async(self, message: Any) -> str:
+            return str(message())
+
+    def make() -> Any:
+        made.append(_Session())
+        return made[-1]
+
+    monkeypatch.setattr(input_box_mod.sys.stdin, "isatty", lambda: False, raising=False)
+    box = InputBox(
+        console=Console(file=io.StringIO()),
+        hint=lambda: [],
+        status=lambda: "",
+        fallback_prompt=lambda: "[code] satsuma> ",
+        fallback=make,
+    )
+    assert box.app is made[0].app
+    assert await box.prompt_async() == "[code] satsuma> "
+    assert await box.prompt_async() == "[code] satsuma> "
+    assert len(made) == 1
+
+
 def test_mode_hint_fragments() -> None:
     assert mode_hint_fragments(ModeState(main="plan")) == [("fg:ansigreen bold", "plan")]
     assert mode_hint_fragments(ModeState()) == [("fg:ansiblue bold", "code")]

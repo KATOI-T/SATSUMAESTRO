@@ -58,6 +58,7 @@ class InputBox:
         status: Callable[[], str],
         fallback_prompt: Callable[[], AnyFormattedText],
         key_bindings: KeyBindings | None = None,
+        fallback: Callable[[], PromptSession[str]] | None = None,
         input: Input | None = None,
         output: Output | None = None,
     ) -> None:
@@ -66,6 +67,7 @@ class InputBox:
         self._status = status
         self._fallback_prompt = fallback_prompt
         self._extra_bindings = key_bindings
+        self._make_fallback = fallback
         self._history = InMemoryHistory()
         self._fallback: PromptSession[str] | None = None
         self._buffer = Buffer(multiline=True, history=self._history)
@@ -77,14 +79,17 @@ class InputBox:
             self._distinguish_keys = key_protocol.install(inp)
             self._app = self._build_app(inp, output)
 
+    @property
+    def app(self) -> Application[str]:
+        """入力を受ける Application（入力欄か、戻した 1 行入力の物）。"""
+        if self._app is not None:
+            return self._app
+        return self._one_line().app
+
     async def prompt_async(self) -> str:
         """1 回分の入力を受け取る（Ctrl+C と空での Ctrl+D は例外にする）。"""
         if self._app is None:
-            if self._fallback is None:
-                self._fallback = PromptSession(
-                    key_bindings=self._extra_bindings, history=self._history
-                )
-            return await self._fallback.prompt_async(self._fallback_prompt)
+            return await self._one_line().prompt_async(self._fallback_prompt)
         self._buffer.reset()
         # 区別して送らせるのは入力欄の間だけ。ターン中も続けると Ctrl+C が割り込みにならない
         output = self._app.output
@@ -99,6 +104,16 @@ class InputBox:
                 output.flush()
         self._echo(text)
         return text
+
+    def _one_line(self) -> PromptSession[str]:
+        if self._fallback is None:
+            if self._make_fallback is not None:
+                self._fallback = self._make_fallback()
+            else:
+                self._fallback = PromptSession(
+                    key_bindings=self._extra_bindings, history=self._history
+                )
+        return self._fallback
 
     def _build_app(self, input: Input, output: Output | None) -> Application[str]:
         buffer = self._buffer

@@ -111,7 +111,10 @@ def test_plan_three_steps_happy_path(scenario: Runner, tmp_path: Path) -> None:
     text = result.transcript.text
     lines = result.transcript.lines
     assert result.report.problems == []
-    assert re.search(r"\[plan\] satsuma> ?三つのファイル", result.transcript.plain)
+    # 送った依頼は「> 本文」で残り、plan で受け付けられた（依頼が計画ファイルを指す）
+    assert re.search(r">\s*三つのファイル", result.transcript.plain)
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert users and users[0]["plan_file"] is not None, result.requests
 
     cards = result.report.cards
     assert len(cards) == 1
@@ -241,7 +244,8 @@ def test_absolute_path_reaches_the_model(scenario: Runner) -> None:
     text = result.transcript.text
     assert "未知のコマンドです" not in text
     assert "パスを受け取りました" in text
-    assert re.search(r"\[code\] satsuma> ?/Users/", result.transcript.plain)
+    assert re.search(r">\s*/Users/alice", result.transcript.plain)
+    assert users[0]["plan_file"] is None, result.requests
 
 
 def test_model_switch_to_a_missing_model_is_refused(scenario: Runner) -> None:

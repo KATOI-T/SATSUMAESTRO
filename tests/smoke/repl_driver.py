@@ -28,8 +28,9 @@ from tests.smoke.transcript import Report, Transcript, check, turn_ends
 REQUEST = "三つのファイル a.txt、b.txt、c.txt をそれぞれ 1 行で作成して"
 DELETE_REQUEST = "作成したファイルを削除してください"
 BANNER = r"SATSUMAESTRO REPL —"
-CODE_PROMPT = r"\[code\] satsuma>"
-PLAN_PROMPT = r"\[plan\] satsuma>"
+# 入力欄のヒント行。--repo で前の版を流すときのため、1 行入力の接頭辞も受ける
+CODE_PROMPT = r"\[code\] satsuma>|code\s*(?:モード|mode)"
+PLAN_PROMPT = r"\[plan\] satsuma>|plan\s*(?:モード|mode)"
 CARD_MARKERS = ("許可しますか？", "プランを承認して", "Allow this?", "Approve the plan and start?")
 TRUST_QUESTION = r"\(y/n/q\): "
 LANGUAGE_QUESTION = r"\((?:\d/)*\d\) \[\d\]: "
@@ -220,9 +221,14 @@ class ReplDriver:
         return time.monotonic()
 
     def shift_tab(self) -> None:
-        """Shift+Tab で plan へ。"""
+        """Shift+Tab で plan へ（差分だけ描くので、``plan`` の出た数が増えるのを待つ）。"""
+        before = self.transcript.plain.count("plan")
         self.send(_SHIFT_TAB)
-        self.wait_for(r"satsuma>\S*plan")
+        deadline = time.monotonic() + 10.0
+        while self.transcript.plain.count("plan") <= before:
+            if self.exited or time.monotonic() > deadline:
+                raise DriverTimeout("timeout waiting for plan after Shift+Tab", self.transcript)
+            self.pump(0.2)
 
     def answer_cards(self) -> None:
         """承認カード・権限カードの出現回数が答えた数を超えていたら ``y`` を送る。"""
