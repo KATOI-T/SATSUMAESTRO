@@ -21,6 +21,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installs it prints the command and runs nothing. In the REPL, `/update` shows the versions and
   the command to run after leaving the REPL.
   ([#53](https://github.com/KATOI-T/SATSUMAESTRO/issues/53))
+- In a terminal, the REPL reads each request in an input box between two rules, with a hint line
+  under it that shows the mode and the model. Enter sends and Shift+Enter starts a new line: while
+  the box is open, the REPL asks the terminal to send Shift+Enter apart from Enter (the kitty
+  keyboard protocol), and takes the request back when the box closes. A multi-line paste is one
+  request, and a sent request stays on the screen as `> text`.
+  ([#69](https://github.com/KATOI-T/SATSUMAESTRO/issues/69))
+
+### Changed
+
+- The REPL shows the mode on the hint line under the input box (`plan`, `code`, or `code:read-only`
+  when the permission is not the default) instead of as the `[code] satsuma>` prefix, which is now
+  kept only for a pipe or a dumb terminal. The `/` suggestions take the place of the hint line while
+  they are open.
+  ([#69](https://github.com/KATOI-T/SATSUMAESTRO/issues/69))
 
 ### Fixed
 

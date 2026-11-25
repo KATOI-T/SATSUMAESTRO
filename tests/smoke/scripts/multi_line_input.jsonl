@@ -1,0 +1,3 @@
+# 入力欄の改行（Shift+Enter）は送信にならず、複数行が 1 回の依頼としてモデルへ届く。
+{"when": {"role": "user", "contains": "三行目"}, "reply": {"text": "複数行を受け取りました。"}, "note": "複数行の依頼"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

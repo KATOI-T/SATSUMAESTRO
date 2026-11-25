@@ -267,7 +267,8 @@ satsumaestro doctor                   # health check of settings, provider, keys
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C stops the current
 turn and returns to the prompt; at a question, such as a permission card or the plan approval, it
-answers no. Typing `/` lists the commands under the prompt, and after a command its arguments
+answers no. Typing `/` lists the commands under the input box, in place of the hint line, and
+after a command its arguments
 (`/model ` lists the models of the current server, or the tested models on a cloud, and
 `/provider <name> ` those of that provider), each with a one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
 every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
@@ -275,8 +276,17 @@ every model takes every `/effort` level: one it does not take is sent as the nea
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.
 
-**Modes**: the main mode is `plan` or `code` (default `code`). The prompt shows it as
-`[plan] satsuma>` (green) or `[code] satsuma>` (blue).
+**Input box**: in a terminal, you write each request in a box between two rules. **Enter** sends
+and **Shift+Enter** starts a new line. While the box is open, the REPL asks the terminal to send
+Shift+Enter apart from Enter (the kitty keyboard protocol). A terminal that ignores this sends
+Shift+Enter as Enter, so it sends the request, unless the terminal is set to send Esc+Enter for it.
+A multi-line paste is one request, and a sent request stays on the screen as `> text` (the first 12
+lines of a long one). ↑/↓ go back to earlier requests and Ctrl-R searches them. Ctrl-C clears what
+you were writing, and Ctrl-D on an empty box quits. From a pipe or in a dumb terminal, the REPL
+reads one line at a time after `[code] satsuma>`.
+
+**Modes**: the main mode is `plan` or `code` (default `code`). The hint line under the input box
+shows it as `plan` (green) or `code` (blue), with the model on the right.
 
 - **Shift+Tab** switches between plan and code. `/mode` shows the current mode, and `/mode plan` or
   `/mode code read-only` sets it directly. `--mode plan|code|code:<sub>` sets it at startup. The
@@ -287,8 +297,8 @@ Switching away from a local server with `/provider` unloads the same way.
   example "add tests too"), and `n` asks the model to revise the plan with your one-line comment.
   Saying "go ahead" after a plan also counts as approval. `prompt` never approves a plan on its own.
 - Under `code`, the permission sub-mode is one of `read-only`, `workspace-write` (default),
-  `danger-full-access`, `prompt` and `allow`. The prompt shows it only when it is not the default,
-  as in `[code:read-only]`. `/sub-mode` shows or changes it.
+  `danger-full-access`, `prompt` and `allow`. The hint line shows it only when it is not the
+  default, as in `code:read-only`. `/sub-mode` shows or changes it.
 
 **Languages**: SATSUMAESTRO detects the language of each message and tells the model to reply in
 it. A message of two letters or fewer, such as `ok`, keeps the language of the one before. If the

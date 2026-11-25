@@ -211,6 +211,9 @@ def test_sigterm_at_the_input_line_puts_the_terminal_back(tmp_path: Path) -> Non
     after = plain.split("exit=143", 1)[1]
     for flag in ("icrnl", "icanon", "isig", "iexten", "echo"):
         assert re.search(rf"(?<![-\w]){flag}\b", after), flag
+    # 端末に区別して送るよう頼んだ回数と、戻した回数が釣り合う
+    raw = bytes(driver.transcript.raw)
+    assert raw.count(b"\x1b[>1u") == raw.count(b"\x1b[<u") >= 1, raw.count(b"\x1b[>1u")
 
 
 def test_empty_plan_card_is_reported(scenario: Runner, tmp_path: Path) -> None:
@@ -246,6 +249,22 @@ def test_absolute_path_reaches_the_model(scenario: Runner) -> None:
     assert "パスを受け取りました" in text
     assert re.search(r">\s*/Users/alice", result.transcript.plain)
     assert users[0]["plan_file"] is None, result.requests
+
+
+def test_multi_line_input_reaches_the_model_as_one_request(scenario: Runner) -> None:
+    """入力欄の改行（Shift+Enter の 2 通りの列）は送信せず、1 回の依頼としてモデルへ届く。"""
+    turn = "一行目\x1b[13;2u二行目\x1b[27;2;13~三行目"
+    result = scenario("multi_line_input.jsonl", turns=(turn,), plan=False)
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert len(users) == 1, result.requests
+    assert users[0]["head"].startswith("一行目\n二行目\n三行目"), users[0]
+    assert "複数行を受け取りました" in result.transcript.text
+    # 送った依頼は「> 本文」で残り、続きの行は本文の位置に揃う
+    lines = result.transcript.lines
+    first = next(i for i, ln in enumerate(lines) if re.fullmatch(r">\s*一行目", ln))
+    assert lines[first + 1 : first + 3] == ["  二行目", "  三行目"], lines[first : first + 3]
+    raw = bytes(result.transcript.raw)
+    assert raw.count(b"\x1b[>1u") == raw.count(b"\x1b[<u") >= 2, raw.count(b"\x1b[>1u")
 
 
 def test_model_switch_to_a_missing_model_is_refused(scenario: Runner) -> None:
