@@ -7,10 +7,12 @@ from contextlib import AbstractContextManager, nullcontext
 
 from rich.console import Console
 
+from satsumaestro.cli.interrupts import ctrl_c_raises
+
 
 def ask_line(console: Console, prompt: str) -> str:
-    """問いの答えを 1 行読む（端末が raw のまま残っていても Enter で終わる）。"""
-    with _line_mode():
+    """問いの答えを 1 行読む（端末が raw のまま残っていても Enter で終わり、Ctrl+C で抜ける）。"""
+    with _line_mode(), ctrl_c_raises():
         return console.input(prompt, markup=False)
 
 

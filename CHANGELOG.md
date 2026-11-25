@@ -22,6 +22,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the command to run after leaving the REPL.
   ([#53](https://github.com/KATOI-T/SATSUMAESTRO/issues/53))
 
+### Fixed
+
+- Ctrl-C during a turn in the REPL stops only that turn and returns to the prompt, as the README
+  says. Before, it closed the REPL. Tool calls the stopped turn left without a result are saved with
+  an "interrupted" result, so the next request is accepted. Ctrl-C at a question, such as a
+  permission card or the plan approval, now answers no at once instead of waiting for Enter.
+  ([#67](https://github.com/KATOI-T/SATSUMAESTRO/issues/67))
+
 ## [0.5.3] - 2026-11-22
 
 ### Added
