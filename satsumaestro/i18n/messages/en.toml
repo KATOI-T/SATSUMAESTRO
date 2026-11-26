@@ -219,6 +219,12 @@ windows_is_not_supported = "SATSUMAESTRO does not run natively on Windows. Use i
 upgrade_satsumaestro_with_the = "Upgrade SATSUMAESTRO with the command for the way it was installed"
 upgrade_without_asking = "Upgrade without asking"
 
+[cli.banner]
+help = "help"
+quit = "quit"
+interrupt = "interrupt"
+switch_plan_code = "switch [green]plan[/green]/[blue]code[/blue]"
+
 [cli.commands]
 use_mode_plan_mode_code = "[yellow]Use /mode plan | /mode code [{subs}][/yellow]"
 show_the_commands = "Show the commands"
@@ -433,8 +439,6 @@ card_in_parentheses = "({card})"
 not_approved_staying_in_plan = "(Not approved; staying in plan mode)"
 a_note_to_apply_while = "A note to apply while implementing (empty to just approve): "
 what_to_change_empty_to = "What to change (empty to only decline; the model revises the plan): "
-satsumaestro_repl_help_for = "SATSUMAESTRO REPL — /help for commands, /exit or Ctrl-D to quit, Ctrl-C to interrupt, Shift+Tab to switch [green]plan[/green]/[blue]code[/blue]"
-working_directory = "Working directory: {workdir}"
 the_command_failed = "The command failed: {error}"
 taken_as_an_instruction_to = "(Taken as an instruction to implement: approved the plan and switched to {mode}. Shift+Tab or /mode plan to go back to plan)"
 denied_so_this_turn_was = "(Denied, so this turn was stopped. Type your next instruction)"

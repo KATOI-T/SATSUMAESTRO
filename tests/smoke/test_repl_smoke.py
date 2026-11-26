@@ -872,7 +872,7 @@ def test_first_start_asks_for_the_screen_language(
     if saved == "en":
         assert tr.flat("Screen language: English (saved as language.ui in") in text
         assert tr.flat("Opening this directory for the first time") in text
-        assert tr.flat("/help for commands, /exit or Ctrl-D to quit") in text
+        assert tr.flat("/help help ∙ /exit quit") in text
         assert tr.flat("— output 1 · input") in text
         assert "このディレクトリを初めて開きます" not in text and "— 出力" not in text
     else:
@@ -902,7 +902,7 @@ def test_language_command_switches_the_screen(scenario: Runner, tmp_path: Path) 
 
 
 def test_the_first_screens_follow_the_environment_language(scenario: Runner) -> None:
-    """最初の発話より前の画面（信頼の確認・バナー・作業場所）は、環境の言語で出る。"""
+    """最初の発話より前の画面（信頼の確認・バナー・操作の案内）は、環境の言語で出る。"""
     result = scenario(
         "trust_first_open.jsonl",
         turns=("こんにちは",),
@@ -913,8 +913,8 @@ def test_the_first_screens_follow_the_environment_language(scenario: Runner) -> 
     text = tr.flat(result.transcript.text)
     assert tr.flat("Opening this directory for the first time") in text
     assert "Trusted:" in text and tr.flat("(recorded in") in text
-    assert tr.flat("/help for commands, /exit or Ctrl-D to quit") in text
-    assert tr.flat("Working directory:") in text
+    assert tr.flat("/help help ∙ /exit quit") in text
+    assert tr.flat("Ctrl+C interrupt ∙ Shift+Tab switch plan/code") in text
     assert "このディレクトリを初めて開きます" not in text and "作業場所" not in text
     assert result.report.failures == [], result.report.failures
 

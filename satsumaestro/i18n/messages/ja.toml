@@ -219,6 +219,12 @@ windows_is_not_supported = "SATSUMAESTRO は Windows では直接動きません
 upgrade_satsumaestro_with_the = "入れ方に合ったコマンドで SATSUMAESTRO を更新する"
 upgrade_without_asking = "確認せずに更新する"
 
+[cli.banner]
+help = "ヘルプ"
+quit = "終了"
+interrupt = "中断"
+switch_plan_code = "[green]plan[/green]/[blue]code[/blue] 切替"
+
 [cli.commands]
 use_mode_plan_mode_code = "[yellow]/mode plan | /mode code [{subs}] で指定してください[/yellow]"
 show_the_commands = "コマンド一覧を表示する"
@@ -433,8 +439,6 @@ card_in_parentheses = "（{card}）"
 not_approved_staying_in_plan = "(未承認のまま plan mode を続けます)"
 a_note_to_apply_while = "実装時に反映させる一言（空ならそのまま承認）: "
 what_to_change_empty_to = "修正点（空なら未承認のみ返す。モデルが計画を直します）: "
-satsumaestro_repl_help_for = "SATSUMAESTRO REPL — /help でコマンド一覧、/exit または Ctrl-D で終了、Ctrl-C で中断、Shift+Tab で [green]plan[/green]/[blue]code[/blue] 切替"
-working_directory = "作業場所: {workdir}"
 the_command_failed = "コマンド実行に失敗しました: {error}"
 taken_as_an_instruction_to = "(実装の指示と判断し、計画を承認して {mode} へ切り替えました。plan に戻すには Shift+Tab または /mode plan)"
 denied_so_this_turn_was = "(拒否したので、このターンを止めました。続けて指示を入力してください)"

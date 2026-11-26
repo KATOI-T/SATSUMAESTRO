@@ -208,6 +208,11 @@ async def test_the_repl_shows_the_stored_notice_and_refreshes_in_the_background(
     out = console.export_text()
     assert "SATSUMAESTRO 0.5.4 is available (you have 0.5.3)" in out
     assert "0.5.5" not in out
+    line = next(ln for ln in out.splitlines() if "is available" in ln)
+    lines = out.splitlines()
+    assert "/help" in lines[lines.index(line) - 1]  # 操作の案内のすぐ下
+    left, right = len(line) - len(line.lstrip()), 200 - len(line.rstrip())
+    assert left > 0 and abs(left - right) <= 1, line
     assert len(seen) == 1
     cached = load_cached(path)
     assert cached is not None and cached.latest == "0.5.5"

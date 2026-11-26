@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
+import pytest
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from satsumaestro.cli.banner import StartupHint
+from satsumaestro.i18n.text import pinned_ui_language
 from tests.smoke import transcript as tr
+from tests.smoke.repl_driver import BANNER
 
 HAPPY = """\
 SATSUMAESTRO REPL — /help でコマンド一覧、/exit で終了
@@ -176,3 +182,21 @@ def test_markers_on_the_english_screen() -> None:
         assert tr.failure_lines(ENGLISH_STEPS + line + "\n") == [line]
     card = "╭── Permission: write_file (workspace-write) ──╮\n│ a.txt │\n╰──────────╯\n"
     assert tr.permission_cards(tr.clean_lines(card), "write_file") == ["a.txt"]
+
+
+@pytest.mark.parametrize("language", ["ja", "en"])
+@pytest.mark.parametrize("width", [120, 40])
+def test_the_banner_marker_matches_the_startup_hint(language: str, width: int) -> None:
+    """駆動が待つ起動の目印は、今の案内（詰めた形・折った形も）の 1 行目に合う。"""
+    with pinned_ui_language(language):
+        first = StartupHint().lines(width)[0].plain
+    assert re.search(BANNER, first), first
+
+
+def test_the_banner_marker_matches_the_older_startup_screen() -> None:
+    """--repo で前の版の REPL と比べるときも、同じ目印で起動を待てる。"""
+    for line in (
+        "SATSUMAESTRO REPL — /help でコマンド一覧、/exit または Ctrl-D で終了",
+        "SATSUMAESTRO REPL — /help for commands, /exit or Ctrl-D to quit",
+    ):
+        assert re.search(BANNER, line), line

@@ -13,11 +13,11 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from rich.console import Console
-from rich.markup import escape
 from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 
+from satsumaestro.cli.banner import StartupHint
 from satsumaestro.cli.commands import (
     CommandOutcome,
     SlashDispatcher,
@@ -398,14 +398,11 @@ async def run_repl(
     dispatcher = SlashDispatcher(
         rt, console, trace_log=trace_log, trusted=trusted, render=render, key_checks=key_checks
     )
-    banner = ui("cli.repl.satsumaestro_repl_help_for")
-    console.print(f"[dim]{banner}[/dim]")
-    workdir = escape(str(rt.cwd))
-    workdir_line = ui("cli.repl.working_directory", workdir=workdir)
-    console.print(f"[dim]{workdir_line}[/dim]")
+    console.print(StartupHint())
     newer = updates.notice() if updates else None
     if newer:
-        console.print(Text(newer, style="yellow"))
+        console.print(Text(newer, style="yellow"), justify="center")
+    console.print()
     # 結果は /provider の一覧と候補にだけ出す
     checking = asyncio.create_task(key_checks.run(ENVIRON)) if key_checks else None
     # 取り直した結果は次の起動で知らせる

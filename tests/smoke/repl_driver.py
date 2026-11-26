@@ -27,7 +27,8 @@ from tests.smoke.transcript import Report, Transcript, check, turn_ends
 
 REQUEST = "三つのファイル a.txt、b.txt、c.txt をそれぞれ 1 行で作成して"
 DELETE_REQUEST = "作成したファイルを削除してください"
-BANNER = r"SATSUMAESTRO REPL —"
+# 操作の案内の行。--repo で前の版を流すときのため、前の起動の行も受ける
+BANNER = r"/help +(?:ヘルプ|help) |SATSUMAESTRO REPL —"
 # 入力欄のヒント行。--repo で前の版を流すときのため、1 行入力の接頭辞も受ける
 CODE_PROMPT = r"\[code\] satsuma>|code\s*(?:モード|mode)"
 PLAN_PROMPT = r"\[plan\] satsuma>|plan\s*(?:モード|mode)"
