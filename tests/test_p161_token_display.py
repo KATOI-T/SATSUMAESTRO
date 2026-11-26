@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from rich.console import Console
 
+from satsumaestro.cli import render as render_mod
 from satsumaestro.cli.render import RichRenderer, _format_tokens, _rough_tokens
 from satsumaestro.engine.events import (
     MessageStop,
@@ -18,6 +20,12 @@ from satsumaestro.engine.events import (
 from satsumaestro.session.models import TokenUsage, ToolResultBlock
 
 WIDTH = 100
+
+
+@pytest.fixture(autouse=True)
+def _still_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """遅い実行でも、内訳の行にターンの合計時間（2 秒から）を足さない。"""
+    monkeypatch.setattr(render_mod.time, "monotonic", lambda: 1000.0)
 
 
 def _renderer(
