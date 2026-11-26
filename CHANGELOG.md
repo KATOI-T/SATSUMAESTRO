@@ -27,6 +27,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keyboard protocol), and takes the request back when the box closes. A multi-line paste is one
   request, and a sent request stays on the screen as `> text`.
   ([#69](https://github.com/KATOI-T/SATSUMAESTRO/issues/69))
+- Replies flow onto the screen a sentence at a time, each over 0.2 seconds, and a sentence still
+  being written is not shown. `display.text` chooses this (`stream`, the default), whole blocks
+  (`block`), the earlier redrawing of what has arrived (`live`) or nothing until a tool runs or the
+  turn ends (`full`), with `display.stream_sentence_s` and `display.reveal_after_s` for the timing.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- In the REPL, a successful bash command with four or more lines of output is folded into its done
+  line with the line count, and `/expand [n]` shows one of the last 20 in full.
+  `display.tool_output: "full"` keeps showing every output. With `redaction.live`, `/expand` shows the
+  redacted command and output.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- When the terminal width changes while the input box is open, the REPL redraws the output and the
+  input box at the new width, so rules and earlier output no longer break into pieces. A change during
+  a turn is redrawn before the next input box.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
 
 ### Changed
 
@@ -35,6 +49,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   kept only for a pipe or a dumb terminal. The `/` suggestions take the place of the hint line while
   they are open.
   ([#69](https://github.com/KATOI-T/SATSUMAESTRO/issues/69))
+- Tools are shown as one line, `⏺ Action(target)`, with the result after `⎿` under it, and the status
+  at the bottom is one line with the elapsed time. The token counts and the time of the whole turn go
+  in the summary at the end of the turn. Reply blocks start with `⏺` too, and blocks are spaced as in
+  one Markdown document.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- Diffs show line numbers and three lines around each change, with green and red backgrounds and the
+  changed words highlighted. Replies draw headings left-aligned, code blocks without a background and
+  quotes with `▎`.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- The lowest supported prompt_toolkit is now 3.0.31.
+  ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
 
 ### Fixed
 

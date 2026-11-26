@@ -313,7 +313,53 @@ supported.
 
 **File changes**: while the model is generating the arguments of an edit, the content streams to the
 screen, and a diff appears just before the edit runs (terminal only). `stream_tool_args: false`
-turns off the streaming.
+turns off the streaming. The diff starts with a line such as `Added 3 lines, removed 1 line`, then
+shows each change with three lines around it and line numbers (a new file shows `Wrote N lines` and
+its first 10 lines). Added lines have a green background and removed lines a red one; in a pair of
+changed lines, only the changed words are highlighted. Added lines and the lines around them are
+syntax-colored, and `...` separates changes that are far apart.
+
+**How replies appear**: by default (`display.text: "stream"`), each sentence of a reply flows onto the
+screen over `display.stream_sentence_s` seconds (default 0.2) as soon as it has arrived, whatever its
+length; a backlog flows out in the same time. A sentence still being written is not shown (code goes
+line by line, and after 1.5 seconds without a sentence end, what has arrived flows out), and
+`stream_sentence_s: 0` shows each sentence at once. A block, such as a paragraph, is moved into the
+scrollback once it has been shown, and before a tool runs or the turn ends the rest flows out first.
+`"block"` shows each block at once when it is complete, and the sentences of one still unfinished after
+`display.reveal_after_s` seconds (default 3); a long code block then goes out line by line. `"live"`
+redraws whatever has arrived, and `"full"` shows nothing until a tool runs or the turn ends. In every
+mode, blocks are spaced as in one Markdown document. A file being generated shows only its heading
+(path and line count) except in `"live"`.
+
+**Status line**: while working, the bottom line shows what is happening and for how long (for example
+`⠋ Writing the reply…  8s`), with a light sweeping over the words. The token counts and the time of
+the whole turn go in the summary at the end of the turn (the time last, as `total 2m03s`, for turns of
+2 seconds or more).
+
+**Tool lines**: reply blocks and tools start with `⏺`. A tool is one line, `⏺ Action(target)`, with
+its result under it after `⎿` (for example `⏺ Search("def total")` and `⎿  3 matches`). In the REPL a
+running tool is shown at the bottom and printed with its result when it ends. `⏺` is green for
+success and red for failure; a tool shown before a permission card is grey, and its result is added
+as a `⎿` line.
+
+**Markdown in replies**: headings are left-aligned and bold (without `#`), bullets are `-` and
+numbered items `1.`. Code blocks are colored without a background (code without a language in a pale
+blue-violet; a language that cannot be colored gets its name in a grey line). Inline code is pale
+blue-violet, tables are boxed, rules are `---` and quotes start with `▎`. The plan in the approval
+card looks the same.
+
+**bash output**: in the REPL, a successful bash command with four or more lines of output is folded
+into its done line (for example `⎿  ✓ Done 1.2s · output 34 lines (/expand 3 to show them)`); three
+lines or fewer are shown under `⎿`. `/expand 3` shows that output in full, and `/expand` the last
+one (the last 20 are kept). A failure shows its reason and details as before.
+`display.tool_output: "full"` shows every output (up to the first 2,000 characters), and `prompt`
+never folds.
+
+**Changing the terminal width**: when the width changes while the input box is open, the REPL clears
+the screen at once and redraws the visible part of the output and the input box at the new width.
+Once the width stops changing, it prints the scrollback again from the start of the REPL (up to the
+last 2,000 prints; what the terminal showed before the REPL started is cleared). When the width changes during a turn, the
+redraw happens before the next input box.
 
 ## Providers
 
@@ -488,8 +534,8 @@ are saved with these replaced by `[redacted]`: the values of the keys above, val
 secret-like names (such as `API_KEY=…` or `password: …`), `Authorization:` headers, keys in URL
 queries and key-shaped tokens (such as `sk-…` and `ghp_…`). Other secrets in tool output are saved as
 they are. Set `redaction.live` to `true` to replace the same values in tool results before the model
-and the screen see them, in the tool input shown on the screen and in approval cards, and in change
-previews (tool arguments are then not shown while they stream). In bash commands, expansions and
+and the screen see them, in the tool input shown on the screen (tool lines, `/expand`) and in
+approval cards, and in change previews (tool arguments are then not shown while they stream). In bash commands, expansions and
 shell syntax that runs, such as `$VAR` and `$(…)`, stay visible after a secret-like name, and only
 the text around them is replaced. What runs is unchanged, but the model can no longer copy a key it
 has read. It reads such a key as `[redacted]`, so rewriting a whole file that holds one can put

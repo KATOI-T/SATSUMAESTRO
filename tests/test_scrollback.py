@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 
 import pytest
+import rich.console
 from rich.console import Console
 from rich.rule import Rule
 from rich.text import Text
@@ -127,7 +128,12 @@ def test_a_card_answer_is_kept_after_its_question(monkeypatch: pytest.MonkeyPatc
 
 
 def test_a_password_answer_is_not_kept(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("getpass.getpass", lambda *_, **__: "secret")
+    def fake(*_: object, **__: object) -> str:
+        return "secret"
+
+    monkeypatch.setattr("getpass.getpass", fake)
+    # Rich 15 より前は読み込みの時に getpass を取り込む
+    monkeypatch.setattr(rich.console, "getpass", fake, raising=False)
     console, out = _console()
     console.keep_scrollback()
     assert console.input("Key: ", password=True) == "secret"
