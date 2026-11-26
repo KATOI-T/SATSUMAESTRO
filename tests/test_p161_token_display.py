@@ -1,11 +1,13 @@
-"""状態行のトークン表示を「出力」に限定し、ターン末尾に内訳の 1 行を出す。"""
+"""トークン数は状態行に出さず、ターン末尾に内訳の 1 行を出す。"""
 
 from __future__ import annotations
 
 import io
 
+import pytest
 from rich.console import Console
 
+from satsumaestro.cli import render as render_mod
 from satsumaestro.cli.render import RichRenderer, _format_tokens, _rough_tokens
 from satsumaestro.engine.events import (
     MessageStop,
@@ -18,6 +20,12 @@ from satsumaestro.engine.events import (
 from satsumaestro.session.models import TokenUsage, ToolResultBlock
 
 WIDTH = 100
+
+
+@pytest.fixture(autouse=True)
+def _still_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """遅い実行でも、内訳の行にターンの合計時間（2 秒から）を足さない。"""
+    monkeypatch.setattr(render_mod.time, "monotonic", lambda: 1000.0)
 
 
 def _renderer(
@@ -70,38 +78,24 @@ def test_rough_estimate_counts_japanese_per_character() -> None:
     assert r._turn_tokens() == 52
 
 
-def test_status_line_shows_output_only_without_an_estimate_mark() -> None:
+def test_status_line_never_shows_the_count() -> None:
+    """数はどの状態でも状態行に出さず、ターン末尾にだけ出す。"""
     r, _ = _renderer()
     r.start_turn()
-    assert "出力" not in _status(r)
+    assert "トークン" not in _status(r)
+    r.on_assistant_event(Thinking(text="t" * 40))
+    assert "思考を整理中" in _status(r) and "トークン" not in _status(r)
     r.on_assistant_event(TextDelta(text="x" * 400))
-    line = _status(r)
-    assert "出力 100" in line and "~" not in line
-    assert "入力" not in line and "文脈" not in line and "tok" not in line
-    r.on_assistant_event(Usage(input_tokens=12_000, output_tokens=123))
-    line = _status(r)
-    assert "出力 123" in line
-    assert "入力" not in line and "文脈" not in line
-
-
-def test_status_line_hides_tokens_while_the_count_cannot_move() -> None:
-    """ツールの実行中・次の応答の待ち・出し直しの待ちでは数が動かないので出さない。"""
-    r, _ = _renderer()
-    r.start_turn()
-    r.on_assistant_event(TextDelta(text="hello"))
+    assert "応答生成中" in _status(r)
     r.on_assistant_event(Usage(input_tokens=1000, output_tokens=50))
     r.on_assistant_event(MessageStop())
-    assert "出力 50" in _status(r)
     r.on_tool_start(ToolUse(id="1", name="read_file", input={"path": "a"}))
-    assert "読み込み中" in _status(r) and "出力" not in _status(r)
+    assert "読み込み中" in _status(r)
     r.on_tool_result(ToolResultBlock(tool_use_id="1", tool_name="read_file", output="x"))
-    assert "次の操作を考え中" in _status(r) and "出力" not in _status(r)
-    r.on_assistant_event(Thinking(text="t" * 40))
-    assert "思考を整理中" in _status(r) and "出力 60" in _status(r)
-    r.on_assistant_event(TextDelta(text="again"))
-    assert "応答生成中" in _status(r) and "出力 61" in _status(r)
-    r.on_stream_aborted(timeout_recovery_s=120)
-    assert "出し直しを待っています" in _status(r) and "出力" not in _status(r)
+    assert "次の操作を考え中" in _status(r)
+    for word in ("トークン", "出力", "tok"):
+        assert word not in _status(r)
+    assert r._turn_tokens() == 50
 
 
 def test_counter_keeps_moving_in_the_second_message() -> None:
@@ -116,7 +110,6 @@ def test_counter_keeps_moving_in_the_second_message() -> None:
     assert r._turn_tokens() == 50
     r.on_assistant_event(TextDelta(text="y" * 80))
     assert r._turn_tokens() == 70
-    assert "出力 70" in _status(r)
     r.on_assistant_event(Usage(input_tokens=1100, output_tokens=33))
     assert r._turn_tokens() == 83
 
@@ -147,7 +140,6 @@ def test_aborted_message_without_usage_stays_as_an_estimate() -> None:
     r.on_assistant_event(Usage(input_tokens=500, output_tokens=12))
     r.on_assistant_event(MessageStop())
     assert r._turn_tokens() == 32
-    assert "出力 32" in _status(r)
 
 
 def test_status_line_stays_on_one_row() -> None:
@@ -158,8 +150,8 @@ def test_status_line_stays_on_one_row() -> None:
     out = io.StringIO()
     Console(file=out, force_terminal=False, width=WIDTH, height=10).print(r._live_renderable())
     rows = out.getvalue().rstrip("\n").split("\n")
-    assert "応答生成中" in rows[-1] and "出力 7.89K" in rows[-1]
-    assert "出力" not in "\n".join(rows[:-1])
+    assert "応答生成中" in rows[-1]
+    assert "トークン" not in "\n".join(rows)
 
 
 def test_end_turn_prints_the_breakdown_line() -> None:
@@ -174,7 +166,7 @@ def test_end_turn_prints_the_breakdown_line() -> None:
     r.on_assistant_event(Usage(input_tokens=13_000, output_tokens=1_100))
     r.on_assistant_event(MessageStop())
     r.end_turn()
-    assert _last_line(buf) == "— 出力 1.4K · 入力 25K（2 回） · 文脈 14.1K/52K"
+    assert _last_line(buf) == "  — 出力 1.4K · 入力 25K（2 回） · 文脈 14.1K/52K"
     assert "tok" not in buf.getvalue()
 
 
@@ -186,7 +178,7 @@ def test_end_turn_adds_delegated_usage_only_when_present() -> None:
     r.on_assistant_event(MessageStop())
     r.end_turn(delegated=TokenUsage(input_tokens=40_100, output_tokens=5_600))
     assert _last_line(buf) == (
-        "— 出力 50 · 入力 1K（1 回） · 委譲 入力 40.1K / 出力 5.6K · 文脈 1.05K/52K"
+        "  — 出力 50 · 入力 1K（1 回） · 委譲 入力 40.1K / 出力 5.6K · 文脈 1.05K/52K"
     )
 
     r2, buf2 = _renderer()
@@ -205,7 +197,7 @@ def test_end_turn_without_usage_prints_the_estimate_only() -> None:
     r.on_assistant_event(TextDelta(text="x" * 400))
     r.on_assistant_event(MessageStop())
     r.end_turn()
-    assert _last_line(buf) == "— 出力 100"
+    assert _last_line(buf) == "  — 出力 100"
 
 
 def test_end_turn_without_a_limit_shows_the_numerator_only() -> None:
@@ -215,7 +207,7 @@ def test_end_turn_without_a_limit_shows_the_numerator_only() -> None:
     r.on_assistant_event(Usage(input_tokens=1_000, output_tokens=50))
     r.on_assistant_event(MessageStop())
     r.end_turn()
-    assert _last_line(buf) == "— 出力 50 · 入力 1K（1 回） · 文脈 1.05K"
+    assert _last_line(buf) == "  — 出力 50 · 入力 1K（1 回） · 文脈 1.05K"
 
 
 def test_end_turn_prints_nothing_when_nothing_was_counted() -> None:
@@ -237,7 +229,7 @@ def test_counters_reset_between_turns() -> None:
     r.on_assistant_event(Usage(input_tokens=10_000, output_tokens=10))
     r.on_assistant_event(MessageStop())
     r.end_turn()
-    assert _last_line(buf) == "— 出力 10 · 入力 10K（1 回） · 文脈 10K/52K"
+    assert _last_line(buf) == "  — 出力 10 · 入力 10K（1 回） · 文脈 10K/52K"
 
 
 def test_non_tty_output_is_unchanged() -> None:

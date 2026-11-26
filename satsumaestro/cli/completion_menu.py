@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import Completion
@@ -132,7 +134,8 @@ class SuggestionMenu:
         text, last = buffer.text, self._last_text
         self._last_text = text
         deleted = text != last and last.startswith(text)
-        if deleted and text.startswith("/") and buffer.complete_state is None:
+        slash_line = text.startswith("/") and "\n" not in text
+        if deleted and slash_line and buffer.complete_state is None:
             buffer.start_completion()
 
 
@@ -160,7 +163,17 @@ class _MenuControl(UIControl):
         return UIContent(get_line=lambda i: lines[i], line_count=len(lines))
 
 
-def menu_bindings(menu: SuggestionMenu, shown: Filter) -> KeyBindings:
+def menu_window(menu: SuggestionMenu) -> Window:
+    """一覧を描く窓（候補の数だけの高さ）。"""
+    return Window(_MenuControl(menu), dont_extend_height=True)
+
+
+def menu_bindings(
+    menu: SuggestionMenu,
+    shown: Filter,
+    *,
+    submit: Callable[[KeyPressEvent], None] | None = None,
+) -> KeyBindings:
     """一覧が出ている間のキー（上下で選び、Tab で埋め、Enter で選んだ行を実行し、Esc で閉じる）。"""
     bindings = KeyBindings()
 
@@ -181,7 +194,10 @@ def menu_bindings(menu: SuggestionMenu, shown: Filter) -> KeyBindings:
     @bindings.add("enter", filter=Condition(menu.has_choice) & shown)
     def _run(event: KeyPressEvent) -> None:
         menu.fill(then_suggest=False)
-        event.current_buffer.validate_and_handle()
+        if submit is not None:
+            submit(event)
+        else:
+            event.current_buffer.validate_and_handle()
 
     @bindings.add("escape", filter=shown, eager=True)
     def _close(event: KeyPressEvent) -> None:
@@ -203,9 +219,8 @@ def install_menu(session: PromptSession[str]) -> SuggestionMenu | None:
                 continue
             menu = SuggestionMenu(buffer)
             shown = Condition(menu.is_open) & has_focus(buffer) & ~is_done
-            window = Window(_MenuControl(menu), dont_extend_height=True)
             container.floats[i] = Float(
-                content=ConditionalContainer(window, filter=shown),
+                content=ConditionalContainer(menu_window(menu), filter=shown),
                 left=0,
                 right=0,
                 ycursor=True,

@@ -27,6 +27,8 @@ class RetryConfig(BaseModel):
 
 
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+TextMode = Literal["stream", "block", "live", "full"]
+ToolOutputMode = Literal["summary", "full"]
 
 
 class SamplingConfig(BaseModel):
@@ -392,6 +394,21 @@ class LanguageConfig(BaseModel):
         return None if self.ui in (None, "auto") else self.ui
 
 
+class DisplayConfig(BaseModel):
+    """画面の出し方（描画だけで、会話の中身は変わらない）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # stream: 文ごとに流す・block: まとまりごと・live: 書きかけも描き直す・full: 区切りまで出さない
+    text: TextMode = "stream"
+    # block で、まとまりがこの秒数を超えても完成しないときは文の切れ目までを見せる
+    reveal_after_s: float = Field(default=3.0, ge=0)
+    # stream で、届いた文を流し切るまでの秒数（0 なら流さずに出す）
+    stream_sentence_s: float = Field(default=0.2, ge=0, le=5)
+    # 成功した bash の出力（REPL のみ）。summary は 4 行以上を畳み、/expand で出し直す
+    tool_output: ToolOutputMode = "summary"
+
+
 class RecoveryConfig(BaseModel):
     """自己回復レシピの設定。"""
 
@@ -480,6 +497,7 @@ class RuntimeConfig(BaseModel):
     orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     decomposition: DecompositionConfig = Field(default_factory=DecompositionConfig)
     show_thinking: bool = False
+    display: DisplayConfig = Field(default_factory=DisplayConfig)
     update_check: bool = True
     stream_tool_args: bool = True
     planning_guidance: bool = False

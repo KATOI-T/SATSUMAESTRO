@@ -219,6 +219,12 @@ windows_is_not_supported = "SATSUMAESTRO does not run natively on Windows. Use i
 upgrade_satsumaestro_with_the = "Upgrade SATSUMAESTRO with the command for the way it was installed"
 upgrade_without_asking = "Upgrade without asking"
 
+[cli.banner]
+help = "help"
+quit = "quit"
+interrupt = "interrupt"
+switch_plan_code = "switch [green]plan[/green]/[blue]code[/blue]"
+
 [cli.commands]
 use_mode_plan_mode_code = "[yellow]Use /mode plan | /mode code [{subs}][/yellow]"
 show_the_commands = "Show the commands"
@@ -227,11 +233,16 @@ switch_the_reasoning_effort = "Switch the reasoning effort"
 turn_fast_mode_on_or_off = "Turn fast mode on or off"
 show_switch_the_current_model = "Show the current model and the available ones / switch and save"
 show_the_sessions_and_the = "Show the sessions and the current one"
+show_the_working_directory = "Show the working directory (the base for file operations and permissions)"
+show_the_version = "Show the version"
+version = "Version: {version}"
+working_directory = "Working directory: {workdir}"
 check_the_settings_and_the = "Check the settings and the provider (offline)"
 show_switch_the_main_mode = "Show / switch the main mode (plan|code) and the permission sub-mode of code"
 switch_plan_mode_alias_of = "Switch plan mode (alias of /mode plan|code)"
 show_switch_the_permission_sub = "Show / switch the permission sub-mode of code (the prompt omits the default workspace-write)"
 clear_the_conversation_todos_and = "Clear the conversation, TODOs and plan state"
+show_a_collapsed_bash_output = "Show a collapsed bash output in full (the latest without a number)"
 show_telemetry_turns_runs_and = "Show telemetry (turns, runs and errors per tool)"
 exit_the_repl = "Exit the REPL"
 unknown_command_help_for_the = "Unknown command: /{shown} — /help for the list"
@@ -258,6 +269,9 @@ change_sub_mode_sub_the = "{subs} (change: /sub-mode <sub>. The prompt omits the
 the_sub_mode_cannot_be = "The sub-mode cannot be changed in plan (switch back with /mode code <sub>)"
 use_plan_on_off = "Use /plan on|off"
 cleared_the_conversation_todos_and = "Cleared the conversation, TODOs and plan state"
+no_collapsed_output_yet = "No bash output has been collapsed yet"
+collapsed_output_not_kept = "No output {number} ({first}–{last} can be shown; the last {keep} are kept)"
+expand_number_expected = "Give the number as digits (e.g. /expand 3)"
 telemetry_is_off_enable_it = "Telemetry is off (enable it with telemetry.enabled: true)"
 turns_failed_recovered_bash_auto = "Turns: {turns} (failed {turns_failed}, recovered {recoveries}, bash auto-allowed {auto_allowed}) / iterations avg {avg}"
 tool = "Tool"
@@ -334,6 +348,10 @@ the_server_truncated_the_request = "The server truncated the request (sent about
 the_reply_was_not_used = "The reply was not used. Fold the conversation with /compact, or check the model's window (Ollama num_ctx)."
 the_same_content_kept_repeating = "The same content kept repeating (the same paragraph {n} times)"
 
+[cli.input_box]
+mode_hint = " mode"
+more_lines = { one = "… {n} more line", other = "… {n} more lines" }
+
 [cli.language_gate]
 choose_the_screen_language = "Choose the screen language"
 
@@ -346,7 +364,6 @@ waiting_for_the_retry = "Waiting for the retry…"
 the_model_has_not_finished = "The model has not finished loading (check `ollama ps` and VRAM)"
 the_model_has_not_finished_lmstudio = "The model has not finished loading (check `lms ps` and memory)"
 the_model_has_not_finished_llamacpp = "The model has not finished loading (check the llama-server log and memory)"
-note_in_parentheses = " ({note})"
 the_response_was_cut_off = "— The response was cut off"
 stopped_no_response = "— No response for {seconds} s, so it was stopped and asked to resend in smaller parts"
 step_resume_last_attempt = "— No response for {seconds} s, so it was stopped and asked to resume step {index}/{total} in smaller parts (attempt {attempt} in this step; it stops if this happens once more)"
@@ -365,7 +382,7 @@ largest_write_lines = { one = "largest write {n} line", other = "largest write {
 longest_response_s = "longest response {longest} s"
 edited_lines = { one = "edited {n} line", other = "edited {n} lines" }
 step_done = "— Step {index}/{total} done: "
-output_shown = "output {shown}"
+turn_total = "total {shown}"
 summary_output = "output {out}"
 input_requests = { one = "input {inp} ({n} request)", other = "input {inp} ({n} requests)" }
 delegated_input_output = "delegated input {d_in} / output {d_out}"
@@ -375,16 +392,20 @@ done_with_lines = { one = "✓ {label} ({n} line)", other = "✓ {label} ({n} li
 generating = "{name} — generating"
 call_number = " #{number}"
 title_lines = { one = " ({n} line)", other = " ({n} lines)" }
-bullet = "• "
 done = "✓ Done"
 done_with_summary = "✓ Done {shown}"
+collapsed_output = " · output {n} lines (/expand {number} to show them)"
 permission = "Permission: {name} ({required})"
 no_changes = "(no changes)"
-rest_omitted = "… (rest omitted)\n"
+diff_added = { one = "Added {n} line", other = "Added {n} lines" }
+diff_removed = { one = "removed {n} line", other = "removed {n} lines" }
+diff_removed_only = { one = "Removed {n} line", other = "Removed {n} lines" }
+diff_join = ", "
+wrote_lines = { one = "Wrote {n} line", other = "Wrote {n} lines" }
+more_rows = { one = "… +{n} line", other = "… +{n} lines" }
 empty_directory = "(empty directory)"
 deletes_everything_inside_entries = { one = "Deletes everything inside ({n} entry)\n", other = "Deletes everything inside ({n} entries)\n" }
 and_more = "  … and {rest} more\n"
-new_file = "(new file)\n"
 diff_shown_above_d_for = " (diff shown above; d for full text)"
 append_lines_bytes = { one = " (append, {n} line, {size} bytes)", other = " (append, {n} lines, {size} bytes)" }
 card_lines_bytes = { one = " ({n} line, {size} bytes)", other = " ({n} lines, {size} bytes)" }
@@ -422,8 +443,6 @@ card_in_parentheses = "({card})"
 not_approved_staying_in_plan = "(Not approved; staying in plan mode)"
 a_note_to_apply_while = "A note to apply while implementing (empty to just approve): "
 what_to_change_empty_to = "What to change (empty to only decline; the model revises the plan): "
-satsumaestro_repl_help_for = "SATSUMAESTRO REPL — /help for commands, /exit or Ctrl-D to quit, Ctrl-C to interrupt, Shift+Tab to switch [green]plan[/green]/[blue]code[/blue]"
-working_directory = "Working directory: {workdir}"
 the_command_failed = "The command failed: {error}"
 taken_as_an_instruction_to = "(Taken as an instruction to implement: approved the plan and switched to {mode}. Shift+Tab or /mode plan to go back to plan)"
 denied_so_this_turn_was = "(Denied, so this turn was stopped. Type your next instruction)"

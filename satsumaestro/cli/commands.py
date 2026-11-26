@@ -14,8 +14,10 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
+from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
+from satsumaestro.cli.render import COLLAPSED_KEEP, collapsed_output_panel
 from satsumaestro.cli.updates import update_hint
 from satsumaestro.config.loader import save_model, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffort
@@ -106,6 +108,8 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
         "session",
         lambda: ui("cli.commands.show_the_sessions_and_the"),
     ),
+    ReplCommand("cwd", lambda: ui("cli.commands.show_the_working_directory")),
+    ReplCommand("version", lambda: ui("cli.commands.show_the_version")),
     ReplCommand(
         "doctor",
         lambda: ui("cli.commands.check_the_settings_and_the"),
@@ -129,6 +133,11 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
     ReplCommand(
         "clear",
         lambda: ui("cli.commands.clear_the_conversation_todos_and"),
+    ),
+    ReplCommand(
+        "expand",
+        lambda: ui("cli.commands.show_a_collapsed_bash_output"),
+        usage="[n]",
     ),
     ReplCommand(
         "insights",
@@ -374,6 +383,16 @@ class SlashDispatcher:
 
     async def _cmd_exit(self, args: list[str]) -> CommandOutcome:
         return CommandOutcome.EXIT
+
+    async def _cmd_cwd(self, args: list[str]) -> None:
+        """作業場所を出す（パスの ``:fire:`` などを絵文字に替えず、途中で改行しない）。"""
+        workdir = escape(str(self.rt.cwd))
+        line = ui("cli.commands.working_directory", workdir=workdir)
+        self._print(line, emoji=False, soft_wrap=True)
+
+    async def _cmd_version(self, args: list[str]) -> None:
+        """バージョンを出す。"""
+        self._print(ui("cli.commands.version", version=escape(__version__)))
 
     async def _cmd_compact(self, args: list[str]) -> None:
         outcome = await self.rt.compactor.acompact(
@@ -727,6 +746,30 @@ class SlashDispatcher:
         self.rt.store.save(session)
         cleared = ui("cli.commands.cleared_the_conversation_todos_and")
         self._print(f"[dim]{cleared}[/dim]")
+
+    async def _cmd_expand(self, args: list[str]) -> None:
+        number: int | None = None
+        if args:
+            if not args[0].lstrip("#").isdigit():
+                self._print(f"[yellow]{ui('cli.commands.expand_number_expected')}[/yellow]")
+                return
+            number = int(args[0].lstrip("#"))
+        entry = self.render.collapsed_output(number) if self.render is not None else None
+        if entry is not None:
+            self._print(collapsed_output_panel(entry))
+            return
+        latest = self.render.collapsed_output() if self.render is not None else None
+        if latest is None:
+            self._print(f"[dim]{ui('cli.commands.no_collapsed_output_yet')}[/dim]")
+            return
+        missing = ui(
+            "cli.commands.collapsed_output_not_kept",
+            number=number,
+            keep=COLLAPSED_KEEP,
+            first=max(1, latest.number - COLLAPSED_KEEP + 1),
+            last=latest.number,
+        )
+        self._print(f"[dim]{escape(missing)}[/dim]")
 
     async def _cmd_insights(self, args: list[str]) -> None:
         if self.trace_log is None:

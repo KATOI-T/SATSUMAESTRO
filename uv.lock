@@ -1286,7 +1286,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.25,<2" },
     { name = "openai", specifier = ">=1.50,<3" },
     { name = "pathspec", specifier = ">=1.1" },
-    { name = "prompt-toolkit", specifier = ">=3.0.10" },
+    { name = "prompt-toolkit", specifier = ">=3.0.31" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "regex", specifier = ">=2026.7.19" },

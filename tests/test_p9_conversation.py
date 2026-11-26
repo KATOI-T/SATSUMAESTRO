@@ -224,7 +224,7 @@ def test_operations_are_blank_separated() -> None:
     r.on_assistant_event(TextDelta(text="answer"))
     r.end_turn()
     out = buf.getvalue()
-    assert "Title" in out and "・読み込み" in out and "answer" in out
+    assert "Title" in out and "⏺ 読み込み(x)" in out and "answer" in out
     assert "\n\n" in out
 
 

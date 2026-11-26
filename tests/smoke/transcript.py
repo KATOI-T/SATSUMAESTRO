@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _ESC2 = re.compile(r"\x1b[=>()78][0-9A-Za-z]?")
 _SPINNER = re.compile(r"^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]")
@@ -25,7 +25,7 @@ _DELETE_NOTE = re.compile(
     r"(?:このセッションで作成したファイルを消します|Deletes files created in this session): ([^│]*)"
 )
 _TOKENS = re.compile(
-    r"^— (?:[0-9.,]+K? tok|(?:出力|output) ~?[0-9.]+[KM]?(?: · .*)?)\s*$",
+    r"^ *— (?:[0-9.,]+K? tok|(?:出力|output) ~?[0-9.]+[KM]?(?: · .*)?)\s*$",
     re.MULTILINE,
 )
 

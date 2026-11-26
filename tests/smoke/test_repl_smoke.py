@@ -48,6 +48,7 @@ def scenario(tmp_path: Path) -> Runner:
         turns: Sequence[str] = (REQUEST, DELETE_REQUEST),
         plan: bool = True,
         commands: Sequence[tuple[str, str]] = (),
+        commands_after: Sequence[tuple[str, str]] = (),
         answer: str | Sequence[str] = "y",
         during: Callable[[int, ReplDriver, FakeOllama], None] | None = None,
         rows: int = 40,
@@ -72,6 +73,7 @@ def scenario(tmp_path: Path) -> Runner:
                 turns=turns,
                 plan=plan,
                 commands=commands,
+                commands_after=commands_after,
                 answer=answer,
                 during=during,
                 rows=rows,
@@ -111,7 +113,10 @@ def test_plan_three_steps_happy_path(scenario: Runner, tmp_path: Path) -> None:
     text = result.transcript.text
     lines = result.transcript.lines
     assert result.report.problems == []
-    assert re.search(r"\[plan\] satsuma> ?三つのファイル", result.transcript.plain)
+    # 送った依頼は「> 本文」で残り、plan で受け付けられた（依頼が計画ファイルを指す）
+    assert re.search(r">\s*三つのファイル", result.transcript.plain)
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert users and users[0]["plan_file"] is not None, result.requests
 
     cards = result.report.cards
     assert len(cards) == 1
@@ -208,6 +213,9 @@ def test_sigterm_at_the_input_line_puts_the_terminal_back(tmp_path: Path) -> Non
     after = plain.split("exit=143", 1)[1]
     for flag in ("icrnl", "icanon", "isig", "iexten", "echo"):
         assert re.search(rf"(?<![-\w]){flag}\b", after), flag
+    # 端末に区別して送るよう頼んだ回数と、戻した回数が釣り合う
+    raw = bytes(driver.transcript.raw)
+    assert raw.count(b"\x1b[>1u") == raw.count(b"\x1b[<u") >= 1, raw.count(b"\x1b[>1u")
 
 
 def test_empty_plan_card_is_reported(scenario: Runner, tmp_path: Path) -> None:
@@ -241,7 +249,24 @@ def test_absolute_path_reaches_the_model(scenario: Runner) -> None:
     text = result.transcript.text
     assert "未知のコマンドです" not in text
     assert "パスを受け取りました" in text
-    assert re.search(r"\[code\] satsuma> ?/Users/", result.transcript.plain)
+    assert re.search(r">\s*/Users/alice", result.transcript.plain)
+    assert users[0]["plan_file"] is None, result.requests
+
+
+def test_multi_line_input_reaches_the_model_as_one_request(scenario: Runner) -> None:
+    """入力欄の改行（Shift+Enter の 2 通りの列）は送信せず、1 回の依頼としてモデルへ届く。"""
+    turn = "一行目\x1b[13;2u二行目\x1b[27;2;13~三行目"
+    result = scenario("multi_line_input.jsonl", turns=(turn,), plan=False)
+    users = [r for r in result.requests if r["role"] == "user"]
+    assert len(users) == 1, result.requests
+    assert users[0]["head"].startswith("一行目\n二行目\n三行目"), users[0]
+    assert "複数行を受け取りました" in result.transcript.text
+    # 送った依頼は「> 本文」で残り、続きの行は本文の位置に揃う
+    lines = result.transcript.lines
+    first = next(i for i, ln in enumerate(lines) if re.fullmatch(r">\s*一行目", ln))
+    assert lines[first + 1 : first + 3] == ["  二行目", "  三行目"], lines[first : first + 3]
+    raw = bytes(result.transcript.raw)
+    assert raw.count(b"\x1b[>1u") == raw.count(b"\x1b[<u") >= 2, raw.count(b"\x1b[>1u")
 
 
 def test_model_switch_to_a_missing_model_is_refused(scenario: Runner) -> None:
@@ -391,6 +416,26 @@ def test_ctrl_c_stops_only_the_turn(scenario: Runner) -> None:
     assert [pid for pid in sleeping if _command_of(pid) == "sleep 37"] == []
 
 
+def test_bash_output_is_collapsed_and_expand_shows_it(scenario: Runner) -> None:
+    """成功した bash の出力は完了の行の行数だけになり、/expand 1 で全文が出る。"""
+    result = scenario(
+        "bash_collapse.jsonl",
+        turns=("数を並べて",),
+        plan=False,
+        commands_after=(("/expand 1", r"#1 \$ seq 7001 7005"),),
+    )
+    text = result.transcript.plain
+    assert tr.flat("出力 5 行（/expand 1 で全文）") in tr.flat(text)
+    heading = "#1 $ seq 7001 7005"
+    expanded = text.rindex(heading)
+    # 出力は /expand の前には出ていない（畳まれている）。/expand は 5 行とも順に出す
+    assert text.index("7002") > expanded
+    assert "7001\n" not in text[:expanded]
+    shown = re.findall(r"\b70\d\d\b", text[expanded + len(heading) :])
+    assert shown[:5] == ["7001", "7002", "7003", "7004", "7005"]
+    assert result.report.failures == [], result.report.failures
+
+
 def test_detail_explains_what_the_call_does(scenario: Runner, tmp_path: Path) -> None:
     """d → モデルが会話から説明 → y / n / a だけで受け直す → 許可して実行。"""
     result = scenario(
@@ -440,7 +485,7 @@ def test_deferred_tool_runs_on_first_direct_call(scenario: Runner) -> None:
     text = result.transcript.plain
     assert result.report.failures == [], result.report.failures
     assert "not loaded yet" not in text and "✗" not in text
-    assert text.count("・ToDo 更新") == 1
+    assert tr.flat(text).count(tr.flat("⏺ ToDo 更新\n  ⎿  ▶ a.txt を作る")) == 1
     assert tr.flat("▶ a.txt を作る") in tr.flat(text)
     assert "TODO を 2 件登録しました" in text
     tools = [r for r in result.requests if r["role"] == "tool"]
@@ -484,8 +529,10 @@ def test_blocked_step_is_not_resumed_by_an_unrelated_request(scenario: Runner) -
     )
     text = result.transcript.plain
     assert result.report.failures == [], result.report.failures
-    assert text.count("BLOCKED: a.txt の中身") == 1
+    assert "BLOCKED: a.txt の中身" in text
+    # 転写は流している間の最下部の描画も含むので、BLOCKED の回数は要求の記録で数える
     notes = [r["note"] for r in result.requests]
+    assert notes.count("段 1 で判断を仰いで止まる") == 1, notes
     assert "無関係な依頼: 段は再開されない" in notes, notes
     assert notes.count("再開した段 1") == 1, notes
     assert "削除するものはありません" in text
@@ -519,14 +566,15 @@ def test_long_code_block_keeps_scrolling_while_it_is_generated(scenario: Runner)
 
 
 def test_arg_panel_follows_each_write_file_in_a_multi_call_reply(scenario: Runner) -> None:
-    """write_file 5 本を 1 応答で書く間、生成中パネルが 5 本目まで切り替わる。"""
+    """write_file 5 本を 1 応答で書く間、生成中の見出しが 5 本目まで切り替わる。"""
     result = scenario("multi_write_stream.jsonl", turns=("五つの CSS を作って",), plan=False)
     assert result.report.failures == [], result.report.failures
     plain = result.transcript.plain
     assert re.search(r"write_file — 生成中 5 件目 f5\.css（\d+ 行）", plain), "5 本目の見出しが無い"
     assert re.search(r"write_file — 生成中 2 件目 f2\.css", plain)
     assert "✓ f4.css（40 行）" in plain
-    assert "/*f5-l030*/" in plain
+    # 既定の stream では書きかけの中身を出さない（プレビューの 20 行にも入らない）
+    assert "/*f5-l030*/" not in plain
     ws = result.workspace
     for n in range(1, 6):
         assert (ws / f"f{n}.css").exists(), n
@@ -537,7 +585,10 @@ def test_write_file_of_a_later_part_is_rejected_and_the_step_recovers(scenario: 
     result = scenario("step_overwrite_rejected.jsonl", turns=(REQUEST,))
     assert result.report.problems == [], result.report.problems
     flat = tr.flat(result.transcript.plain)
-    assert tr.flat("✗ a.html — write_file rejected: would delete 5 lines of a.html") in flat
+    head = "⏺ 書き込み(a.html)\n  ⎿  3 行を追加、5 行を削除\n      1 -<!DOCTYPE html>"
+    assert tr.flat(head) in flat
+    rejected = "3 +</style>\n     ✗ write_file rejected: would delete 5 lines of a.html"
+    assert tr.flat(rejected) in flat
     assert tr.flat("a.html already has 5 lines (45 bytes) from this conversation") in flat
     assert tr.flat("(write_file + append_file)") in flat
     assert tr.flat("call append_file with the same content") in flat
@@ -824,7 +875,7 @@ def test_first_start_asks_for_the_screen_language(
     if saved == "en":
         assert tr.flat("Screen language: English (saved as language.ui in") in text
         assert tr.flat("Opening this directory for the first time") in text
-        assert tr.flat("/help for commands, /exit or Ctrl-D to quit") in text
+        assert tr.flat("/help help ∙ /exit quit") in text
         assert tr.flat("— output 1 · input") in text
         assert "このディレクトリを初めて開きます" not in text and "— 出力" not in text
     else:
@@ -854,7 +905,7 @@ def test_language_command_switches_the_screen(scenario: Runner, tmp_path: Path) 
 
 
 def test_the_first_screens_follow_the_environment_language(scenario: Runner) -> None:
-    """最初の発話より前の画面（信頼の確認・バナー・作業場所）は、環境の言語で出る。"""
+    """最初の発話より前の画面（信頼の確認・バナー・操作の案内）は、環境の言語で出る。"""
     result = scenario(
         "trust_first_open.jsonl",
         turns=("こんにちは",),
@@ -865,8 +916,8 @@ def test_the_first_screens_follow_the_environment_language(scenario: Runner) -> 
     text = tr.flat(result.transcript.text)
     assert tr.flat("Opening this directory for the first time") in text
     assert "Trusted:" in text and tr.flat("(recorded in") in text
-    assert tr.flat("/help for commands, /exit or Ctrl-D to quit") in text
-    assert tr.flat("Working directory:") in text
+    assert tr.flat("/help help ∙ /exit quit") in text
+    assert tr.flat("Ctrl+C interrupt ∙ Shift+Tab switch plan/code") in text
     assert "このディレクトリを初めて開きます" not in text and "作業場所" not in text
     assert result.report.failures == [], result.report.failures
 

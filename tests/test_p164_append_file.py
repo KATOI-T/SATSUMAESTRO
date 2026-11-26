@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import pytest
@@ -156,15 +157,15 @@ def test_change_preview_shows_only_appended_lines_with_line_numbers(tmp_path: Pa
     (tmp_path / "a.txt").write_text("".join(f"old {i}\n" for i in range(1, 11)), encoding="utf-8")
     call = ToolUse(id="t1", name="append_file", input={"path": "a.txt", "content": "new 11\n"})
     preview = _plain(change_preview(call, tmp_path))
-    assert "11 + new 11" in preview
-    assert "old 10" in preview and "old 1\n" not in preview
-    assert " - " not in preview
+    assert "1 行を追加" in preview and "11 +new 11" in preview
+    assert "old 8" in preview and "old 10" in preview and "old 7" not in preview
+    assert not re.search(r"^ *\d+ -", preview, re.M)
 
 
 def test_change_preview_new_file(tmp_path: Path) -> None:
     call = ToolUse(id="t1", name="append_file", input={"path": "b.txt", "content": "hello\n"})
     preview = _plain(change_preview(call, tmp_path))
-    assert "（新規ファイル）" in preview and "1 + hello" in preview
+    assert "1 行を書き込み" in preview and " 1 hello" in preview
 
 
 def test_action_preview_summarizes_append() -> None:
@@ -184,7 +185,7 @@ def test_renderer_labels_append(tmp_path: Path) -> None:
     r.on_tool_start(ToolUse(id="t1", name="append_file", input={"path": "a.txt", "content": "x"}))
     r.end_turn()
     out = buf.getvalue()
-    assert "・追記" in out and "- a.txt" in out and "append_file" not in out
+    assert "⏺ 追記(a.txt)" in out and "append_file" not in out
 
 
 def test_guidance_points_to_append_file() -> None:

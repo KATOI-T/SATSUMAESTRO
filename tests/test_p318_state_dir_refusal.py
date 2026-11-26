@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rich.cells import cell_len
 from rich.console import Console
 
 import satsumaestro.cli.repl as repl_mod
+from satsumaestro.__about__ import __version__
 from satsumaestro.cli.tool_display import error_detail, error_reason
 from satsumaestro.config.models import HookConfig, RuntimeConfig
 from satsumaestro.engine.events import AssistantEvent, MessageStop, TextDelta, ToolUse
@@ -134,9 +136,19 @@ def test_other_failures_keep_their_first_line() -> None:
     assert error_reason(block).startswith("path escape: redirect")
 
 
-async def test_repl_banner_shows_the_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_repl_start_shows_the_keys_but_not_the_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """起動の画面は操作の案内の 1 行だけ（作業場所とバージョンは出さない）。"""
     monkeypatch.setattr(repl_mod, "PromptSession", lambda **_: _FakeSession([]))
     monkeypatch.setattr(repl_mod, "mode_prompt_fragments", lambda _: "> ")
-    console = Console(record=True, width=120)
+    console = Console(record=True, width=120, legacy_windows=False)
     await repl_mod.run_repl(_FakeRuntime([]), None, _FakeRender(), console)  # type: ignore[arg-type]
-    assert "作業場所: /work/project" in console.export_text()
+    text = console.export_text()
+    assert "/work/project" not in text and "作業場所" not in text
+    assert __version__ not in text
+    line = next(ln for ln in text.splitlines() if "/help" in ln)
+    keys = "/help  ヘルプ ∙  /exit  終了 ∙  Ctrl+C  中断 ∙  Shift+Tab  plan/code 切替"
+    assert line.strip() == keys
+    left, right = line.index("/help") - 1, 120 - cell_len(line.rstrip())
+    assert left > 0 and abs(left - right) <= 1, line

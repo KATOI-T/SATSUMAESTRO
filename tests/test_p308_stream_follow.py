@@ -62,7 +62,8 @@ def test_live_body_is_cut_to_the_tail_and_status_stays_on_its_own_row() -> None:
     _feed(r, "\n".join(f"- item {i}" for i in range(30)))
     rows = _live_text(r, height=10).rstrip("\n").split("\n")
     assert rows[0].strip() == "⋮"
-    assert "item 29" in rows[-2] and "item 23" not in "\n".join(rows)
+    assert "item 29" in rows[-3] and "item 24" not in "\n".join(rows)
+    assert rows[-2].strip() == ""
     assert "応答生成中" in rows[-1]
     assert len(rows) == 8
     r.end_turn()
@@ -108,6 +109,8 @@ _SAMPLES = {
     "閉じフェンスの直後に本文": f"```html\n{CODE}\n```\nNext para\n\nMore.\n",
     "2 つの長いフェンス": f"```html\n{CODE}\n```\n\n```css\n{CODE}\n```\n",
     "閉じていないフェンスのまま終わる": f"```html\n{CODE}\n",
+    "言語名の無いフェンス": f"Intro\n\n```\n{CODE}\n```\n\nDone.\n",
+    "知らない言語のフェンス": f"```zig9\n{CODE}\n```\n",
 }
 
 
@@ -167,13 +170,13 @@ def test_partial_closing_fence_at_segment_end_is_a_closer_not_code() -> None:
 
 def test_open_fence_helpers() -> None:
     assert _fence_opener("```python\nx = 1\n") == (0, 10, "python")
-    assert _fence_opener("text\n```\nx\n") == (5, 9, "text")
+    assert _fence_opener("text\n```\nx\n") == (5, 9, "")
     assert _fence_opener("```python") is None
     assert _fence_opener("```python\nx\n```\n") is None
     assert _fence_opener("```python\nx\n```python\ny\n") == (0, 10, "python")
     assert _fence_opener("```\na\n```\n\n```css\nb\n") == (11, 18, "css")
     assert _fence_opener("  ```python\nx\n") is None
-    assert _tall_open_fence("```\n" + "x\n" * 3, 3) == (0, 4, "text")
+    assert _tall_open_fence("```\n" + "x\n" * 3, 3) == (0, 4, "")
     assert _tall_open_fence("```\n" + "x\n" * 2, 3) is None
 
 
@@ -231,9 +234,9 @@ def test_non_tty_output_is_unchanged_for_long_fences() -> None:
     r.end_turn()
     out = buf.getvalue()
     expected = io.StringIO()
-    from rich.markdown import Markdown
+    from satsumaestro.cli.markdown import ReplyMarkdown
 
     Console(file=expected, force_terminal=False, width=WIDTH, height=10, color_system=None).print(
-        Markdown(f"Intro\n\n```html\n{CODE}\n```\n\nDone.\n")
+        ReplyMarkdown(f"Intro\n\n```html\n{CODE}\n```\n\nDone.\n")
     )
     assert expected.getvalue() in out

@@ -87,7 +87,7 @@ the question):
 | Homebrew | `brew upgrade satsumaestro` |
 | pip | `pip install -U satsumaestro` (shown, not run) |
 
-When a newer version is out, the REPL says so in one line when it starts. In the REPL, `/update`
+When a newer version is out, the REPL says so under the key guide when it starts. In the REPL, `/update`
 shows the versions; leave the REPL to run the update.
 
 ### Windows (WSL2)
@@ -267,7 +267,8 @@ satsumaestro doctor                   # health check of settings, provider, keys
 
 In the REPL, `/help` lists the commands, `/exit` or Ctrl-D quits, and Ctrl-C stops the current
 turn and returns to the prompt; at a question, such as a permission card or the plan approval, it
-answers no. Typing `/` lists the commands under the prompt, and after a command its arguments
+answers no. Typing `/` lists the commands under the input box, in place of the hint line, and
+after a command its arguments
 (`/model ` lists the models of the current server, or the tested models on a cloud, and
 `/provider <name> ` those of that provider), each with a one-line note. ↑/↓ choose, Tab fills in the choice, Enter runs it, and Esc closes the list. Not
 every model takes every `/effort` level: one it does not take is sent as the nearest level, or left out. When the REPL closes, it unloads the model it used from Ollama (set
@@ -275,8 +276,28 @@ every model takes every `/effort` level: one it does not take is sent as the nea
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.
 
-**Modes**: the main mode is `plan` or `code` (default `code`). The prompt shows it as
-`[plan] satsuma>` (green) or `[code] satsuma>` (blue).
+**Startup screen**: in a terminal, the REPL starts with the art (Sakurajima) and the product name,
+centered, and a one-line guide to the keys (`/help`, `/exit`, Ctrl-C and Shift+Tab) under them. The
+art fits the terminal: the large art and letters at 60 columns or more when the whole startup screen
+(from the art to the input box) fits in the height, a braille art at half the size with the name in
+spaced letters when the terminal is narrower or lower, and the name alone below 34 columns or when
+even that does not fit. At 80 columns the large art needs 18 rows and the braille art 13; a key guide
+that wraps, or the update notice, needs as many rows more. When the width changes, the art is drawn
+again for the new width. The startup screen shows neither the version nor the working directory:
+`/version` and `/cwd` show them (in a directory opened for the first time, the trust question shows
+the path).
+
+**Input box**: in a terminal, you write each request in a box between two rules. **Enter** sends
+and **Shift+Enter** starts a new line. While the box is open, the REPL asks the terminal to send
+Shift+Enter apart from Enter (the kitty keyboard protocol). A terminal that ignores this sends
+Shift+Enter as Enter, so it sends the request, unless the terminal is set to send Esc+Enter for it.
+A multi-line paste is one request, and a sent request stays on the screen as `> text` (the first 12
+lines of a long one). ↑/↓ go back to earlier requests and Ctrl-R searches them. Ctrl-C clears what
+you were writing, and Ctrl-D on an empty box quits. From a pipe or in a dumb terminal, the REPL
+reads one line at a time after `[code] satsuma>`.
+
+**Modes**: the main mode is `plan` or `code` (default `code`). The hint line under the input box
+shows it as `plan` (green) or `code` (blue), with the model on the right.
 
 - **Shift+Tab** switches between plan and code. `/mode` shows the current mode, and `/mode plan` or
   `/mode code read-only` sets it directly. `--mode plan|code|code:<sub>` sets it at startup. The
@@ -287,8 +308,8 @@ Switching away from a local server with `/provider` unloads the same way.
   example "add tests too"), and `n` asks the model to revise the plan with your one-line comment.
   Saying "go ahead" after a plan also counts as approval. `prompt` never approves a plan on its own.
 - Under `code`, the permission sub-mode is one of `read-only`, `workspace-write` (default),
-  `danger-full-access`, `prompt` and `allow`. The prompt shows it only when it is not the default,
-  as in `[code:read-only]`. `/sub-mode` shows or changes it.
+  `danger-full-access`, `prompt` and `allow`. The hint line shows it only when it is not the
+  default, as in `code:read-only`. `/sub-mode` shows or changes it.
 
 **Languages**: SATSUMAESTRO detects the language of each message and tells the model to reply in
 it. A message of two letters or fewer, such as `ok`, keeps the language of the one before. If the
@@ -303,7 +324,53 @@ supported.
 
 **File changes**: while the model is generating the arguments of an edit, the content streams to the
 screen, and a diff appears just before the edit runs (terminal only). `stream_tool_args: false`
-turns off the streaming.
+turns off the streaming. The diff starts with a line such as `Added 3 lines, removed 1 line`, then
+shows each change with three lines around it and line numbers (a new file shows `Wrote N lines` and
+its first 10 lines). Added lines have a green background and removed lines a red one; in a pair of
+changed lines, only the changed words are highlighted. Added lines and the lines around them are
+syntax-colored, and `...` separates changes that are far apart.
+
+**How replies appear**: by default (`display.text: "stream"`), each sentence of a reply flows onto the
+screen over `display.stream_sentence_s` seconds (default 0.2) as soon as it has arrived, whatever its
+length; a backlog flows out in the same time. A sentence still being written is not shown (code goes
+line by line, and after 1.5 seconds without a sentence end, what has arrived flows out), and
+`stream_sentence_s: 0` shows each sentence at once. A block, such as a paragraph, is moved into the
+scrollback once it has been shown, and before a tool runs or the turn ends the rest flows out first.
+`"block"` shows each block at once when it is complete, and the sentences of one still unfinished after
+`display.reveal_after_s` seconds (default 3); a long code block then goes out line by line. `"live"`
+redraws whatever has arrived, and `"full"` shows nothing until a tool runs or the turn ends. In every
+mode, blocks are spaced as in one Markdown document. A file being generated shows only its heading
+(path and line count) except in `"live"`.
+
+**Status line**: while working, the bottom line shows what is happening and for how long (for example
+`⠋ Writing the reply…  8s`), with a light sweeping over the words. The token counts and the time of
+the whole turn go in the summary at the end of the turn (the time last, as `total 2m03s`, for turns of
+2 seconds or more).
+
+**Tool lines**: reply blocks and tools start with `⏺`. A tool is one line, `⏺ Action(target)`, with
+its result under it after `⎿` (for example `⏺ Search("def total")` and `⎿  3 matches`). In the REPL a
+running tool is shown at the bottom and printed with its result when it ends. `⏺` is green for
+success and red for failure; a tool shown before a permission card is grey, and its result is added
+as a `⎿` line.
+
+**Markdown in replies**: headings are left-aligned and bold (without `#`), bullets are `-` and
+numbered items `1.`. Code blocks are colored without a background (code without a language in a pale
+blue-violet; a language that cannot be colored gets its name in a grey line). Inline code is pale
+blue-violet, tables are boxed, rules are `---` and quotes start with `▎`. The plan in the approval
+card looks the same.
+
+**bash output**: in the REPL, a successful bash command with four or more lines of output is folded
+into its done line (for example `⎿  ✓ Done 1.2s · output 34 lines (/expand 3 to show them)`); three
+lines or fewer are shown under `⎿`. `/expand 3` shows that output in full, and `/expand` the last
+one (the last 20 are kept). A failure shows its reason and details as before.
+`display.tool_output: "full"` shows every output (up to the first 2,000 characters), and `prompt`
+never folds.
+
+**Changing the terminal width**: when the width changes while the input box is open, the REPL clears
+the screen at once and redraws the visible part of the output and the input box at the new width.
+Once the width stops changing, it prints the scrollback again from the start of the REPL (up to the
+last 2,000 prints; what the terminal showed before the REPL started is cleared). When the width changes during a turn, the
+redraw happens before the next input box.
 
 ## Providers
 
@@ -478,8 +545,8 @@ are saved with these replaced by `[redacted]`: the values of the keys above, val
 secret-like names (such as `API_KEY=…` or `password: …`), `Authorization:` headers, keys in URL
 queries and key-shaped tokens (such as `sk-…` and `ghp_…`). Other secrets in tool output are saved as
 they are. Set `redaction.live` to `true` to replace the same values in tool results before the model
-and the screen see them, in the tool input shown on the screen and in approval cards, and in change
-previews (tool arguments are then not shown while they stream). In bash commands, expansions and
+and the screen see them, in the tool input shown on the screen (tool lines, `/expand`) and in
+approval cards, and in change previews (tool arguments are then not shown while they stream). In bash commands, expansions and
 shell syntax that runs, such as `$VAR` and `$(…)`, stay visible after a secret-like name, and only
 the text around them is replaced. What runs is unchanged, but the model can no longer copy a key it
 has read. It reads such a key as `[redacted]`, so rewriting a whole file that holds one can put

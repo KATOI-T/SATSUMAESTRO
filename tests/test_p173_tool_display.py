@@ -63,7 +63,7 @@ def test_details_are_single_line_and_clipped() -> None:
     assert "\n" not in d.items[0] and d.items[0].endswith("…")
 
 
-def test_parallel_reads_group_under_one_heading() -> None:
+def test_parallel_reads_are_packed_without_blank_lines() -> None:
     r, buf = _renderer()
     r.start_turn()
     a = _call("read_file", "a", path="docs/guide.md")
@@ -74,10 +74,8 @@ def test_parallel_reads_group_under_one_heading() -> None:
     r.on_tool_result(_result(b, "y\n" * 70))
     r.end_turn()
     out = buf.getvalue()
-    assert out.count("・読み込み") == 1
-    assert "    - docs/guide.md" in out
-    assert "    - docs/spec/generation-limits.md" in out
-    assert "read_file" not in out and "行" not in out
+    assert "⏺ 読み込み(docs/guide.md)\n⏺ 読み込み(docs/spec/generation-limits.md)\n" in out
+    assert "read_file" not in out and "行" not in out and "⎿" not in out
 
 
 def test_other_output_breaks_the_group() -> None:
@@ -90,7 +88,9 @@ def test_other_output_breaks_the_group() -> None:
     r.on_tool_start(b := _call("read_file", "b", path="b.py"))
     r.on_tool_result(_result(b, "y"))
     r.end_turn()
-    assert buf.getvalue().count("・読み込み") == 2
+    out = buf.getvalue()
+    assert "⏺ 読み込み(a.py)" in out and "⏺ 読み込み(b.py)" in out
+    assert "⏺ 読み込み(a.py)\n⏺ 読み込み(b.py)" not in out
 
 
 def test_different_labels_get_their_own_headings() -> None:
@@ -104,8 +104,8 @@ def test_different_labels_get_their_own_headings() -> None:
     r.on_tool_result(_result(b, "ok"))
     r.end_turn()
     out = buf.getvalue()
-    assert '・検索\n    - "def total"（1 件）' in out
-    assert "・コマンド実行\n    - make test" in out and "ok" in out
+    assert '⏺ 検索("def total")\n  ⎿  1 件\n' in out
+    assert "\n\n⏺ コマンド実行(make test)\n  ⎿  ok\n     ✓ 完了" in out
 
 
 def test_error_is_shown_on_the_item() -> None:
@@ -119,8 +119,22 @@ def test_error_is_shown_on_the_item() -> None:
     r.on_tool_result(_result(e, "old string not found", error=True))
     r.end_turn()
     out = buf.getvalue()
-    assert "- missing.py  ✗ file not found: missing.py\n      trace" in out
-    assert "✗ a.py — old string not found" in out
+    assert "⏺ 読み込み(missing.py)\n  ⎿  ✗ file not found: missing.py\n       trace\n" in out
+    assert "⏺ 編集(a.py)\n  ⎿  ✗ old string not found" in out
+
+
+def test_failure_names_the_target_when_apart_from_its_line() -> None:
+    r, buf = _renderer()
+    r.start_turn()
+    a = _call("bash", "a", command="make a")
+    b = _call("bash", "b", command="make b")
+    r.on_tool_start(a)
+    r.on_tool_start(b)
+    r.on_tool_result(_result(a, "boom", error=True))
+    r.on_tool_result(_result(b, "", error=True))
+    out = buf.getvalue()
+    assert "  ⎿  ✗ make a — boom" in out
+    assert "✗ make b — (no output)" in out
 
 
 def test_status_line_uses_label_and_tracks_remaining_parallel_tools() -> None:
@@ -158,8 +172,9 @@ def test_edit_diff_uses_file_line_numbers(tmp_path: Path) -> None:
     (tmp_path / "m.py").write_text(src, encoding="utf-8")
     call = _call("edit_file", path="m.py", old="line20\n", new="LINE20\nadded\n")
     out = _plain(change_preview(call, tmp_path))
-    assert "20 - line20" in out and "20 + LINE20" in out and "21 + added" in out
-    assert "18   line18" in out
+    assert "2 行を追加、1 行を削除" in out
+    assert "20 -line20" in out and "20 +LINE20" in out and "21 +added" in out
+    assert "18  line18" in out and "17  line17" in out
     assert "line1\n" not in out and "@@" not in out
 
 
@@ -168,7 +183,7 @@ def test_edit_replace_all_shows_every_site(tmp_path: Path) -> None:
     (tmp_path / "m.py").write_text(src, encoding="utf-8")
     call = _call("edit_file", path="m.py", old="foo", new="bar", replace_all=True)
     out = _plain(change_preview(call, tmp_path))
-    assert "3 + bar" in out and "25 + bar" in out and "⋮" in out
+    assert " 3 +bar" in out and "25 +bar" in out and "\n...\n" in out
 
 
 def test_write_existing_file_shows_only_changed_lines(tmp_path: Path) -> None:
@@ -176,14 +191,14 @@ def test_write_existing_file_shows_only_changed_lines(tmp_path: Path) -> None:
     (tmp_path / "w.txt").write_text(before, encoding="utf-8")
     after = before.replace("row40\n", "ROW40\n")
     out = _plain(change_preview(_call("write_file", path="w.txt", content=after), tmp_path))
-    assert "40 - row40" in out and "40 + ROW40" in out
+    assert "40 -row40" in out and "40 +ROW40" in out
     assert "row10" not in out
 
 
 def test_write_new_file_is_marked(tmp_path: Path) -> None:
     call = _call("write_file", path="new.py", content="a\nb\n")
     out = _plain(change_preview(call, tmp_path))
-    assert "（新規ファイル）" in out and "1 + a" in out and "2 + b" in out
+    assert "2 行を書き込み" in out and " 1 a" in out and " 2 b" in out
 
 
 def test_falls_back_when_file_unreadable_or_outside(tmp_path: Path) -> None:
@@ -208,8 +223,8 @@ def test_renderer_shows_numbered_diff_under_item(tmp_path: Path) -> None:
     r.on_tool_result(_result(e, "replaced 1 occurrence(s) in a.py"))
     r.end_turn()
     out = buf.getvalue()
-    assert "・編集" in out and "- a.py" in out
-    assert "2 - b" in out and "2 + B" in out
+    assert "⏺ 編集(a.py)" in out and "  ⎿  " in out
+    assert " 2 -b" in out and " 2 +B" in out
     assert "replaced 1 occurrence" not in out
 
 
@@ -220,8 +235,7 @@ def test_silent_command_shows_that_it_finished() -> None:
     r.on_tool_start(call)
     r.on_tool_result(_result(call, ""))
     out = buf.getvalue()
-    assert "・コマンド実行" in out and "- mkdir -p dashboard" in out
-    assert "✓ 完了" in out
+    assert "⏺ コマンド実行(mkdir -p dashboard)\n  ⎿  ✓ 完了" in out
     assert r._state == "waiting_next"
     assert _state_label(r._state) == "次の操作を考え中…"
 

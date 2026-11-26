@@ -157,6 +157,7 @@ class Script:
                     "role": role,
                     "tool": tool,
                     "head": text[:_HEAD],
+                    "plan_file": find_plan_file({"messages": [last]}),
                     "rule": rule.index if rule is not None else None,
                     "note": rule.note if rule is not None else NO_RULE,
                     "reply": _summarize(reply),

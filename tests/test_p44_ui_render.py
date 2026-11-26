@@ -119,10 +119,10 @@ def test_tool_heading_and_done_line() -> None:
     r.on_tool_result(_result(write, "wrote 2 bytes"))
     r.end_turn()
     out = buf.getvalue()
-    assert "• Read" in out and "- README.md" in out
-    assert "• List" in out and "- . (1 entry)" in out
+    assert "⏺ Read(README.md)" in out
+    assert "⏺ List(.)\n  ⎿  1 entry" in out
     assert not _JAPANESE.search(out)
-    assert "• Write" in out and "✓ Done" in out
+    assert "⏺ Write(a.txt)" in out and "✓ Done" in out
     assert _done_line(None).strip() == "✓ Done"
 
 
@@ -241,7 +241,7 @@ def test_permission_card_and_previews(tmp_path: Path) -> None:
     assert "(deletes the directory and everything in it)" in delete
     assert "Deletion cannot be undone. This is confirmed every time" in delete
     new_file = _plain(change_preview(_call("write_file", path="b.txt", content="hi\n"), tmp_path))
-    assert "(new file)" in new_file
+    assert "Wrote 1 line" in new_file
     (tmp_path / "d").mkdir()
     (tmp_path / "d" / "f.txt").write_text("x", encoding="utf-8")
     contents = _plain(change_preview(_call("delete_path", path="d", recursive=True), tmp_path))

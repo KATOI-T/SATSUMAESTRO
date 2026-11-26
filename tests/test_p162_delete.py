@@ -245,7 +245,7 @@ def test_delete_display_lists_contents(ws: Path) -> None:
     r.on_tool_start(call)
     r.end_turn()
     out = buf.getvalue()
-    assert "・削除" in out and "- build" in out and "delete_path" not in out
+    assert "⏺ 削除(build)" in out and "delete_path" not in out
 
 
 def _observe(state: ReminderState, output: str, tool: str = "bash") -> list[str]:

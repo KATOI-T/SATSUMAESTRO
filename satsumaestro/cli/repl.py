@@ -13,12 +13,11 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.markup import escape
 from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 
+from satsumaestro.cli.banner import StartupHint
 from satsumaestro.cli.commands import (
     CommandOutcome,
     SlashDispatcher,
@@ -29,10 +28,12 @@ from satsumaestro.cli.commands import (
 from satsumaestro.cli.completion import ModelNames, SlashCompleter
 from satsumaestro.cli.completion_menu import MENU_ROWS, install_menu
 from satsumaestro.cli.errors_ui import turn_failure
+from satsumaestro.cli.input_box import InputBox
 from satsumaestro.cli.interrupts import run_cancellable
 from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import LoadProbe, watching_model_load
-from satsumaestro.cli.modes import mode_markup, mode_prompt_fragments
+from satsumaestro.cli.markdown import ReplyMarkdown
+from satsumaestro.cli.modes import mode_hint_fragments, mode_markup, mode_prompt_fragments
 from satsumaestro.cli.render import RichRenderer, action_preview
 from satsumaestro.cli.updates import UpdateCheck
 from satsumaestro.engine.events import ToolUse
@@ -229,7 +230,7 @@ class InteractivePrompter:
 
     def confirm_plan_exit(self, plan_text: str | None) -> PlanExitVerdict:
         """モデルの ``exit_plan_mode`` を承認カードで確認する。"""
-        body = Markdown(plan_text) if plan_text else ui("cli.repl.no_plan_file")
+        body = ReplyMarkdown(plan_text) if plan_text else ui("cli.repl.no_plan_file")
         title = ui("cli.repl.plan_approval")
         self.console.print(Panel(body, title=title, border_style="yellow"))
         steps = parse_steps(plan_text) if self._plan_steps else []
@@ -287,22 +288,26 @@ def _prompt_session(
     key_checks: KeyChecks | None = None,
     **io: Any,
 ) -> PromptSession[str]:
-    """入力欄（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
+    """端末でないときの 1 行入力（行が ``/`` で始まる間は、打ちながら候補を出す）。"""
     session: PromptSession[str] = PromptSession(
         key_bindings=bindings,
-        completer=SlashCompleter(
-            ModelNames(rt),
-            providers=lambda: provider_notes(
-                rt.config.provider, rt.session.model, ENVIRON, _rejected(key_checks)
-            ),
-            rejected=lambda: _rejected(key_checks),
-        ),
+        completer=_slash_completer(rt, key_checks),
         complete_while_typing=Condition(lambda: session.default_buffer.text.startswith("/")),
         reserve_space_for_menu=MENU_ROWS + 1,
         **io,
     )
     install_menu(session)
     return session
+
+
+def _slash_completer(rt: ConversationRuntime, key_checks: KeyChecks | None) -> SlashCompleter:
+    return SlashCompleter(
+        ModelNames(rt),
+        providers=lambda: provider_notes(
+            rt.config.provider, rt.session.model, ENVIRON, _rejected(key_checks)
+        ),
+        rejected=lambda: _rejected(key_checks),
+    )
 
 
 def _rejected(checks: KeyChecks | None) -> dict[str, KeyCheck]:
@@ -334,7 +339,7 @@ _STOP_SIGNALS = tuple(
 
 
 @contextmanager
-def _closing_on_signals(session: PromptSession[str], received: list[int]) -> Iterator[None]:
+def _closing_on_signals(session: InputBox, received: list[int]) -> Iterator[None]:
     """入力欄を待つ間だけ、SIGTERM・SIGHUP で入力欄を閉じる（端末のモードは入力欄が戻す）。"""
     loop = asyncio.get_running_loop()
 
@@ -381,18 +386,23 @@ async def run_repl(
         cycle_main_mode(rt)
         event.app.invalidate()
 
-    session = _prompt_session(rt, bindings, key_checks=key_checks)
+    session = InputBox(
+        console=console,
+        hint=lambda: mode_hint_fragments(rt.session.mode),
+        status=lambda: rt.session.model,
+        fallback_prompt=lambda: mode_prompt_fragments(rt.session.mode),
+        key_bindings=bindings,
+        completer=_slash_completer(rt, key_checks),
+        fallback=lambda: _prompt_session(rt, bindings, key_checks=key_checks),
+    )
     dispatcher = SlashDispatcher(
         rt, console, trace_log=trace_log, trusted=trusted, render=render, key_checks=key_checks
     )
-    banner = ui("cli.repl.satsumaestro_repl_help_for")
-    console.print(f"[dim]{banner}[/dim]")
-    workdir = escape(str(rt.cwd))
-    workdir_line = ui("cli.repl.working_directory", workdir=workdir)
-    console.print(f"[dim]{workdir_line}[/dim]")
+    console.print(StartupHint())
     newer = updates.notice() if updates else None
     if newer:
-        console.print(Text(newer, style="yellow"))
+        console.print(Text(newer, style="yellow"), justify="center")
+    console.print()
     # 結果は /provider の一覧と候補にだけ出す
     checking = asyncio.create_task(key_checks.run(ENVIRON)) if key_checks else None
     # 取り直した結果は次の起動で知らせる
@@ -401,7 +411,7 @@ async def run_repl(
     while True:
         try:
             with _closing_on_signals(session, received):
-                line = await session.prompt_async(lambda: mode_prompt_fragments(rt.session.mode))
+                line = await session.prompt_async()
         except EOFError:
             break
         except KeyboardInterrupt:

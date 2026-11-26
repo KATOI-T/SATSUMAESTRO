@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import signal
 import sys
@@ -10,10 +11,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console
 
 import satsumaestro.cli.app as cli_app
+from satsumaestro.cli import key_protocol
 from satsumaestro.cli import repl as repl_mod
+from satsumaestro.cli.input_box import InputBox
 from satsumaestro.engine.runtime import ConversationRuntime
 from tests.test_model_not_set import _Lines, _patch_provider
 from tests.test_p153_missing_model import _ollama, _route_http
@@ -71,6 +77,40 @@ async def test_a_signal_at_the_input_line_closes_it_and_ends_the_repl(
     session = _Waiting(signum)
     assert await _run(monkeypatch, tmp_path, session) == signum
     assert session.handlers[0] not in (signal.SIG_DFL, signal.SIG_IGN)
+    assert signal.getsignal(signum) == signal.SIG_DFL
+
+
+@pytest.mark.parametrize("signum", _SIGNALS)
+async def test_a_signal_at_the_input_box_closes_it_and_releases_the_key_protocol(
+    signum: int,
+) -> None:
+    raw = io.StringIO()
+    output = Vt100_Output(raw, lambda: Size(rows=20, columns=60), enable_cpr=False)
+    received: list[int] = []
+    with create_pipe_input() as inp:
+        box = InputBox(
+            console=Console(file=io.StringIO()),
+            hint=lambda: [],
+            status=lambda: "",
+            fallback_prompt=lambda: "> ",
+            input=inp,
+            output=output,
+        )
+
+        async def signal_when_open() -> None:
+            while not (box.app.is_running and box.app.future is not None):
+                await asyncio.sleep(0.01)
+            os.kill(os.getpid(), signum)
+
+        with repl_mod._closing_on_signals(box, received):
+            assert signal.getsignal(signum) not in (signal.SIG_DFL, signal.SIG_IGN)
+            sender = asyncio.ensure_future(signal_when_open())
+            with pytest.raises(EOFError):
+                await asyncio.wait_for(box.prompt_async(), 5)
+            await sender
+    assert received == [signum]
+    written = raw.getvalue()
+    assert written.count(key_protocol.ENABLE) == written.count(key_protocol.DISABLE) == 1
     assert signal.getsignal(signum) == signal.SIG_DFL
 
 

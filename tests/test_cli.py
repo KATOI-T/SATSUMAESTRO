@@ -201,7 +201,7 @@ def test_render_nontty_plain() -> None:
     r.on_assistant_event(TextDelta(text="answer"))
     r.end_turn()
     out = buf.getvalue()
-    assert "Title" in out and "・読み込み" in out and "- x" in out and "answer" in out
+    assert "Title" in out and "⏺ 読み込み(x)" in out and "answer" in out
 
 
 def test_doctor_ollama_rows_offline(monkeypatch, tmp_path: Path) -> None:

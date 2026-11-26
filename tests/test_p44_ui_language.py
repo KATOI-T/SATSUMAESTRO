@@ -31,6 +31,7 @@ _JAPANESE = re.compile(r"[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]")
 INPUT_VOCABULARY: dict[str, frozenset[str]] = {
     "satsumaestro/orchestration/executor.py": frozenset({".,、。"}),
     "satsumaestro/cli/repl.py": frozenset({"_CARD_QUESTIONS"}),
+    "satsumaestro/cli/render.py": frozenset({"_SENTENCE_ENDS"}),
     "satsumaestro/security/output_guard.py": frozenset({"_REQUEST_JA"}),
     "satsumaestro/engine/plan_approval.py": frozenset(
         {"_APPROVE_JA", "_BARE_YES", "_NEGATE", "？"}

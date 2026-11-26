@@ -27,6 +27,7 @@ from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
+from satsumaestro.cli.scrollback import ScrollbackConsole
 from satsumaestro.cli.trust_gate import (
     QUESTION,
     TrustBasis,
@@ -199,7 +200,8 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
-_console = Console()
+# REPL では出力を覚え、端末の幅が変わったら新しい幅で描き直す
+_console = ScrollbackConsole()
 _err_console = Console(stderr=True)
 
 
@@ -297,11 +299,17 @@ def _ask_trust(root: Path) -> str:
 
 def _load_config(cwd: Path, *, trusted: bool) -> RuntimeConfig:
     """設定を読み、会話の持ち主の居ない所の画面の言語を、設定の ``language.ui`` に合わせる。"""
+    loader, cfg = _read_config(cwd, trusted=trusted)
+    _show_config_notes(loader)
+    return cfg
+
+
+def _read_config(cwd: Path, *, trusted: bool) -> tuple[ConfigLoader, RuntimeConfig]:
+    """設定を読み、画面の言語を合わせる（設定の知らせはまだ出さない）。"""
     loader = ConfigLoader(cwd, trusted=trusted)
     cfg = loader.load()
     use_screen_language(cfg.language.chosen_ui)
-    _show_config_notes(loader)
-    return cfg
+    return loader, cfg
 
 
 def _show_config_notes(loader: ConfigLoader) -> None:
@@ -391,11 +399,10 @@ async def _assemble_runtime(
     *,
     trusted: bool,
     lang: str | None = None,
+    config: tuple[ConfigLoader, RuntimeConfig] | None = None,
 ) -> tuple[ConversationRuntime, PermissionPrompter, RichRenderer]:
     """設定を読み、ランタイムとプロンプタ・レンダラを組み立てる。"""
-    loader = ConfigLoader(cwd, trusted=trusted)
-    cfg = loader.load()
-    use_screen_language(cfg.language.chosen_ui)
+    loader, cfg = config or _read_config(cwd, trusted=trusted)
     _show_config_notes(loader)
     resolved = expand_model_name(model or cfg.provider.default_model)
     if not resolved and resume_path is not None:
@@ -566,6 +573,11 @@ async def _assemble_runtime(
             cwd=cwd,
             context_limit=lambda: cfg.compact_token_threshold,
             redact=cfg.redaction.live,
+            text_mode=cfg.display.text,
+            reveal_after_s=cfg.display.reveal_after_s,
+            stream_sentence_s=cfg.display.stream_sentence_s,
+            # 畳んだ出力を出し直す /expand は REPL にしか無い
+            tool_output=cfg.display.tool_output if interactive else "full",
         ),
     )
 
@@ -833,6 +845,14 @@ async def _run_stream(
         await _shutdown(rt.mcp, rt.rag, rt.orchestrator, rt.background, rt.lsp)
 
 
+def _start_screen(cfg: RuntimeConfig) -> UpdateCheck | None:
+    """REPL の起動の絵を出す（前に確かめた更新の知らせも高さに数える）。"""
+    updates = UpdateCheck.for_repl(cfg, _console)
+    _console.keep_scrollback()
+    print_banner(_console, updates.notice() if updates else None)
+    return updates
+
+
 async def _repl_session(
     model: str | None,
     cwd: Path,
@@ -842,7 +862,8 @@ async def _repl_session(
     trusted: bool,
     lang: str | None = None,
 ) -> int | None:
-    print_banner(_console)
+    config = _read_config(cwd, trusted=trusted)
+    updates = _start_screen(config[1])
     rt, prompter, render = await _assemble_runtime(
         model,
         cwd,
@@ -851,6 +872,7 @@ async def _repl_session(
         mode_spec=mode_spec,
         trusted=trusted,
         lang=lang,
+        config=config,
     )
     assert isinstance(prompter, InteractivePrompter)
     recorder, trace_log = _build_telemetry(rt)
@@ -865,7 +887,7 @@ async def _repl_session(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
-            updates=UpdateCheck.for_repl(rt.config, _console),
+            updates=updates,
         )
     finally:
         try:
@@ -2075,9 +2097,10 @@ def _save_eval_report(report: EvalReport, out: Path | None, cwd: Path) -> Path:
 async def _run_repl_resume(
     model: str | None, cwd: Path, path: Path, *, trusted: bool
 ) -> int | None:
-    print_banner(_console)
+    config = _read_config(cwd, trusted=trusted)
+    updates = _start_screen(config[1])
     rt, prompter, render = await _assemble_runtime(
-        model, cwd, interactive=True, resume_path=path, trusted=trusted
+        model, cwd, interactive=True, resume_path=path, trusted=trusted, config=config
     )
     assert isinstance(prompter, InteractivePrompter)
     try:
@@ -2089,7 +2112,7 @@ async def _run_repl_resume(
             trusted=trusted,
             load_probe=load_probe(rt, ENVIRON),
             key_checks=KeyChecks(),
-            updates=UpdateCheck.for_repl(rt.config, _console),
+            updates=updates,
         )
     finally:
         try:
