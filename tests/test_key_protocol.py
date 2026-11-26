@@ -31,6 +31,15 @@ from satsumaestro.cli.key_protocol import NEWLINE, NEWLINE_KEY, LegacyKeyParser,
         pytest.param("\x1b[98;4u", "\x1bB", id="alt-shift-b"),
         pytest.param("\x1b[92;3u", "\\", id="option-yen-on-jis"),
         pytest.param("\x1b[8747;3u", "∫", id="option-composed"),
+        pytest.param("\x1b[57419u", "\x1b[A", id="keypad-up"),
+        pytest.param("\x1b[57417u", "\x1b[D", id="keypad-left"),
+        pytest.param("\x1b[57423u", "\x1b[H", id="keypad-home"),
+        pytest.param("\x1b[57426u", "\x1b[3~", id="keypad-delete"),
+        pytest.param("\x1b[57422u", "\x1b[6~", id="keypad-page-down"),
+        pytest.param("\x1b[57418;5u", "\x1b[1;5C", id="ctrl-keypad-right"),
+        pytest.param("\x1b[57426;5u", "\x1b[3;5~", id="ctrl-keypad-delete"),
+        pytest.param("\x1b[57425;5u", "", id="ctrl-keypad-insert-unread"),
+        pytest.param("\x1b[57419;9u", "", id="cmd-keypad-up"),
         pytest.param("\x1b[57376u", "", id="f13"),
         pytest.param("\x1b[99;9u", "", id="cmd-c"),
         pytest.param("\x1b[?1u", "", id="query-reply"),
@@ -74,6 +83,11 @@ def test_keys_after_a_paste_are_converted_once() -> None:
         (Keys.BracketedPaste, "x\\y"),
         (Keys.ControlC, "\x03"),
     ]
+
+
+def test_keypad_arrows_reach_the_input_as_arrows() -> None:
+    keys = _parse("\x1b[57419u\x1b[57420;5u\x1b[57426u")
+    assert [k.key for k in keys] == [Keys.Up, Keys.ControlDown, Keys.Delete]
 
 
 def test_install_replaces_the_parser_once() -> None:

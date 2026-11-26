@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from prompt_toolkit.input import Input
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.keys import Keys
 
@@ -35,6 +36,11 @@ _LOCKS = 64 | 128  # Caps Lock・Num Lock
 _ENTER, _TAB, _ESCAPE, _BACKSPACE = 13, 9, 27, 127
 _KEYPAD_ENTER = 57414
 _PRIVATE_USE = 57344  # F13 以降・テンキー・メディアキーなど
+# Num Lock を切ったテンキーの移動のキーと、ふつうのキーの列の終わり
+_KEYPAD = {
+    57417: "D", 57418: "C", 57419: "A", 57420: "B", 57421: "5~", 57422: "6~",
+    57423: "H", 57424: "F", 57425: "2~", 57426: "3~",
+}  # fmt: skip
 
 
 def to_legacy(text: str) -> str:
@@ -108,6 +114,8 @@ def _legacy_key(code: int, mods: int) -> str:
         return "\x1b"
     if code == _BACKSPACE:
         return "\x7f"
+    if code in _KEYPAD and not mods & ~(_SHIFT | _ALT | _CTRL):
+        return _keypad_key(_KEYPAD[code], mods)
     if code >= _PRIVATE_USE or mods & ~(_SHIFT | _ALT | _CTRL):
         return ""  # 入力欄で使わないキー（Cmd 付きなど）
     char = chr(code)
@@ -120,6 +128,17 @@ def _legacy_key(code: int, mods: int) -> str:
             return "\x1b" + (char.upper() if shift else char)
         return char
     return char.upper() if shift else char
+
+
+def _keypad_key(end: str, mods: int) -> str:
+    """テンキーの矢印・Home・Delete などを、ふつうのキーの列にする（読めない組は捨てる）。"""
+    if not mods:
+        return f"\x1b[{end}"
+    if end.endswith("~"):
+        sequence = f"\x1b[{end[:-1]};{mods + 1}~"
+    else:
+        sequence = f"\x1b[1;{mods + 1}{end}"
+    return sequence if sequence in ANSI_SEQUENCES else ""
 
 
 def _control_char(code: int) -> str:
