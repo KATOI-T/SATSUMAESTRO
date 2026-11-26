@@ -76,13 +76,13 @@ def test_arguments_start_with_nothing_chosen() -> None:
 
 def test_the_list_scrolls_to_keep_the_choice_in_view() -> None:
     menu = _menu_for("/", rows=8)
-    for _ in range(9):
+    for _ in range(11):
         menu.move(1)
     lines = menu.lines(100)
     assert len(lines) == 8
     assert _highlighted(lines)[0].startswith("/mode")
     assert _row(lines[-1]).split()[0] == "/mode"
-    menu.move(-9)
+    menu.move(-11)
     assert _row(menu.lines(100)[0]).split()[0] == "/help"
 
 

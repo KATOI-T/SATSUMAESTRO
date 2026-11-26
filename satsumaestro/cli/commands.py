@@ -14,6 +14,7 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
+from satsumaestro.__about__ import __version__
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
 from satsumaestro.cli.render import COLLAPSED_KEEP, collapsed_output_panel
@@ -107,6 +108,8 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
         "session",
         lambda: ui("cli.commands.show_the_sessions_and_the"),
     ),
+    ReplCommand("cwd", lambda: ui("cli.commands.show_the_working_directory")),
+    ReplCommand("version", lambda: ui("cli.commands.show_the_version")),
     ReplCommand(
         "doctor",
         lambda: ui("cli.commands.check_the_settings_and_the"),
@@ -380,6 +383,16 @@ class SlashDispatcher:
 
     async def _cmd_exit(self, args: list[str]) -> CommandOutcome:
         return CommandOutcome.EXIT
+
+    async def _cmd_cwd(self, args: list[str]) -> None:
+        """作業場所を出す（パスの ``:fire:`` などを絵文字に替えず、途中で改行しない）。"""
+        workdir = escape(str(self.rt.cwd))
+        line = ui("cli.commands.working_directory", workdir=workdir)
+        self._print(line, emoji=False, soft_wrap=True)
+
+    async def _cmd_version(self, args: list[str]) -> None:
+        """バージョンを出す。"""
+        self._print(ui("cli.commands.version", version=escape(__version__)))
 
     async def _cmd_compact(self, args: list[str]) -> None:
         outcome = await self.rt.compactor.acompact(

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from satsumaestro.__about__ import __version__
 from satsumaestro.cli.commands import (
     SLASH_COMMANDS,
     CommandOutcome,
@@ -97,6 +98,42 @@ async def test_dispatch_exit_and_aliases(tmp_path: Path) -> None:
     d = SlashDispatcher(rt, console)
     for line in ("/exit", "/quit", "/q"):
         assert await d.dispatch(parse_slash(line)) is CommandOutcome.EXIT  # type: ignore[arg-type]
+
+
+async def test_dispatch_cwd_shows_the_working_directory(tmp_path: Path) -> None:
+    """起動の画面に出さない作業場所を、/cwd で確かめられる。"""
+    rt = _runtime(SequencedMockProvider([[MessageStop()]]), tmp_path)
+    console = Console(record=True, width=400)
+    out = await SlashDispatcher(rt, console).dispatch(parse_slash("/cwd"))  # type: ignore[arg-type]
+    assert out is CommandOutcome.HANDLED
+    assert console.export_text().strip() == f"作業場所: {rt.cwd}"
+
+
+async def test_dispatch_cwd_shows_the_path_as_it_is(tmp_path: Path) -> None:
+    """パスの中の ``:fire:`` を絵文字に、``[b]`` を markup に読まず、そのまま出す。"""
+    rt = _runtime(SequencedMockProvider([[MessageStop()]]), tmp_path)
+    rt.cwd = tmp_path / "x:fire:[b]y"
+    console = Console(record=True, width=400)
+    await SlashDispatcher(rt, console).dispatch(parse_slash("/cwd"))  # type: ignore[arg-type]
+    assert console.export_text().strip() == f"作業場所: {rt.cwd}"
+
+
+async def test_dispatch_cwd_keeps_a_long_path_on_one_line(tmp_path: Path) -> None:
+    """幅より長いパスも途中で改行せず 1 行で出す（折り返しは端末に任せ、写せるように）。"""
+    rt = _runtime(SequencedMockProvider([[MessageStop()]]), tmp_path)
+    rt.cwd = tmp_path / ("long-directory-name-" * 5)
+    console = Console(record=True, width=40)
+    await SlashDispatcher(rt, console).dispatch(parse_slash("/cwd"))  # type: ignore[arg-type]
+    assert console.export_text() == f"作業場所: {rt.cwd}\n"
+
+
+async def test_dispatch_version_shows_the_version(tmp_path: Path) -> None:
+    """起動の画面に出さないバージョンを、/version で確かめられる。"""
+    rt = _runtime(SequencedMockProvider([[MessageStop()]]), tmp_path)
+    console = Console(record=True, width=120)
+    out = await SlashDispatcher(rt, console).dispatch(parse_slash("/version"))  # type: ignore[arg-type]
+    assert out is CommandOutcome.HANDLED
+    assert console.export_text().strip() == f"バージョン: {__version__}"
 
 
 async def test_state_flags_effort_fast_plan(tmp_path: Path) -> None:
