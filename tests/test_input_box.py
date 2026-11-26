@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import re
 from typing import Any
@@ -124,6 +125,31 @@ async def test_ctrl_d_sent_as_csi_u_ends_on_empty_input() -> None:
 async def test_ctrl_c_interrupts() -> None:
     with pytest.raises(KeyboardInterrupt):
         await _read("draft\x03")
+
+
+async def test_ctrl_c_clears_the_draft() -> None:
+    with create_pipe_input() as inp:
+        box = _box(inp)
+        inp.send_text("draft\x03")
+        with pytest.raises(KeyboardInterrupt):
+            await box.prompt_async()
+        inp.send_text("\r")
+        assert await asyncio.wait_for(box.prompt_async(), 5) == ""
+
+
+async def test_ctrl_c_while_searching_leaves_the_next_box_editable() -> None:
+    with create_pipe_input() as inp:
+        box = _box(inp)
+        inp.send_text("first request\r")
+        assert await box.prompt_async() == "first request"
+        inp.send_text("\x12fir\x03")
+        with pytest.raises(KeyboardInterrupt):
+            await box.prompt_async()
+        # 検索の欄に残ると Enter が送信にならない
+        inp.send_text("next\r")
+        assert await asyncio.wait_for(box.prompt_async(), 5) == "next"
+        inp.send_text("\x12first\r\r")
+        assert await asyncio.wait_for(box.prompt_async(), 5) == "first request"
 
 
 async def test_ctrl_d_on_empty_input_ends() -> None:

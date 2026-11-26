@@ -82,6 +82,7 @@ class InputBox:
             complete_while_typing=Condition(self._is_slash_line),
         )
         self._app: Application[str] | None = None
+        self._search: SearchToolbar | None = None
         # 解析器を替えられない入力では、端末に区別して送るよう頼まない（届いた列を読めない）
         self._distinguish_keys = False
         if input is not None or (sys.stdin.isatty() and not is_dumb_terminal()):
@@ -101,6 +102,7 @@ class InputBox:
         if self._app is None:
             return await self._one_line().prompt_async(self._fallback_prompt)
         self._buffer.reset()
+        self._leave_search()
         # 区別して送らせるのは入力欄の間だけ。ターン中も続けると Ctrl+C が割り込みにならない
         output = self._app.output
         if self._distinguish_keys:
@@ -115,6 +117,14 @@ class InputBox:
         self._echo(text)
         return text
 
+    def _leave_search(self) -> None:
+        """Ctrl+R の検索の途中で閉じた欄も、本文の欄から始め直す。"""
+        if self._app is None or self._search is None:
+            return
+        self._app.layout.search_links.clear()
+        self._search.search_buffer.reset()
+        self._app.layout.focus(self._buffer)
+
     def _one_line(self) -> PromptSession[str]:
         if self._fallback is None:
             if self._make_fallback is not None:
@@ -127,7 +137,7 @@ class InputBox:
 
     def _build_app(self, input: Input, output: Output | None) -> Application[str]:
         buffer = self._buffer
-        search = SearchToolbar()
+        search = self._search = SearchToolbar()
         body = Window(
             # 空の欄に案内文を出さない: 日本語入力の変換中の文字はアプリに届かず、案内文が残る
             BufferControl(buffer, search_buffer_control=search.control),
