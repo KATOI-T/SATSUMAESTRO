@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import Callable
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
@@ -33,6 +35,7 @@ from rich.text import Text
 
 from satsumaestro.cli import key_protocol
 from satsumaestro.cli.completion_menu import SuggestionMenu, menu_bindings, menu_window
+from satsumaestro.cli.scrollback import ScrollbackConsole
 from satsumaestro.i18n.text import ui
 
 # 入力欄の高さの上限（端末の高さに対する割合と最低の行数）。超えた分は欄の中でスクロールする
@@ -40,6 +43,11 @@ _MAX_HEIGHT_RATIO = 0.5
 _MIN_MAX_HEIGHT = 3
 # 送信後に残す本文の行数。長い貼り付けは先頭だけ残し、残りの行数を添える
 _ECHO_MAX_LINES = 12
+# 幅が変わり終わったとみなすまでの秒数。スクロールバックの全部はそれから出し直す
+_RESIZE_SETTLE_S = 0.5
+# 同期出力: 消してから描き終えるまでを 1 枚で見せる（応じない端末は無視する）
+_SYNC_BEGIN = "\x1b[?2026h"
+_SYNC_END = "\x1b[?2026l"
 
 _STYLE = Style.from_dict(
     {
@@ -81,7 +89,7 @@ class InputBox:
             completer=completer,
             complete_while_typing=Condition(self._is_slash_line),
         )
-        self._app: Application[str] | None = None
+        self._app: _BoxApplication | None = None
         self._search: SearchToolbar | None = None
         # 解析器を替えられない入力では、端末に区別して送るよう頼まない（届いた列を読めない）
         self._distinguish_keys = False
@@ -103,14 +111,20 @@ class InputBox:
             return await self._one_line().prompt_async(self._fallback_prompt)
         self._buffer.reset()
         self._leave_search()
+        # ターン中に幅が変わっていたら、入力欄を出す前に描き直す
+        console = self._console
+        if isinstance(console, ScrollbackConsole) and console.needs_redraw():
+            console.redraw()
         # 区別して送らせるのは入力欄の間だけ。ターン中も続けると Ctrl+C が割り込みにならない
         output = self._app.output
+        self._app.columns = output.get_size().columns
         if self._distinguish_keys:
             output.write_raw(key_protocol.ENABLE)
             output.flush()
         try:
             text = await self._app.run_async()
         finally:
+            self._app.finish()
             if self._distinguish_keys:
                 output.write_raw(key_protocol.DISABLE)
                 output.flush()
@@ -135,7 +149,7 @@ class InputBox:
                 )
         return self._fallback
 
-    def _build_app(self, input: Input, output: Output | None) -> Application[str]:
+    def _build_app(self, input: Input, output: Output | None) -> _BoxApplication:
         buffer = self._buffer
         search = self._search = SearchToolbar()
         body = Window(
@@ -168,7 +182,9 @@ class InputBox:
             ConditionalContainer(menu_window(menu), filter=shown),
         ]
         layout = Layout(HSplit(rows), focused_element=body)
-        return Application(
+        console = self._console
+        return _BoxApplication(
+            repaint=console.redraw if isinstance(console, ScrollbackConsole) else None,
             layout=layout,
             key_bindings=self._bindings(menu, shown),
             style=_STYLE,
@@ -237,6 +253,63 @@ class InputBox:
         grid.add_column()
         grid.add_row(Text(">", style="bold"), shown)
         self._console.print(grid)
+
+
+class _BoxApplication(Application[str]):
+    """幅が変わったら、入力欄を描く前にそれまでの出力を新しい幅で出し直す Application。"""
+
+    def __init__(self, *, repaint: Callable[[int | None], bool] | None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # repaint(rows) は画面を消して末尾の rows 行分（None は全部）を出し、全部を出したかを返す
+        self._repaint_above = repaint
+        self.columns = 0
+        self._settle: asyncio.TimerHandle | None = None
+        self._synced = False
+        self.after_render += self._end_sync
+
+    def _on_resize(self) -> None:
+        # 端末が出した行を折り返し直すので、入力欄の行数だけ戻って消すと罫線の切れ端が残る
+        size = self.output.get_size()
+        if self._repaint_above is None or size.columns == self.columns:
+            super()._on_resize()
+            return
+        self.columns = size.columns
+        if self._settle is not None:
+            self._settle.cancel()
+            self._settle = None
+        if not self._repaint(size.rows):
+            self._settle = asyncio.get_running_loop().call_later(
+                _RESIZE_SETTLE_S, self._repaint_all
+            )
+
+    def finish(self) -> None:
+        """入力欄を閉じた後に、待っている描き直しを捨てて同期出力を閉じる。"""
+        if self._settle is not None:
+            self._settle.cancel()
+            self._settle = None
+        self._end_sync(self)
+
+    def _repaint_all(self) -> None:
+        self._settle = None
+        if self.is_running and not self.is_done:
+            self._repaint(None)
+
+    def _repaint(self, rows: int | None) -> bool:
+        assert self._repaint_above is not None
+        self.output.write_raw(_SYNC_BEGIN)
+        self._synced = True
+        # 文字の属性と自動折り返しを戻す（画面ごと消すので消す位置のずれは構わない）
+        self.renderer.erase(leave_alternate_screen=False)
+        complete = self._repaint_above(rows)
+        self.renderer.request_absolute_cursor_position()
+        self._redraw()
+        return complete
+
+    def _end_sync(self, _: object) -> None:
+        if self._synced:
+            self._synced = False
+            self.output.write_raw(_SYNC_END)
+            self.output.flush()
 
 
 def _rule() -> Window:

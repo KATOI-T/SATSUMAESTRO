@@ -27,6 +27,7 @@ from satsumaestro.cli.line_input import ask_line
 from satsumaestro.cli.load_watch import load_probe
 from satsumaestro.cli.render import RichRenderer
 from satsumaestro.cli.repl import InteractivePrompter, run_repl
+from satsumaestro.cli.scrollback import ScrollbackConsole
 from satsumaestro.cli.trust_gate import (
     QUESTION,
     TrustBasis,
@@ -199,7 +200,8 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
-_console = Console()
+# REPL では出力を覚え、端末の幅が変わったら新しい幅で描き直す
+_console = ScrollbackConsole()
 _err_console = Console(stderr=True)
 
 
@@ -847,6 +849,7 @@ async def _repl_session(
     trusted: bool,
     lang: str | None = None,
 ) -> int | None:
+    _console.keep_scrollback()
     print_banner(_console)
     rt, prompter, render = await _assemble_runtime(
         model,
@@ -2080,6 +2083,7 @@ def _save_eval_report(report: EvalReport, out: Path | None, cwd: Path) -> Path:
 async def _run_repl_resume(
     model: str | None, cwd: Path, path: Path, *, trusted: bool
 ) -> int | None:
+    _console.keep_scrollback()
     print_banner(_console)
     rt, prompter, render = await _assemble_runtime(
         model, cwd, interactive=True, resume_path=path, trusted=trusted

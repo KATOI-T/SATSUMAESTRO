@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+import signal
+import sys
 from typing import Any
 
 import pytest
@@ -15,12 +17,14 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import DummyOutput, Output
 from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console
+from rich.rule import Rule
 
 from satsumaestro.cli import input_box as input_box_mod
 from satsumaestro.cli import key_protocol
 from satsumaestro.cli.commands import parse_slash
 from satsumaestro.cli.input_box import InputBox
 from satsumaestro.cli.modes import mode_hint_fragments
+from satsumaestro.cli.scrollback import ScrollbackConsole
 from satsumaestro.security.enforcer import PermissionMode
 from satsumaestro.session.models import ModeState
 
@@ -295,3 +299,110 @@ def test_multi_line_input_and_slash_commands() -> None:
     assert parse_slash("/Users/alice/x を消して\n理由: 古い") is None
     cmd = parse_slash("/help\nmore")
     assert cmd is not None and cmd.name == "help"
+
+
+# ── 幅が変わったとき ──
+
+_SYNC = re.compile(r"\x1b\[\?2026[hl]")
+_posix_only = pytest.mark.skipif(sys.platform == "win32", reason="SIGWINCH が無い")
+
+
+class _SizedOutput(DummyOutput):
+    """幅を変えられ、生の書き出し（同期出力の印）を覚える出力。"""
+
+    def __init__(self, columns: int, rows: int = 40) -> None:
+        super().__init__()
+        self.columns = columns
+        self.rows = rows
+        self.raw: list[str] = []
+
+    def get_size(self) -> Size:
+        return Size(rows=self.rows, columns=self.columns)
+
+    def write_raw(self, data: str) -> None:
+        self.raw.append(data)
+
+
+def _scrollback(width: int, lines: int = 1) -> tuple[ScrollbackConsole, io.StringIO]:
+    out = io.StringIO()
+    console = ScrollbackConsole(file=out, width=width, force_terminal=True, color_system=None)
+    console.keep_scrollback()
+    console.print(Rule())
+    for n in range(lines):
+        console.print(f"line {n}")
+    return console, out
+
+
+async def _resize(console: Console, output: _SizedOutput, width: int) -> None:
+    """端末の幅を変えたときと同じく、SIGWINCH で入力欄に知らせる。"""
+    output.columns = console.width = width
+    signal.raise_signal(signal.SIGWINCH)
+    await asyncio.sleep(0.02)
+
+
+@_posix_only
+async def test_a_width_change_while_typing_redraws_the_screen_at_once() -> None:
+    console, out = _scrollback(80)
+    output = _SizedOutput(80)
+    with create_pipe_input() as inp:
+        box = _box(inp, console=console, output=output)
+        task = asyncio.create_task(box.prompt_async())
+        await asyncio.sleep(0.05)
+        await _resize(console, output, 50)
+        # 待たずに、画面を消して出力と入力欄を新しい幅で 1 枚に描く
+        redrawn = out.getvalue().split("\x1b[3J")
+        assert len(redrawn) == 2
+        assert redrawn[1].startswith("\x1b[H" + "─" * 50 + "\n")
+        assert _SYNC.findall("".join(output.raw)) == ["\x1b[?2026h", "\x1b[?2026l"]
+        await asyncio.sleep(input_box_mod._RESIZE_SETTLE_S + 0.1)
+        assert out.getvalue().count("\x1b[3J") == 1  # 全部が画面に入ったので出し直さない
+        inp.send_text("go\r")
+        assert await task == "go"
+
+
+@_posix_only
+async def test_a_long_history_shows_its_tail_first_and_the_rest_after_the_width_settles() -> None:
+    console, out = _scrollback(80, lines=30)
+    output = _SizedOutput(80, rows=10)
+    with create_pipe_input() as inp:
+        box = _box(inp, console=console, output=output)
+        task = asyncio.create_task(box.prompt_async())
+        await asyncio.sleep(0.05)
+        await _resize(console, output, 60)
+        await _resize(console, output, 50)
+        tails = out.getvalue().split("\x1b[3J")[1:]
+        assert len(tails) == 2 and all("line 0\n" not in t for t in tails)  # まず見えている分
+        assert "line 29\n" in tails[-1]
+        await asyncio.sleep(input_box_mod._RESIZE_SETTLE_S + 0.2)
+        redrawn = out.getvalue().split("\x1b[3J")
+        assert len(redrawn) == 4  # 変わり終わってから 1 回だけ全部
+        assert redrawn[-1].startswith("\x1b[H" + "─" * 50 + "\nline 0\n")
+        inp.send_text("go\r")
+        assert await task == "go"
+
+
+async def test_a_width_change_during_a_turn_is_redrawn_before_the_next_input() -> None:
+    console, out = _scrollback(80)
+    console.width = 50
+    with create_pipe_input() as inp:
+        box = _box(inp, console=console, output=_SizedOutput(50))
+        inp.send_text("go\r")
+        assert await box.prompt_async() == "go"
+    assert out.getvalue().count("\x1b[3J") == 1
+    assert not console.needs_redraw()
+
+
+@_posix_only
+async def test_a_height_change_only_redraws_the_input_box() -> None:
+    console, out = _scrollback(80)
+    output = _SizedOutput(80)
+    with create_pipe_input() as inp:
+        box = _box(inp, console=console, output=output)
+        task = asyncio.create_task(box.prompt_async())
+        await asyncio.sleep(0.05)
+        output.rows = 20
+        signal.raise_signal(signal.SIGWINCH)
+        await asyncio.sleep(0.05)
+        inp.send_text("go\r")
+        assert await task == "go"
+    assert "\x1b[3J" not in out.getvalue()
