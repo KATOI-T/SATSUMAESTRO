@@ -5,8 +5,11 @@ from __future__ import annotations
 import io
 import re
 
+import pytest
 from rich.console import Console, RenderableType
+from rich.text import Text
 
+from satsumaestro.cli import diff_view as diff_view_module
 from satsumaestro.cli.diff_view import diff_view, new_file_view
 from satsumaestro.i18n.text import pinned_ui_language
 
@@ -74,6 +77,30 @@ def test_only_the_changed_word_is_highlighted() -> None:
 def test_mostly_rewritten_lines_get_no_word_highlight() -> None:
     out = _render(diff_view("alpha beta\n", "gamma delta\n", "x.txt", max_rows=40), color=True)
     assert _REMOVED_WORD not in out and _ADDED_WORD not in out
+
+
+def test_long_lines_keep_the_background_but_get_no_word_highlight() -> None:
+    # 同じ語の並ぶ長い 1 行（JSON の配列など）は、語を比べると止まって見えるほど時間がかかる
+    before = "[" + ",".join(["0"] * 20_000) + "]\n"
+    after = before.replace("0]", "1]")
+    out = _render(diff_view(before, after, "a.json", max_rows=40), color=True, width=200)
+    assert _REMOVED_BG in out and _ADDED_BG in out
+    assert _REMOVED_WORD not in out and _ADDED_WORD not in out
+
+
+def test_words_are_compared_only_on_shown_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    real = diff_view_module._mark_changed_words
+
+    def counting(old: Text, new: Text) -> None:
+        calls.append(old.plain)
+        real(old, new)
+
+    monkeypatch.setattr(diff_view_module, "_mark_changed_words", counting)
+    before = "".join(f"line {i}\n" for i in range(50))
+    after = "".join(f"line {i}!\n" for i in range(50))
+    diff_view(before, after, "x.txt", max_rows=10)
+    assert calls == [f"line {i}" for i in range(10)]
 
 
 def test_added_and_context_rows_are_highlighted_but_removed_rows_are_not() -> None:

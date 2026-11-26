@@ -25,6 +25,8 @@ _DIM = Style(dim=True)
 _BOLD_NUMBER = re.compile(r"\d[\d,]*")
 # 対の 2 行の文字のうち、変わった割合がこれを超えたら語を強調しない
 _WORD_DIFF_MAX = 0.4
+# 対の 2 行の字数の和がこれを超えたら語を強調しない（同じ語の並ぶ長い行は比べるのに時間がかかる）
+_WORD_DIFF_MAX_CHARS = 2000
 # 色付けは出す範囲の前のこの行数から始める（開いた複数行の文字列の色を拾う）
 _HIGHLIGHT_LEAD = 200
 _HIGHLIGHT_LIMIT = 100_000
@@ -99,7 +101,8 @@ def diff_view(
                 continue
             olds = [_Row(i + 1, "-", Text(sa[i])) for i in range(i1, i2)]
             news = [_Row(j + 1, "+", code[j - start].copy()) for j in range(j1, j2)]
-            for old, new in zip(olds, news, strict=False):
+            shown = max(0, max_rows - len(rows))  # 語の強調は出す行だけ
+            for old, new in zip(olds[:shown], news, strict=False):
                 _mark_changed_words(old.code, new.code)
             rows.extend([*olds, *news])
             removed += len(olds)
@@ -191,6 +194,8 @@ def _kind(ch: str) -> str:
 
 def _mark_changed_words(old: Text, new: Text) -> None:
     """対になる削除と追加の行の、変わった語に明るい背景を付ける。"""
+    if len(old.plain) + len(new.plain) > _WORD_DIFF_MAX_CHARS:
+        return
     a, b = _tokens(old.plain), _tokens(new.plain)
     ops = difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
     total = len(old.plain) + len(new.plain)
