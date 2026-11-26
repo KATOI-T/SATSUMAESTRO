@@ -203,7 +203,7 @@ def test_renderer_uses_the_region_and_leaves_scrollback_unchanged() -> None:
     plain = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", out)
     assert "first paragraph" in plain and "second paragraph" in plain
     tail = plain.rstrip().split("\r")[-1]
-    assert tail.startswith("  second paragraph") and "  — 出力 8" in tail  # 遅いと「· 計」が続く
+    assert tail.startswith("\n  second paragraph") and "  — 出力 8" in tail  # 遅いと「· 計」が続く
 
 
 def test_full_width_committed_line_is_not_cropped_by_the_sync_markers() -> None:

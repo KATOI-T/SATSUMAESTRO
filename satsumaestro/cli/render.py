@@ -35,7 +35,7 @@ from satsumaestro.cli.tool_display import (
     error_reason,
     result_note,
 )
-from satsumaestro.config.models import ToolOutputMode
+from satsumaestro.config.models import TextMode, ToolOutputMode
 from satsumaestro.engine.events import (
     AssistantEvent,
     MessageStop,
@@ -77,6 +77,15 @@ _RESULT_MARK = "  ⎿  "
 _LIVE_RESERVE_LINES = 4
 _LIVE_MIN_LINES = 3
 _FENCE_CONTEXT_LINES = 50
+
+# 書きかけの本文を見せるときの文の切れ目（英文の終止符は空白が続くときだけ）
+_SENTENCE_ENDS = "。！？\n"
+_LATIN_SENTENCE_ENDS = ".!?"
+# 最下部の領域は stream のときだけ 60 fps で描く
+_STREAM_FPS = 60.0
+_LIVE_FPS = 12.5
+# 文の切れ目が来ないまま、この秒数を超えて待った書きかけは届いた分まで流す
+_SENTENCE_WAIT_S = 1.5
 
 
 def _state_label(state: str | None) -> str | None:
@@ -195,6 +204,59 @@ class _TailLines:
             yield Segment.line()
 
 
+class _TimedReveal:
+    """書きかけのまとまりを、見せはじめの時刻を過ぎてから出す（描くたびに判定する）。"""
+
+    def __init__(self, inner: RenderableType, show_at: float) -> None:
+        self._inner = inner
+        self._show_at = show_at
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        if time.monotonic() >= self._show_at:
+            yield _TailLines(self._inner, reserve=_LIVE_RESERVE_LINES)
+
+
+# 流している本文の描き方の鍵（見せる文字列と :func:`_draft` の引数）
+_DraftKey = tuple[str, bool, bool, tuple[str, bool] | None]
+
+
+@dataclass(frozen=True)
+class _RevealClock:
+    """stream で見せている本文の位置（``start`` から ``rate`` 字/秒で進み ``end`` で止まる）。"""
+
+    start: int
+    since: float
+    rate: float
+    end: int
+
+    def at(self, now: float) -> int:
+        return min(self.end, self.start + int(max(0.0, now - self.since) * self.rate))
+
+    def done_at(self) -> float:
+        return self.since + (self.end - self.start) / self.rate
+
+
+class _Typing:
+    """stream: 流している本文を、描くたびの時刻で決まる位置まで見せる。"""
+
+    def __init__(
+        self,
+        text: str,
+        offset: int,
+        clock: _RevealClock,
+        draw: Callable[[str], RenderableType],
+    ) -> None:
+        self._text = text
+        self._offset = offset
+        self._clock = clock
+        self._draw = draw
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        shown = self._text[: self._clock.at(time.monotonic()) - self._offset]
+        if shown.strip():
+            yield _TailLines(self._draw(shown), reserve=_LIVE_RESERVE_LINES)
+
+
 class _Gutter:
     """中身の見える最初の行の頭に印を置き、ほかの行を印と同じ幅だけ下げる renderable。"""
 
@@ -261,11 +323,25 @@ class RichRenderer:
         cwd: Path | None = None,
         context_limit: int | Callable[[], int] = 0,
         redact: bool = False,
+        text_mode: TextMode = "live",
+        reveal_after_s: float = 3.0,
+        stream_sentence_s: float = 0.2,
         tool_output: ToolOutputMode = "full",
     ) -> None:
         self.console = console or Console()
         self._cwd = cwd
         self._redact = redact
+        self._text_mode = text_mode
+        self._reveal_after_s = reveal_after_s
+        # stream で届いた文を流し切るまでの秒数（0 なら流さずに出す）
+        self._sentence_s = stream_sentence_s
+        # stream の見せている位置と、確定の判定に使う見せ終わり（None は届いた分すべて）
+        self._clock: _RevealClock | None = None
+        self._shown_end: int | None = 0 if text_mode == "stream" else None
+        self._pending_since: float | None = None
+        self._typing_cache: tuple[_DraftKey, RenderableType] | None = None
+        self._tail_since: float | None = None
+        self._reveal_cache: tuple[str, ReplyMarkdown] | None = None
         # summary は SHORT_OUTPUT_LINES を超える bash の出力を畳み、直近 COLLAPSED_KEEP 件を持つ
         self._tool_output = tool_output
         self._collapsed: dict[int, CollapsedOutput] = {}
@@ -299,8 +375,8 @@ class RichRenderer:
         self._tool_arg_names: dict[int, str] = {}
         self._tool_arg_active: int | None = None
         self._fence: _FenceStream | None = None
-        self._gap_before_body = False
-        self._gap_pending = False
+        # 直前に確定したまとまりが区切り線なら、次の前に 1 行空けない
+        self._space_next = False
         self._running: dict[str, _Running] = {}
         # 結果の行の無いツールが同じラベルで続く間は、空行を挟まない
         self._group: str | None = None
@@ -353,7 +429,9 @@ class RichRenderer:
             self._text.append(event.text)
             self._count_chars(event.text)
             self._set_state("responding")
-            if self._tty:
+            if self._tty and self._text_mode == "stream":
+                self._advance_reveal()
+            if self._tty and self._text_mode != "full":
                 self._flush_committable()
             self._refresh_live()
         elif isinstance(event, Thinking):
@@ -618,8 +696,13 @@ class RichRenderer:
         self._thinking = []
         self._clear_tool_args()
         self._fence = None
-        self._gap_before_body = False
-        self._gap_pending = False
+        self._space_next = False
+        self._tail_since = None
+        self._reveal_cache = None
+        self._clock = None
+        self._shown_end = 0 if self._text_mode == "stream" else None
+        self._pending_since = None
+        self._typing_cache = None
 
     def _clear_tool_args(self) -> None:
         self._tool_args.clear()
@@ -648,20 +731,66 @@ class RichRenderer:
         self._refresh_live()
 
     def _tail(self) -> str:
-        """未 commit の本文（Live に残す末尾ブロック）。"""
-        return "".join(self._text)[self._committed_len :]
+        """未 commit の本文（Live に残す末尾ブロック）。stream は見せ終わった位置まで。"""
+        return "".join(self._text)[self._committed_len : self._shown_end]
 
-    def _print_body(self, renderable: RenderableType) -> None:
-        """本文チャンクをスクロールバックへ。"""
+    def _advance_reveal(self, *, to_end: bool = False) -> None:
+        """stream: 流す先を届いた本文の最後の文の切れ目まで進め、見せ終わった位置を取り直す。"""
+        now = time.monotonic()
+        full = "".join(self._text)
+        clock = self._clock
+        shown = self._committed_len if clock is None else clock.at(now)
+        end = self._committed_len if clock is None else clock.end
+        target = end + len(_sentence_prefix(full[end:]))
+        since = self._pending_since
+        waited = target == end and since is not None and now - since >= _SENTENCE_WAIT_S
+        if to_end or waited:
+            target = len(full)
+        if target >= len(full):
+            self._pending_since = None
+        elif target > end or since is None:
+            self._pending_since = now
+        if target > end:
+            # まだ見せていない分を stream_sentence_s 秒で流し切る速さにする
+            if self._sentence_s > 0:
+                clock = _RevealClock(shown, now, (target - shown) / self._sentence_s, target)
+            else:
+                clock = _RevealClock(target, now, 1.0, target)
+            self._clock = clock
+        self._shown_end = shown if clock is None else clock.at(now)
+
+    def _drain_reveal(self) -> None:
+        """stream: 区切りで残りの本文を流し切ってから確定へ回す。"""
+        self._advance_reveal(to_end=True)
+        clock = self._clock
+        if clock is not None and self._live is not None:
+            self._refresh_live()
+            wait = clock.done_at() - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self._shown_end = None
+
+    def _print_body(
+        self, renderable: RenderableType, *, spaced: bool = False, rule_end: bool = False
+    ) -> None:
+        """本文チャンクをスクロールバックへ出し、次のまとまりの前に 1 行空けるかを控える。"""
         if not self._seg_committed:
             self._open_result()
             self._emit(self._body(renderable))
             self._seg_committed = True
         else:
-            if self._gap_before_body:
+            if self._space_next and not spaced:
                 self.console.print()
             self.console.print(self._body(renderable))
-        self._gap_before_body = False
+        self._space_next = not rule_end
+
+    def _print_markdown(self, text: str) -> None:
+        """Markdown のまとまりを確定する（空白だけなら何もしない）。"""
+        if not text.strip():
+            return
+        md = ReplyMarkdown(text)
+        spaced, rule_end = _markdown_edges(md)
+        self._print_body(md, spaced=spaced, rule_end=rule_end)
 
     def _body(self, renderable: RenderableType) -> RenderableType:
         """本文をツールの行と同じ位置に下げ、まとまりの最初のチャンクにだけ ``⏺`` を付ける。"""
@@ -676,33 +805,58 @@ class RichRenderer:
     def _flush_committable(self) -> None:
         """親子階層を壊さない安全境界まで本文を確定し、スクロールバックへ出す。"""
         if self._fence is None:
-            if self._gap_pending:
-                self._resolve_gap()
-            commit, _remaining = _committable_prefix(self._tail())
+            commit, _remaining = _committable_prefix(self._commit_probe())
             if commit:
+                # 確定分を先に進める（print の瞬間に領域が描き直される）
                 self._committed_len += len(commit)
-                self._print_body(ReplyMarkdown(commit))
+                self._tail_since = None
+                self._print_markdown(commit)
             self._maybe_open_fence()
         if self._fence is not None:
             self._stream_fence(final=False)
+        if self._tail_since is None and self._tail().strip():
+            self._tail_since = time.monotonic()
+
+    def _commit_probe(self) -> str:
+        """確定の判定に渡す本文（stream は見せ終わった位置を含む行の終わりまで）。"""
+        end = self._shown_end
+        if end is None:
+            return self._tail()
+        full = "".join(self._text)
+        newline = full.find("\n", end)
+        return full[self._committed_len : len(full) if newline < 0 else newline + 1]
 
     def _live_budget(self) -> int:
         """Live に載せられる本文の行数（端末の高さ − 状態行と余白）。"""
         return max(_LIVE_MIN_LINES, self.console.size.height - _LIVE_RESERVE_LINES)
 
+    def _fence_budget(self) -> int | None:
+        """開きフェンスを行ごとの確定に切り替える本体の行数（``None`` はまだ切り替えない）。"""
+        if self._text_mode in ("live", "stream"):
+            return self._live_budget()
+        if self._overdue():
+            return 1
+        return None
+
+    def _overdue(self) -> bool:
+        """未確定のまとまりが ``reveal_after_s`` を超えて続いているか。"""
+        since = self._tail_since
+        return since is not None and time.monotonic() - since >= self._reveal_after_s
+
     def _maybe_open_fence(self) -> None:
-        """未確定の tail に画面の高さを超えた開きフェンスがあれば、行ごとの確定に切り替える。"""
+        """未確定の tail に高すぎる開きフェンスがあれば、行ごとの確定に切り替える。"""
+        budget = self._fence_budget()
+        if budget is None:
+            return
         tail = self._tail()
-        opened = _tall_open_fence(tail, self._live_budget())
+        opened = _tall_open_fence(tail, budget)
         if opened is None:
             return
         start, body_start, lang = opened
         before = tail[:start]
         self._committed_len += body_start
         self._fence = _FenceStream(lang=lang)
-        if before.strip():
-            self._print_body(ReplyMarkdown(before))
-            self.console.print()
+        self._print_markdown(before)
 
     def _stream_fence(self, *, final: bool) -> None:
         """流しているフェンスの本体のうち、確定できる行をスクロールバックへ出す。"""
@@ -716,16 +870,14 @@ class RichRenderer:
         if closer is not None:
             consumed = sum(len(ln) + 1 for ln in lines[:closer]) + len(lines[closer])
             self._committed_len += consumed
-            self._fence = None
+            self._close_fence()
             self._print_fence_chunk(fence, lines[:closer], last=True)
-            self._close_fence(body[consumed:])
             return
         if final:
             code_lines = lines if _FENCE_CLOSE_LINE.fullmatch(partial) else [*lines, partial]
             self._committed_len += len(body)
-            self._fence = None
+            self._close_fence()
             self._print_fence_chunk(fence, code_lines, last=True)
-            self._close_fence(None)
             return
         last_nonblank = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
         if not last_nonblank:
@@ -743,28 +895,16 @@ class RichRenderer:
             return
         context = fence.context[-_FENCE_CONTEXT_LINES:]
         self._print_body(
-            code_block("\n".join(lines), fence.lang, head=not fence.printed, context=context)
+            code_block("\n".join(lines), fence.lang, head=not fence.printed, context=context),
+            spaced=fence.printed,
         )
         fence.printed = True
         fence.context = [*fence.context, *lines][-_FENCE_CONTEXT_LINES:]
 
-    def _close_fence(self, rest: str | None) -> None:
-        """流しを終える。"""
+    def _close_fence(self) -> None:
+        """流しを終える（閉じフェンスの後ろは新しいまとまり）。"""
         self._fence = None
-        self._gap_before_body = False
-        self._gap_pending = False
-        if rest is not None:
-            self._resolve_gap(rest)
-
-    def _resolve_gap(self, rest: str | None = None) -> None:
-        """閉じフェンスの後ろ ``rest``（省略時は今の tail）から、次の本文の前の 1 行を決める。"""
-        rest = self._tail() if rest is None else rest
-        after = rest[1:] if rest.startswith("\n") else rest
-        if not after:
-            self._gap_pending = True
-            return
-        self._gap_pending = False
-        self._gap_before_body = not after.startswith("\n")
+        self._tail_since = None
 
     def _count_chars(self, text: str) -> None:
         """現メッセージの文字数を足す（実測が届くまでの概算の材料）。"""
@@ -883,36 +1023,95 @@ class RichRenderer:
                 title += f" {path}"
             lines = value.splitlines() or [""]
             title += ui("cli.render.title_lines", n=len(lines))
-            body.append(Text("\n".join(lines[-_STREAM_ARG_LINES:]), style="dim"))
+            if self._text_mode == "live":
+                body.append(Text("\n".join(lines[-_STREAM_ARG_LINES:]), style="dim"))
+        if self._text_mode != "live":
+            # 書きかけの本文は出さず、見出しと書き終わった分だけ
+            return Group(*body, Text(title, style="cyan"))
         return Panel(Group(*body), title=title, border_style="cyan", expand=False)
 
     def _live_renderable(self) -> RenderableType:
-        body: list[RenderableType] = []
-        tail = self._tail()
-        if self._fence is not None:
-            shown = tail.rstrip("\n")
-            if shown:
-                fence = self._fence
-                body.append(self._body(code_block(shown, fence.lang, head=not fence.printed)))
-        elif tail.strip():
-            body.append(self._body(ReplyMarkdown(tail)))
-        panel = self._tool_arg_panel()
-        if panel is not None:
-            body.append(panel)
         parts: list[RenderableType] = []
-        if body:
-            parts.append(_TailLines(Group(*body), reserve=_LIVE_RESERVE_LINES))
+        if self._text_mode == "live":
+            body = self._live_body()
+            panel = self._tool_arg_panel()
+            if panel is not None:
+                body.append(panel)
+            if body:
+                parts.append(_TailLines(Group(*body), reserve=_LIVE_RESERVE_LINES))
+        else:
+            reveal = self._typing() if self._text_mode == "stream" else self._reveal()
+            if reveal is not None:
+                parts.append(reveal)
+            panel = self._tool_arg_panel()
+            if panel is not None:
+                parts.append(panel)
         parts.extend(self._pending_rows())
         status = self._status_row()
         if status is not None:
             parts.extend((Text(), status))
         return Group(*parts)
 
+    def _live_body(self) -> list[RenderableType]:
+        """live: 未確定の本文をそのまま最下部に描く。"""
+        tail = self._tail()
+        fence = self._fence
+        # 流しているフェンスの残りはコードとして描く（``# comment`` が見出しに化けない）
+        shown = tail.rstrip("\n") if fence is not None else tail
+        if not shown.strip():
+            return []
+        first, space, code = self._draft_state()
+        return [_draft(shown, first=first, space=space, fence=code)]
+
+    def _draft_state(self) -> tuple[bool, bool, tuple[str, bool] | None]:
+        """確定前の本文の描き方（セグメントの最初か・前に 1 行空けるか・流しているコード）。"""
+        fence = self._fence
+        code = None if fence is None else (fence.lang, not fence.printed)
+        return not self._seg_committed, self._space_next, code
+
+    def _reveal(self) -> RenderableType | None:
+        """block: 書きかけのまとまりを、``reveal_after_s`` の後から文の切れ目まで見せる。"""
+        since = self._tail_since
+        if self._text_mode != "block" or self._fence is not None or since is None:
+            return None
+        shown = _sentence_prefix(self._tail())
+        if not shown.strip():
+            return None
+        cached = self._reveal_cache
+        if cached is None or cached[0] != shown:
+            cached = (shown, ReplyMarkdown(shown))
+            self._reveal_cache = cached
+        return _TimedReveal(self._body(cached[1]), since + self._reveal_after_s)
+
+    def _typing(self) -> RenderableType | None:
+        """stream: 流している本文（見せ終わりの位置は描くたびに時刻で決まる）。"""
+        clock = self._clock
+        if clock is None:
+            return None
+        offset = self._committed_len
+        text = "".join(self._text)[offset : clock.end]
+        if not text.strip():
+            return None
+        # 描くのは最下部の領域のスレッドなので、確定の状態はここで写す
+        first, space, fence = self._draft_state()
+
+        def draw(shown: str) -> RenderableType:
+            key = (shown, first, space, fence)
+            cached = self._typing_cache
+            if cached is None or cached[0] != key:
+                code = shown.rstrip("\n") if fence is not None else shown
+                cached = (key, _draft(code, first=first, space=space, fence=fence))
+                self._typing_cache = cached
+            return cached[1]
+
+        return _Typing(text, offset, clock, draw)
+
     def _refresh_live(self) -> None:
         if not self._tty:
             return
         if self._live is None:
-            self._live = LiveRegion(self.console, fps=12.5, on_print=self._sync_region)
+            fps = _STREAM_FPS if self._text_mode == "stream" else _LIVE_FPS
+            self._live = LiveRegion(self.console, fps=fps, on_print=self._sync_region)
             self._live.start()
         self._live.update(self._live_renderable())
 
@@ -948,14 +1147,12 @@ class RichRenderer:
     def _finalize_segment(self) -> None:
         self._close_message()
         if self._tty:
+            if self._text_mode == "stream":
+                self._drain_reveal()
             self._stop_live()
             if self._fence is not None:
                 self._stream_fence(final=True)
-            if self._gap_pending:
-                self._resolve_gap()
-            tail = self._tail()
-            if tail.strip():
-                self._print_body(ReplyMarkdown(tail))
+            self._print_markdown(self._tail())
         elif "".join(self._text).strip() or self._thinking:
             parts: list[RenderableType] = []
             if self._thinking:
@@ -1013,6 +1210,34 @@ def _block_is_listish(block: str) -> bool:
     return False
 
 
+def _draft(
+    shown: str, *, first: bool, space: bool, fence: tuple[str, bool] | None
+) -> RenderableType:
+    """確定前の本文を、確定したときと同じ並び（前の 1 行・印・字下げ）で描く。"""
+    inner: RenderableType
+    if fence is None:
+        md = ReplyMarkdown(shown)
+        inner, lead = md, first or (space and not _markdown_edges(md)[0])
+    else:
+        lang, head = fence
+        inner = code_block(shown, lang, head=head)
+        lead = first or (space and head)
+    mark = _MARK if first else " " * len(_MARK)
+    return _Gutter(Group(Text(), inner) if lead else inner, Text(mark))
+
+
+# 前のまとまりとの間の 1 行を自分で先頭に出す要素
+_SELF_SPACED = frozenset({"bullet_list_open", "ordered_list_open", "table_open", "blockquote_open"})
+
+
+def _markdown_edges(md: ReplyMarkdown) -> tuple[bool, bool]:
+    """``(先頭で自分で 1 行空けるか, 区切り線で終わるか)``。"""
+    top = [token for token in md.parsed if token.level == 0]
+    if not top:
+        return False, False
+    return top[0].type in _SELF_SPACED, top[-1].type == "hr"
+
+
 def _committable_prefix(s: str) -> tuple[str, str]:
     """``s`` の先頭から、階層を壊さず確定できる範囲 ``(commit, remaining)`` を返す。"""
     cuts = [m.end() for m in _BLANK_RUN.finditer(s)]
@@ -1061,6 +1286,17 @@ def _tall_open_fence(s: str, budget: int) -> tuple[int, int, str] | None:
     if opened is None or s.count("\n", opened[1]) < budget:
         return None
     return opened
+
+
+def _sentence_prefix(s: str) -> str:
+    """``s`` のうち最後の文の切れ目までの部分（切れ目が無ければ空）。"""
+    end = max(s.rfind(ch) for ch in _SENTENCE_ENDS)
+    for ch in _LATIN_SENTENCE_ENDS:
+        i = s.rfind(ch)
+        while i > end and (i + 1 >= len(s) or not s[i + 1].isspace()):
+            i = s.rfind(ch, 0, i)
+        end = max(end, i)
+    return s[: end + 1]
 
 
 def _streamed_write(buf: str) -> tuple[str | None, str] | None:

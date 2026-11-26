@@ -526,8 +526,10 @@ def test_blocked_step_is_not_resumed_by_an_unrelated_request(scenario: Runner) -
     )
     text = result.transcript.plain
     assert result.report.failures == [], result.report.failures
-    assert text.count("BLOCKED: a.txt の中身") == 1
+    assert "BLOCKED: a.txt の中身" in text
+    # 転写は流している間の最下部の描画も含むので、BLOCKED の回数は要求の記録で数える
     notes = [r["note"] for r in result.requests]
+    assert notes.count("段 1 で判断を仰いで止まる") == 1, notes
     assert "無関係な依頼: 段は再開されない" in notes, notes
     assert notes.count("再開した段 1") == 1, notes
     assert "削除するものはありません" in text
@@ -561,14 +563,15 @@ def test_long_code_block_keeps_scrolling_while_it_is_generated(scenario: Runner)
 
 
 def test_arg_panel_follows_each_write_file_in_a_multi_call_reply(scenario: Runner) -> None:
-    """write_file 5 本を 1 応答で書く間、生成中パネルが 5 本目まで切り替わる。"""
+    """write_file 5 本を 1 応答で書く間、生成中の見出しが 5 本目まで切り替わる。"""
     result = scenario("multi_write_stream.jsonl", turns=("五つの CSS を作って",), plan=False)
     assert result.report.failures == [], result.report.failures
     plain = result.transcript.plain
     assert re.search(r"write_file — 生成中 5 件目 f5\.css（\d+ 行）", plain), "5 本目の見出しが無い"
     assert re.search(r"write_file — 生成中 2 件目 f2\.css", plain)
     assert "✓ f4.css（40 行）" in plain
-    assert "/*f5-l030*/" in plain
+    # 既定の stream では書きかけの中身を出さない（プレビューの 20 行にも入らない）
+    assert "/*f5-l030*/" not in plain
     ws = result.workspace
     for n in range(1, 6):
         assert (ws / f"f{n}.css").exists(), n

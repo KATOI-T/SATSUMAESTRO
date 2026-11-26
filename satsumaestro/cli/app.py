@@ -566,8 +566,11 @@ async def _assemble_runtime(
             cwd=cwd,
             context_limit=lambda: cfg.compact_token_threshold,
             redact=cfg.redaction.live,
+            text_mode=cfg.display.text,
+            reveal_after_s=cfg.display.reveal_after_s,
+            stream_sentence_s=cfg.display.stream_sentence_s,
             # 畳んだ出力を出し直す /expand は REPL にしか無い
-            tool_output="summary" if interactive else "full",
+            tool_output=cfg.display.tool_output if interactive else "full",
         ),
     )
 
