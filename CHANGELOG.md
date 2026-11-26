@@ -41,6 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   input box at the new width, so rules and earlier output no longer break into pieces. A change during
   a turn is redrawn before the next input box.
   ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- `/version` and `/cwd` show the version and the working directory, which the startup screen no
+  longer shows.
+  ([#71](https://github.com/KATOI-T/SATSUMAESTRO/issues/71))
 
 ### Changed
 
@@ -60,6 +63,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
 - The lowest supported prompt_toolkit is now 3.0.31.
   ([#70](https://github.com/KATOI-T/SATSUMAESTRO/issues/70))
+- The startup screen is lower and fits the terminal. The art leaves out the smoke and is chosen by the
+  width and the height: the large art and letters, a half-size braille art with the name in spaced
+  letters, or the name alone, drawn again when the width changes (before, a terminal under 60 columns
+  showed no art). A one-line key guide replaces the `SATSUMAESTRO REPL —` line and the working
+  directory, and the update notice sits under it.
+  ([#71](https://github.com/KATOI-T/SATSUMAESTRO/issues/71))
 
 ### Fixed
 

@@ -87,7 +87,7 @@ the question):
 | Homebrew | `brew upgrade satsumaestro` |
 | pip | `pip install -U satsumaestro` (shown, not run) |
 
-When a newer version is out, the REPL says so in one line when it starts. In the REPL, `/update`
+When a newer version is out, the REPL says so under the key guide when it starts. In the REPL, `/update`
 shows the versions; leave the REPL to run the update.
 
 ### Windows (WSL2)
@@ -275,6 +275,17 @@ every model takes every `/effort` level: one it does not take is sent as the nea
 `provider.ollama.unload_on_exit: false` to keep it loaded), and from LM Studio and a llama.cpp
 router only the models it caused to load (`provider.local.unload_on_exit: false` keeps them).
 Switching away from a local server with `/provider` unloads the same way.
+
+**Startup screen**: in a terminal, the REPL starts with the art (Sakurajima) and the product name,
+centered, and a one-line guide to the keys (`/help`, `/exit`, Ctrl-C and Shift+Tab) under them. The
+art fits the terminal: the large art and letters at 60 columns or more when the whole startup screen
+(from the art to the input box) fits in the height, a braille art at half the size with the name in
+spaced letters when the terminal is narrower or lower, and the name alone below 34 columns or when
+even that does not fit. At 80 columns the large art needs 18 rows and the braille art 13; a key guide
+that wraps, or the update notice, needs as many rows more. When the width changes, the art is drawn
+again for the new width. The startup screen shows neither the version nor the working directory:
+`/version` and `/cwd` show them (in a directory opened for the first time, the trust question shows
+the path).
 
 **Input box**: in a terminal, you write each request in a box between two rules. **Enter** sends
 and **Shift+Enter** starts a new line. While the box is open, the REPL asks the terminal to send

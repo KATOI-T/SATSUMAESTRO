@@ -83,7 +83,7 @@ brew install katoi-t/tap/satsumaestro
 | Homebrew | `brew upgrade satsumaestro` |
 | pip | `pip install -U satsumaestro`（出すだけで、回しません） |
 
-新しい版が出ていれば、REPL の起動時に 1 行で知らせます。REPL の中の `/update` は版を出すだけで、
+新しい版が出ていれば、REPL の起動時に操作の案内の下で知らせます。REPL の中の `/update` は版を出すだけで、
 更新は REPL を出てから回します。
 
 ### Windows（WSL2）
@@ -255,6 +255,13 @@ REPL では `/help` でコマンドの一覧、`/exit` か Ctrl-D で終了、Ct
 モデルによって受けないものがあり、その段階は近い段階で送るか、指定を外して送ります。REPL を閉じると、その REPL が使ったモデルを Ollama から降ろします（残すなら設定で
 `provider.ollama.unload_on_exit: false`）。LM Studio と llama.cpp の router からは、その REPL が読み込ませたモデルだけを降ろします
 （残すなら `provider.local.unload_on_exit: false`）。`/provider` でローカルのサーバから切り替えたときも、同じように降ろします。
+
+**起動の画面**: 端末では、REPL は絵（桜島）と製品名を中央に出し、その下に操作の案内（`/help`・`/exit`・Ctrl-C・
+Shift+Tab）を 1 行で出します。絵は端末の大きさで選びます。60 桁以上で起動の画面（絵の上から入力欄まで）がまるごと
+入る高さなら大きな絵と字、それより狭いか低ければ点字で縦横半分にした絵と字間を空けた製品名、34 桁より狭いか点字の絵も
+入らなければ製品名だけです。要る高さは 80 桁で大きな絵が 18 行・点字の絵が 13 行で、操作の案内が折り返すときや更新の
+知らせがあるときは、その行数だけ多く要ります。幅を変えると、新しい幅で絵を描き直します。バージョンと作業場所は起動の
+画面に出さないので、`/version` と `/cwd` で確かめます（初めて開くディレクトリでは、信頼の確認がパスを出します）。
 
 **入力欄**: 端末では、上下の罫線で挟んだ入力欄に依頼を書きます。**Enter** で送り、**Shift+Enter** で改行します。
 入力欄を出している間、REPL は端末に Shift+Enter を Enter と区別して送るよう頼みます（kitty keyboard protocol）。
