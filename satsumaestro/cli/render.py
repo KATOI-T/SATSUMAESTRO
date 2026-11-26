@@ -10,7 +10,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from rich.cells import cell_len
@@ -228,9 +228,31 @@ class _RevealClock:
     since: float
     rate: float
     end: int
+    # 待ちが尽きた時刻（``later.since``）から続ける流し方
+    later: _RevealClock | None = None
 
     def at(self, now: float) -> int:
+        if self.later is not None and now >= self.later.since:
+            return self.later.at(now)
         return min(self.end, self.start + int(max(0.0, now - self.since) * self.rate))
+
+    def end_at(self, now: float) -> int:
+        """``now`` の時点で流す先。"""
+        if self.later is not None and now >= self.later.since:
+            return self.later.end_at(now)
+        return self.end
+
+    def last(self) -> int:
+        """続きまで流し終えた位置。"""
+        return self.end if self.later is None else self.later.last()
+
+    def settled(self, now: float) -> _RevealClock:
+        """続きが始まっていればそれを今の流し方にし、始まっていなければ外す。"""
+        if self.later is None:
+            return self
+        if now >= self.later.since:
+            return self.later.settled(now)
+        return replace(self, later=None)
 
     def done_at(self) -> float:
         return self.since + (self.end - self.start) / self.rate
@@ -740,7 +762,7 @@ class RichRenderer:
         full = "".join(self._text)
         clock = self._clock
         shown = self._committed_len if clock is None else clock.at(now)
-        end = self._committed_len if clock is None else clock.end
+        end = self._committed_len if clock is None else clock.end_at(now)
         target = end + len(_sentence_prefix(full[end:]))
         since = self._pending_since
         waited = target == end and since is not None and now - since >= _SENTENCE_WAIT_S
@@ -751,13 +773,23 @@ class RichRenderer:
         elif target > end or since is None:
             self._pending_since = now
         if target > end:
-            # まだ見せていない分を stream_sentence_s 秒で流し切る速さにする
-            if self._sentence_s > 0:
-                clock = _RevealClock(shown, now, (target - shown) / self._sentence_s, target)
-            else:
-                clock = _RevealClock(target, now, 1.0, target)
-            self._clock = clock
+            clock = self._flow(shown, now, target)
+        elif clock is not None:
+            clock = clock.settled(now)
+        pending = self._pending_since
+        if pending is not None:
+            # 待ちが尽きたら、次の差分が届かなくても届いた分まで流す
+            base = clock or _RevealClock(shown, now, 1.0, shown)
+            wait_end = pending + _SENTENCE_WAIT_S
+            clock = replace(base, later=self._flow(base.at(wait_end), wait_end, len(full)))
+        self._clock = clock
         self._shown_end = shown if clock is None else clock.at(now)
+
+    def _flow(self, start: int, since: float, target: int) -> _RevealClock:
+        """``since`` から、``start`` の先の ``target`` までを stream_sentence_s 秒で流す時計。"""
+        if self._sentence_s > 0 and target > start:
+            return _RevealClock(start, since, (target - start) / self._sentence_s, target)
+        return _RevealClock(target, since, 1.0, target)
 
     def _drain_reveal(self) -> None:
         """stream: 区切りで残りの本文を流し切ってから確定へ回す。"""
@@ -1089,7 +1121,7 @@ class RichRenderer:
         if clock is None:
             return None
         offset = self._committed_len
-        text = "".join(self._text)[offset : clock.end]
+        text = "".join(self._text)[offset : clock.last()]
         if not text.strip():
             return None
         # 描くのは最下部の領域のスレッドなので、確定の状態はここで写す

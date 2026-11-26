@@ -161,16 +161,41 @@ def test_a_large_backlog_is_shown_within_the_sentence_time(clock: _Clock) -> Non
 
 
 def test_a_long_unfinished_sentence_is_shown_after_waiting(clock: _Clock) -> None:
+    """待ちは書きかけが出はじめた時から数え、途中の差分では延びない。"""
     r, _ = _renderer()
     r.start_turn()
     _feed(r, "句点の来ない長い文")
     clock.now += _SENTENCE_WAIT_S - 0.1
     r.on_assistant_event(TextDelta(text="が"))
-    clock.now += 1.0
     assert "句点" not in _bottom(r)  # まだ待つ
+    clock.now += 0.1 + SENTENCE_S + 0.01
+    assert "句点の来ない長い文が" in _bottom(r)
     r.on_assistant_event(TextDelta(text="続く"))
-    clock.now += 1.0
+    clock.now += SENTENCE_S + 0.01
     assert "句点の来ない長い文が続く" in _bottom(r)
+
+
+def test_unfinished_text_is_shown_after_the_wait_without_another_delta(clock: _Clock) -> None:
+    """届くのが止まっても、待ちが尽きたら次の差分を待たずに書きかけを流す。"""
+    r, _ = _renderer()
+    r.start_turn()
+    _feed(r, "前の文。届いたきり止まる書きかけ")
+    clock.now += _SENTENCE_WAIT_S - 0.1
+    bottom = _bottom(r)
+    assert "前の文。" in bottom and "書きかけ" not in bottom
+    clock.now += 0.1 + SENTENCE_S + 0.01
+    assert "前の文。届いたきり止まる書きかけ" in _bottom(r)
+
+
+def test_a_first_unfinished_sentence_is_shown_after_the_wait(clock: _Clock) -> None:
+    """切れ目がまだ 1 つも無い書きかけも、待ちが尽きたら流す。"""
+    r, _ = _renderer()
+    r.start_turn()
+    _feed(r, "最初の文が止まる")
+    clock.now += _SENTENCE_WAIT_S - 0.1
+    assert "最初" not in _bottom(r)
+    clock.now += 0.1 + SENTENCE_S + 0.01
+    assert "最初の文が止まる" in _bottom(r)
 
 
 def test_a_sentence_end_wins_over_the_wait(clock: _Clock) -> None:
