@@ -426,10 +426,13 @@ def test_bash_output_is_collapsed_and_expand_shows_it(scenario: Runner) -> None:
     )
     text = result.transcript.plain
     assert tr.flat("出力 5 行（/expand 1 で全文）") in tr.flat(text)
-    expanded = text.rindex("#1 $ seq 7001 7005")
-    # 出力は /expand の前には出ていない（畳まれている）
+    heading = "#1 $ seq 7001 7005"
+    expanded = text.rindex(heading)
+    # 出力は /expand の前には出ていない（畳まれている）。/expand は 5 行とも順に出す
     assert text.index("7002") > expanded
     assert "7001\n" not in text[:expanded]
+    shown = re.findall(r"\b70\d\d\b", text[expanded + len(heading) :])
+    assert shown[:5] == ["7001", "7002", "7003", "7004", "7005"]
     assert result.report.failures == [], result.report.failures
 
 
