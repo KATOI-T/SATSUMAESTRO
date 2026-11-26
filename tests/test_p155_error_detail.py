@@ -71,22 +71,22 @@ def test_detail_within_limits_is_not_marked_truncated() -> None:
 
 def test_validation_error_shows_the_field_for_action_tools() -> None:
     out = _render_failure("edit_file", _PYDANTIC, path="a.py", old="x", new="y")
-    assert "✗ a.py — invalid input" in out
-    assert "\n      todos.0.activeForm\n" in out
-    assert "\n        Field required [type=missing" in out
+    assert "⏺ 編集(a.py)\n  ⎿  ✗ invalid input" in out
+    assert "\n       todos.0.activeForm\n" in out
+    assert "\n         Field required [type=missing" in out
     assert "errors.pydantic.dev" not in out
 
 
 def test_validation_error_shows_the_field_for_reference_tools() -> None:
     out = _render_failure("read_file", _PYDANTIC, path="missing.py")
-    assert "- missing.py  ✗ invalid input" in out
-    assert "\n      todos.0.activeForm\n" in out
+    assert "⏺ 読み込み(missing.py)\n  ⎿  ✗ invalid input" in out
+    assert "\n       todos.0.activeForm\n" in out
 
 
 def test_single_line_error_output_is_unchanged() -> None:
     out = _render_failure("bash", "exit 1", command="false")
-    assert "✗ false — exit 1" in out
-    assert "\n      " not in out
+    assert "⏺ コマンド実行(false)\n  ⎿  ✗ exit 1" in out
+    assert "\n       " not in out
     assert ERROR_TRUNCATED not in out
 
 

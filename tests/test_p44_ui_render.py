@@ -119,10 +119,10 @@ def test_tool_heading_and_done_line() -> None:
     r.on_tool_result(_result(write, "wrote 2 bytes"))
     r.end_turn()
     out = buf.getvalue()
-    assert "• Read" in out and "- README.md" in out
-    assert "• List" in out and "- . (1 entry)" in out
+    assert "⏺ Read(README.md)" in out
+    assert "⏺ List(.)\n  ⎿  1 entry" in out
     assert not _JAPANESE.search(out)
-    assert "• Write" in out and "✓ Done" in out
+    assert "⏺ Write(a.txt)" in out and "✓ Done" in out
     assert _done_line(None).strip() == "✓ Done"
 
 

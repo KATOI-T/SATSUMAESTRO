@@ -185,7 +185,7 @@ def test_renderer_labels_append(tmp_path: Path) -> None:
     r.on_tool_start(ToolUse(id="t1", name="append_file", input={"path": "a.txt", "content": "x"}))
     r.end_turn()
     out = buf.getvalue()
-    assert "・追記" in out and "- a.txt" in out and "append_file" not in out
+    assert "⏺ 追記(a.txt)" in out and "append_file" not in out
 
 
 def test_guidance_points_to_append_file() -> None:

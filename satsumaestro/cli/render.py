@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import difflib
+import functools
 import json
+import math
 import os
 import re
 import time
@@ -11,12 +13,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich.cells import cell_len
+from rich.color import Color
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress_bar import ProgressBar
 from rich.segment import Segment
 from rich.spinner import Spinner
+from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -59,9 +64,12 @@ _WRITE_PREVIEW_LINES = 20
 _DIFF_PREVIEW_LINES = 40
 _NEW_FILE_PREVIEW_LINES = 10
 _STREAM_ARG_LINES = 12
-_ITEM_INDENT = 4
+# 本文とツールの行の頭の印、結果の行の頭の印（2 行目からは同じ幅だけ下げる）
+_MARK = "⏺ "
+_RESULT_MARK = "  ⎿  "
 
-_LIVE_RESERVE_LINES = 3
+# 状態行の上の 1 行・スピナー・ロード中の帯・余白
+_LIVE_RESERVE_LINES = 4
 _LIVE_MIN_LINES = 3
 _FENCE_CONTEXT_LINES = 50
 
@@ -79,6 +87,13 @@ def _state_label(state: str | None) -> str | None:
 
 
 _ELAPSED_AFTER_S = 2.0
+# ラベルの上を左から右へ流れる光（中心からの距離で灰から白へ混ぜる）
+_SHIMMER_SPEED = 24.0  # 桁/秒
+_SHIMMER_RADIUS = 4.0
+_SHIMMER_GAP_S = 0.6
+_SHIMMER_BASE = (118, 118, 118)
+_SHIMMER_PEAK = (242, 242, 242)
+_SHIMMER_LEVELS = 16
 
 _LOAD_STALL_S = 180.0
 
@@ -97,15 +112,37 @@ _LOAD_BAR_WIDTH = 40
 _STEP_PREVIEW_CHARS = 60
 
 
+def _shimmer(label: str, now: float) -> Text:
+    """ラベルを灰で描き、光の中心に近い字ほど明るくする（光の位置は時刻だけで決まる）。"""
+    width = cell_len(label)
+    period = (width + 2 * _SHIMMER_RADIUS) / _SHIMMER_SPEED + _SHIMMER_GAP_S
+    center = (now % period) * _SHIMMER_SPEED - _SHIMMER_RADIUS
+    text = Text()
+    col = 0
+    for ch in label:
+        w = cell_len(ch)
+        d = abs(col + w / 2 - center)
+        glow = 0.5 + 0.5 * math.cos(math.pi * d / _SHIMMER_RADIUS) if d < _SHIMMER_RADIUS else 0.0
+        text.append(ch, style=_glow_style(round(glow * _SHIMMER_LEVELS)))
+        col += w
+    return text
+
+
+@functools.cache
+def _glow_style(level: int) -> Style:
+    t = level / _SHIMMER_LEVELS
+    rgb = (round(b + (p - b) * t) for b, p in zip(_SHIMMER_BASE, _SHIMMER_PEAK, strict=True))
+    return Style(color=Color.from_rgb(*rgb))
+
+
 class _StatusLine:
-    """状態行（スピナー＋経過秒＋トークン数）を**描画のたびに組み立てる**renderable。"""
+    """状態行（スピナー・光の流れるラベル・経過）を**描画のたびに組み立てる**renderable。"""
 
     def __init__(
         self,
         spinner: Spinner,
         label: str,
         since: float,
-        tokens: Callable[[], str],
         *,
         stalled: tuple[float, str] | None = None,
         pulse_bar: bool = False,
@@ -113,22 +150,20 @@ class _StatusLine:
         self._spinner = spinner
         self._label = label
         self._since = since
-        self._tokens = tokens
         self._stalled = stalled
         self._pulse_bar = pulse_bar
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
-        elapsed = time.monotonic() - self._since
+        now = time.monotonic()
+        elapsed = now - self._since
         label = self._label
         stalled = self._stalled is not None and elapsed >= self._stalled[0]
         if self._stalled is not None and stalled:
             label = self._stalled[1]
-        text = Text(label, style="dim")
+        # 停滞した後は光も帯も止め、進んでいるように見せない
+        text = Text(label, style="dim") if stalled else _shimmer(label, now)
         if elapsed >= _ELAPSED_AFTER_S:
-            text.append(f"  ·  {elapsed:.0f}s", style="dim")
-        tok = self._tokens()
-        if tok:
-            text.append(f"  ·  {tok}", style="dim")
+            text.append("  " + _format_elapsed(elapsed), style="dim")
         self._spinner.update(text=text)
         yield self._spinner
         if self._pulse_bar and not stalled:
@@ -155,6 +190,40 @@ class _TailLines:
             yield Segment.line()
 
 
+class _Gutter:
+    """中身の見える最初の行の頭に印を置き、ほかの行を印と同じ幅だけ下げる renderable。"""
+
+    def __init__(self, inner: RenderableType, mark: Text) -> None:
+        self._inner = inner
+        self._mark = mark
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        width = self._mark.cell_len
+        inner = options.update_width(max(1, options.max_width - width))
+        lines = console.render_lines(self._inner, inner, pad=False)
+        # Rich のリストやコードブロックは空行から始まるので、印は空でない最初の行に置く
+        first = next((i for i, ln in enumerate(lines) if "".join(s.text for s in ln).strip()), 0)
+        blank = Segment(" " * width)
+        for i, line in enumerate(lines):
+            if i == first:
+                yield from self._mark.render(console, end="")
+            elif Segment.get_line_length(line) > 0:
+                yield blank
+            yield from line
+            yield Segment.line()
+
+
+@dataclass
+class _Running:
+    """実行中のツール（``call`` は画面に出す写し・``shown`` は結果より先に行を出したか）。"""
+
+    call: ToolUse
+    display: ToolDisplay
+    started: float
+    preview: RenderableType | None = None
+    shown: bool = False
+
+
 @dataclass
 class _FenceStream:
     """画面の高さを超えたコードフェンスを行ごとに確定している間の状態。"""
@@ -165,7 +234,7 @@ class _FenceStream:
 
 
 class RichRenderer:
-    """ストリーミング Markdown を描画し、最下部に状態スピナー＋トークン数を出す ``Renderer``。"""
+    """ストリーミング Markdown を描画し、最下部に状態行を出す ``Renderer``。"""
 
     def __init__(
         self,
@@ -204,6 +273,7 @@ class RichRenderer:
         self._emitted = False
         self._phase_label: str | None = None
         self._phase_since = time.monotonic()
+        self._turn_since: float | None = None
         self._spinner = Spinner("dots", style="cyan")
         self._stream_tool_args = stream_tool_args and not redact
         self._tool_args: dict[int, str] = {}
@@ -212,8 +282,10 @@ class RichRenderer:
         self._fence: _FenceStream | None = None
         self._gap_before_body = False
         self._gap_pending = False
-        self._running: dict[str, tuple[ToolUse, ToolDisplay, float]] = {}
+        self._running: dict[str, _Running] = {}
+        # 結果の行の無いツールが同じラベルで続く間は、空行を挟まない
         self._group: str | None = None
+        self._last_tool: str | None = None
 
     def start_turn(self) -> None:
         self._reset_segment()
@@ -227,9 +299,11 @@ class RichRenderer:
         self._ctx_last = 0
         self._emitted = False
         self._group = None
+        self._last_tool = None
         self._running.clear()
         self._phase_label = None
         self._phase_since = time.monotonic()
+        self._turn_since = self._phase_since
         self._set_state("waiting")
         self._refresh_live()
 
@@ -241,13 +315,17 @@ class RichRenderer:
     def end_turn(self, *, delegated: TokenUsage | None = None) -> None:
         """ターンを閉じ、TTY ならトークンの内訳を 1 行残す。"""
         self._phase_label = None
+        turn_since, self._turn_since = self._turn_since, None
+        elapsed = 0.0 if turn_since is None else time.monotonic() - turn_since
         self._loading_model = None
         self._finalize_segment()
+        self._show_pending()
         self._stop_live()
         if self._tty:
-            line = self._turn_summary_line(delegated)
+            line = self._turn_summary_line(delegated, elapsed)
             if line is not None:
-                self.console.print(Text(line, style="dim"))
+                self.console.print()
+                self.console.print(Text(" " * len(_MARK) + line, style="dim"))
             self.console.print()
 
     def on_assistant_event(self, event: AssistantEvent) -> None:
@@ -296,48 +374,77 @@ class RichRenderer:
         self._finalize_segment()
         shown = _redacted_call(call) if self._redact else call
         display = describe(shown)
-        self._running[call.id] = (shown, display, time.monotonic())
-        if display.at_start:
-            self._emit_tool(display.label, [_tool_item(d) for d in display.items])
-            if self._tty:
-                preview = change_preview(call, self._cwd, redact=self._redact)
-                if preview is not None:
-                    self._emit(Padding(preview, (0, 0, 0, _ITEM_INDENT)), separated=False)
+        entry = _Running(shown, display, time.monotonic())
+        self._running[call.id] = entry
+        if display.at_start and self._tty:
+            # 差分は実行の前に作り、結果と一緒か権限カードの前に出す
+            entry.preview = change_preview(call, self._cwd, redact=self._redact)
+            if isinstance(entry.preview, Text):
+                entry.preview.rstrip()
+        elif display.at_start:
+            self._show_header(entry, "")
         self.on_phase(display.status())
 
     def on_tool_result(self, block: ToolResultBlock) -> None:
-        call, display, started = self._running.pop(
-            block.tool_use_id,
-            (ToolUse(id=block.tool_use_id, name=block.tool_name, input={}), None, None),
-        )
-        if display is None:
-            display = describe(call)
-        if not display.at_start:
-            lines = [_tool_item(d) for d in display.items]
-            if block.is_error:
-                lines = lines or [Text(" " * _ITEM_INDENT)]
-                lines[-1].append(f"  ✗ {error_reason(block)}", style="red")
-                lines.extend(_error_detail_lines(block))
-            elif lines and (note := result_note(call, block)) is not None:
-                lines[-1].append(ui("cli.render.note_in_parentheses", note=note), style="dim")
-            self._emit_tool(display.label, lines)
-        elif block.is_error:
-            self._emit_tool(
-                display.label, [_failure_text(display, block), *_error_detail_lines(block)]
-            )
+        entry = self._running.pop(block.tool_use_id, None)
+        if entry is None:
+            call = ToolUse(id=block.tool_use_id, name=block.tool_name, input={})
+            entry = _Running(call, describe(call), time.monotonic())
+        rows = self._result_rows(entry, block)
+        if entry.shown:
+            if rows:
+                self._emit(_result_gutter(rows), separated=False)
+                self._last_tool = entry.call.id
         else:
-            if block.tool_name == "bash" and block.output.strip():
-                panel = Padding(_bash_output_panel(block.output), (0, 0, 0, _ITEM_INDENT))
-                self._emit(panel, separated=False)
-            self._emit(Text(_done_line(started), style="dim"), separated=False)
+            self._emit_tool(entry, "red" if block.is_error else "green", rows)
         if self._running:
-            _, (_, remaining, _) = next(reversed(self._running.items()))
-            self.on_phase(remaining.status())
+            remaining = next(reversed(self._running.values()))
+            self.on_phase(remaining.display.status())
             return
         self._phase_label = None
         self._set_state("waiting_next")
         self._phase_since = time.monotonic()
         self._refresh_live()
+
+    def _result_rows(self, entry: _Running, block: ToolResultBlock) -> list[RenderableType]:
+        """``⎿`` に続ける結果の行（行をまだ出していなければ、対象の一覧と差分を先に置く）。"""
+        call, display = entry.call, entry.display
+        rows: list[RenderableType] = [] if entry.shown else _lead_rows(entry)
+        if block.is_error:
+            # 先に出した行から離れたとき（並列実行など）は、どれの失敗かを添える
+            apart = entry.shown and self._last_tool != call.id
+            target = f"{display.items[0]} — " if apart and display.items else ""
+            rows.append(Text(f"✗ {target}{error_reason(block)}", style="red"))
+            rows.extend(_error_detail_lines(block))
+            return rows
+        if not display.at_start:
+            note = result_note(call, block)
+            if note is not None:
+                rows.append(Text(note, style="dim"))
+            return rows
+        if block.tool_name == "bash" and block.output.strip():
+            rows.append(_bash_output_text(block.output))
+        rows.append(Text(_done_line(entry.started), style="dim"))
+        return rows
+
+    def _show_header(self, entry: _Running, dot: str) -> None:
+        """結果より先にツールの行を出す（結果は後で ``⎿`` の行だけを足す）。"""
+        self._emit_tool(entry, dot, _lead_rows(entry))
+        entry.shown = True
+
+    def _show_pending(self) -> None:
+        """結果の来ていないツールの行を灰の印で出す（権限カードの前・ターンの終わり）。"""
+        for entry in self._running.values():
+            if not entry.shown:
+                self._show_header(entry, "dim")
+
+    def _pending_rows(self) -> list[RenderableType]:
+        """最下部の領域に出す、実行中のツールの行。"""
+        pending = [entry for entry in self._running.values() if not entry.shown]
+        rows: list[RenderableType] = [_tool_header(entry.display, "dim") for entry in pending]
+        if rows:
+            rows.insert(0, Text(""))  # 確定したときの区切りの 1 行と位置を揃える
+        return rows
 
     def on_stream_aborted(self, timeout_recovery_s: float | None = None) -> None:
         """応答が断たれたとき、本文を確定して生成中表示を畳む（何も届いていなければ切れた行は出さない）。"""
@@ -492,7 +599,8 @@ class RichRenderer:
         self._refresh_live()
 
     def pause(self) -> None:
-        """対話入力（権限カード）の間だけ Live を畳む（``console.input`` との競合回避）。"""
+        """対話入力（権限カード）の間だけ Live を畳み、実行中のツールの行は先に確定する。"""
+        self._show_pending()
         self._stop_live()
 
     def resume(self) -> None:
@@ -507,13 +615,18 @@ class RichRenderer:
         """本文チャンクをスクロールバックへ。"""
         if not self._seg_committed:
             self._open_result()
-            self._emit(renderable)
+            self._emit(self._body(renderable))
             self._seg_committed = True
         else:
             if self._gap_before_body:
                 self.console.print()
-            self.console.print(renderable)
+            self.console.print(self._body(renderable))
         self._gap_before_body = False
+
+    def _body(self, renderable: RenderableType) -> RenderableType:
+        """本文をツールの行と同じ位置に下げ、まとまりの最初のチャンクにだけ ``⏺`` を付ける。"""
+        mark = " " * len(_MARK) if self._seg_committed else _MARK
+        return _Gutter(renderable, Text(mark))
 
     def _open_result(self) -> None:
         """「考え中」フェーズ（スピナー/思考）と最初の結果の間に 1 行だけ空ける。"""
@@ -638,23 +751,16 @@ class RichRenderer:
         current = self._out_cur if self._out_cur > 0 else rough
         return self._out_done + self._est_done + current
 
-    def _output_label(self) -> str:
-        """状態行のトークン区間（``出力 1.2K``。0 なら空）。"""
+    def _turn_summary_line(self, delegated: TokenUsage | None, elapsed: float = 0.0) -> str | None:
+        """ターン末尾の内訳 1 行（最後に合計時間）。"""
         tok = self._turn_tokens()
-        if tok <= 0:
-            return ""
-        shown = _format_tokens(tok)
-        return ui("cli.render.output_shown", shown=shown)
-
-    def _generating(self) -> bool:
-        """モデルが生成中（思考・本文が流れていて、出力の数が動く区間）か。"""
-        return self._phase_label is None and self._state in ("thinking", "responding")
-
-    def _turn_summary_line(self, delegated: TokenUsage | None) -> str | None:
-        """ターン末尾の内訳 1 行。"""
-        tok = self._turn_tokens()
+        total = (
+            ui("cli.render.turn_total", shown=_format_elapsed(elapsed))
+            if elapsed >= _ELAPSED_AFTER_S
+            else ""
+        )
         if tok <= 0 and self._requests == 0:
-            return None
+            return "— " + total if total else None
         out = _format_tokens(tok)
         parts = [ui("cli.render.summary_output", out=out)]
         if self._requests > 0:
@@ -670,6 +776,8 @@ class RichRenderer:
             if limit > 0:
                 ctx += f"/{_format_tokens(limit)}"
             parts.append(ui("cli.render.context", ctx=ctx))
+        if total:
+            parts.append(total)
         return "— " + " · ".join(parts)
 
     def waiting_since(self) -> float | None:
@@ -698,15 +806,13 @@ class RichRenderer:
                 self._spinner,
                 ui("cli.render.loading", model=model),
                 self._phase_since,
-                _no_tokens,
                 stalled=(_LOAD_STALL_S, _load_stall_label(self._local_server)),
                 pulse_bar=True,
             )
         label = self._phase_label or _state_label(self._state)
         if label is None:
             return None
-        tokens = self._output_label if self._generating() else _no_tokens
-        return _StatusLine(self._spinner, label, self._phase_since, tokens)
+        return _StatusLine(self._spinner, label, self._phase_since)
 
     def _tool_arg_panel(self) -> RenderableType | None:
         """生成中の tool_call 引数から、書き込まれる本文の末尾を出す。"""
@@ -747,18 +853,19 @@ class RichRenderer:
             shown = tail.rstrip("\n")
             if shown:
                 fence = self._fence
-                body.append(code_block(shown, fence.lang, head=not fence.printed))
+                body.append(self._body(code_block(shown, fence.lang, head=not fence.printed)))
         elif tail.strip():
-            body.append(ReplyMarkdown(tail))
+            body.append(self._body(ReplyMarkdown(tail)))
         panel = self._tool_arg_panel()
         if panel is not None:
             body.append(panel)
         parts: list[RenderableType] = []
         if body:
             parts.append(_TailLines(Group(*body), reserve=_LIVE_RESERVE_LINES))
+        parts.extend(self._pending_rows())
         status = self._status_row()
         if status is not None:
-            parts.append(status)
+            parts.extend((Text(), status))
         return Group(*parts)
 
     def _refresh_live(self) -> None:
@@ -787,15 +894,16 @@ class RichRenderer:
         self._emitted = True
         self._group = None
 
-    def _emit_tool(self, label: str, lines: list[Text]) -> None:
-        """ツールの見出しと項目を出す。"""
+    def _emit_tool(self, entry: _Running, dot: str, rows: list[RenderableType]) -> None:
+        """ツールの行と、``⎿`` に続く結果の行を出す。"""
         self._open_result()
-        if self._group != label:
-            self._emit(Text.assemble((ui("cli.render.bullet"), "cyan bold"), (label, "cyan bold")))
-        for line in lines:
-            self.console.print(line)
-        self._emitted = True
-        self._group = label
+        label = entry.display.label
+        packed = self._group == label and not rows
+        header = _tool_header(entry.display, dot)
+        # 1 回の print で出す（間で最下部の領域が描き直されないように）
+        self._emit(Group(header, _result_gutter(rows)) if rows else header, separated=not packed)
+        self._group = None if rows else label
+        self._last_tool = entry.call.id
 
     def _finalize_segment(self) -> None:
         self._close_message()
@@ -822,9 +930,9 @@ def _done_line(started: float | None) -> str:
     """ツール完了行。"""
     elapsed = None if started is None else time.monotonic() - started
     if elapsed is None or elapsed < 0.1:
-        return " " * _ITEM_INDENT + ui("cli.render.done")
+        return ui("cli.render.done")
     shown = f"{elapsed:.1f}s" if elapsed < 10 else f"{elapsed:.0f}s"
-    return " " * _ITEM_INDENT + ui("cli.render.done_with_summary", shown=shown)
+    return ui("cli.render.done_with_summary", shown=shown)
 
 
 def _rough_tokens(ascii_chars: int, other_chars: int) -> int:
@@ -832,9 +940,16 @@ def _rough_tokens(ascii_chars: int, other_chars: int) -> int:
     return ascii_chars // 4 + other_chars
 
 
-def _no_tokens() -> str:
-    """状態行にトークンを出さない区間（ツール実行中・次の応答の待ち）用。"""
-    return ""
+def _format_elapsed(seconds: float) -> str:
+    """経過時間を ``45s`` / ``1m12s`` / ``1h02m`` の形にする（秒は切り捨て）。"""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m"
 
 
 def _format_tokens(tok: int) -> str:
@@ -917,30 +1032,40 @@ def _streamed_write(buf: str) -> tuple[str | None, str] | None:
     return None
 
 
-def _tool_item(detail: str) -> Text:
-    """見出しの下の 1 項目（``    - <対象>``）。"""
-    return Text.assemble((" " * _ITEM_INDENT + "- ", "dim"), (detail, ""))
+def _tool_header(display: ToolDisplay, dot: str) -> Text:
+    """``⏺ 動作(対象)``（対象が 2 つ以上なら括弧は付けず、結果の行に並べる）。"""
+    header = Text.assemble((_MARK, dot), (display.label, "bold"))
+    if len(display.items) == 1:
+        header.append(f"({display.items[0]})")
+    return header
 
 
-def _failure_text(display: ToolDisplay, block: ToolResultBlock) -> Text:
-    """開始時に出したツールの失敗行。"""
-    target = f"{display.items[0]} — " if display.items else ""
-    return Text(" " * _ITEM_INDENT + f"✗ {target}{error_reason(block)}", style="red")
+def _lead_rows(entry: _Running) -> list[RenderableType]:
+    """ツールの行のすぐ下に置く行（2 つ以上の対象の一覧と、ファイル変更の差分）。"""
+    items = entry.display.items
+    rows: list[RenderableType] = [Text(item) for item in items] if len(items) > 1 else []
+    if entry.preview is not None:
+        rows.append(entry.preview)
+    return rows
+
+
+def _result_gutter(rows: list[RenderableType]) -> RenderableType:
+    """結果の行を ``  ⎿  `` で始め、2 行目からは同じ幅だけ下げる。"""
+    return _Gutter(Group(*rows), Text(_RESULT_MARK, style="dim"))
 
 
 def _error_detail_lines(block: ToolResultBlock) -> list[Text]:
     """失敗理由の 2 行目以降。"""
-    indent = " " * (_ITEM_INDENT + 2)
-    return [Text(indent + line, style="red dim") for line in error_detail(block)]
+    return [Text("  " + line, style="red dim") for line in error_detail(block)]
 
 
-def _bash_output_panel(output: str) -> RenderableType:
+def _bash_output_text(output: str) -> Text:
     body = (
         output
         if len(output) <= _TOOL_RESULT_LIMIT
         else output[:_TOOL_RESULT_LIMIT] + "\n… (truncated)"
     )
-    return Panel(Text(body.rstrip(), style="dim"), border_style="green", expand=False)
+    return Text(body.rstrip(), style="dim")
 
 
 def action_preview(

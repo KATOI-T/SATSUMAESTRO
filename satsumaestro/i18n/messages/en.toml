@@ -350,7 +350,6 @@ waiting_for_the_retry = "Waiting for the retry…"
 the_model_has_not_finished = "The model has not finished loading (check `ollama ps` and VRAM)"
 the_model_has_not_finished_lmstudio = "The model has not finished loading (check `lms ps` and memory)"
 the_model_has_not_finished_llamacpp = "The model has not finished loading (check the llama-server log and memory)"
-note_in_parentheses = " ({note})"
 the_response_was_cut_off = "— The response was cut off"
 stopped_no_response = "— No response for {seconds} s, so it was stopped and asked to resend in smaller parts"
 step_resume_last_attempt = "— No response for {seconds} s, so it was stopped and asked to resume step {index}/{total} in smaller parts (attempt {attempt} in this step; it stops if this happens once more)"
@@ -369,7 +368,7 @@ largest_write_lines = { one = "largest write {n} line", other = "largest write {
 longest_response_s = "longest response {longest} s"
 edited_lines = { one = "edited {n} line", other = "edited {n} lines" }
 step_done = "— Step {index}/{total} done: "
-output_shown = "output {shown}"
+turn_total = "total {shown}"
 summary_output = "output {out}"
 input_requests = { one = "input {inp} ({n} request)", other = "input {inp} ({n} requests)" }
 delegated_input_output = "delegated input {d_in} / output {d_out}"
@@ -379,7 +378,6 @@ done_with_lines = { one = "✓ {label} ({n} line)", other = "✓ {label} ({n} li
 generating = "{name} — generating"
 call_number = " #{number}"
 title_lines = { one = " ({n} line)", other = " ({n} lines)" }
-bullet = "• "
 done = "✓ Done"
 done_with_summary = "✓ Done {shown}"
 permission = "Permission: {name} ({required})"

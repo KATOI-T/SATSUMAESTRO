@@ -463,7 +463,7 @@ def test_deferred_tool_runs_on_first_direct_call(scenario: Runner) -> None:
     text = result.transcript.plain
     assert result.report.failures == [], result.report.failures
     assert "not loaded yet" not in text and "✗" not in text
-    assert text.count("・ToDo 更新") == 1
+    assert tr.flat(text).count(tr.flat("⏺ ToDo 更新\n  ⎿  ▶ a.txt を作る")) == 1
     assert tr.flat("▶ a.txt を作る") in tr.flat(text)
     assert "TODO を 2 件登録しました" in text
     tools = [r for r in result.requests if r["role"] == "tool"]
@@ -560,7 +560,10 @@ def test_write_file_of_a_later_part_is_rejected_and_the_step_recovers(scenario: 
     result = scenario("step_overwrite_rejected.jsonl", turns=(REQUEST,))
     assert result.report.problems == [], result.report.problems
     flat = tr.flat(result.transcript.plain)
-    assert tr.flat("✗ a.html — write_file rejected: would delete 5 lines of a.html") in flat
+    head = "⏺ 書き込み(a.html)\n  ⎿  3 行を追加、5 行を削除\n      1 -<!DOCTYPE html>"
+    assert tr.flat(head) in flat
+    rejected = "3 +</style>\n     ✗ write_file rejected: would delete 5 lines of a.html"
+    assert tr.flat(rejected) in flat
     assert tr.flat("a.html already has 5 lines (45 bytes) from this conversation") in flat
     assert tr.flat("(write_file + append_file)") in flat
     assert tr.flat("call append_file with the same content") in flat

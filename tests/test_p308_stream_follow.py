@@ -62,7 +62,8 @@ def test_live_body_is_cut_to_the_tail_and_status_stays_on_its_own_row() -> None:
     _feed(r, "\n".join(f"- item {i}" for i in range(30)))
     rows = _live_text(r, height=10).rstrip("\n").split("\n")
     assert rows[0].strip() == "⋮"
-    assert "item 29" in rows[-2] and "item 23" not in "\n".join(rows)
+    assert "item 29" in rows[-3] and "item 24" not in "\n".join(rows)
+    assert rows[-2].strip() == ""
     assert "応答生成中" in rows[-1]
     assert len(rows) == 8
     r.end_turn()

@@ -25,7 +25,7 @@ _DELETE_NOTE = re.compile(
     r"(?:このセッションで作成したファイルを消します|Deletes files created in this session): ([^│]*)"
 )
 _TOKENS = re.compile(
-    r"^— (?:[0-9.,]+K? tok|(?:出力|output) ~?[0-9.]+[KM]?(?: · .*)?)\s*$",
+    r"^ *— (?:[0-9.,]+K? tok|(?:出力|output) ~?[0-9.]+[KM]?(?: · .*)?)\s*$",
     re.MULTILINE,
 )
 

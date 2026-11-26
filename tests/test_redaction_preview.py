@@ -313,9 +313,22 @@ def test_the_tool_line_is_redacted_by_the_renderer(ws: Path, redact: bool) -> No
 
 
 @pytest.mark.parametrize("redact", [True, False])
+def test_the_running_tool_line_is_redacted_too(ws: Path, redact: bool) -> None:
+    r, buf = _renderer(ws, redact=redact)
+    r.on_tool_start(_CURL)
+    live = StringIO()
+    Console(file=live, width=200).print(r._live_renderable())
+    r.end_turn()
+    assert "curl" in live.getvalue()
+    for text in (live.getvalue(), buf.getvalue()):
+        assert (_BEARER in text) is not redact
+
+
+@pytest.mark.parametrize("redact", [True, False])
 def test_the_renderer_previews_from_the_real_call(ws: Path, redact: bool) -> None:
     r, buf = _renderer(ws, redact=redact)
     r.on_tool_start(_call(ws, _CASES[0]))
+    r.pause()
     out = buf.getvalue()
     if redact:
         assert "1 -API_KEY=[redacted]" in out and "1 +API_KEY=[redacted]" in out
