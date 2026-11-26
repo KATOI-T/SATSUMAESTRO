@@ -95,7 +95,10 @@ def _lexer_for(lang: str) -> str | None:
 
 
 class _Heading(Heading):
-    LEVEL_ALIGN: ClassVar[dict[str, Any]] = {f"h{n}": "left" for n in range(1, 7)}
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        text = self.text.copy()
+        text.justify = "left"
+        yield text
 
 
 class _CodeBlock(TextElement):
