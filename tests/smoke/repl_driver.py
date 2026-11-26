@@ -348,6 +348,7 @@ def run_scenario(
     turns: Sequence[str] = (REQUEST, DELETE_REQUEST),
     plan: bool = True,
     commands: Sequence[tuple[str, str]] = (),
+    commands_after: Sequence[tuple[str, str]] = (),
     answer: str | Sequence[str] = "y",
     raw_log: Path | None = None,
     during: Callable[[int, ReplDriver, FakeOllama], None] | None = None,
@@ -419,6 +420,8 @@ def run_scenario(
             if during is not None:
                 during(index, driver, fake)
             driver.finish_turn(base, text)
+        for line, expect in commands_after:
+            driver.run_command(line, expect)
     except DriverError as e:
         e.requests = list(fake.requests)
         raise

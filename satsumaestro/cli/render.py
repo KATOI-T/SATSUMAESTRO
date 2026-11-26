@@ -35,6 +35,7 @@ from satsumaestro.cli.tool_display import (
     error_reason,
     result_note,
 )
+from satsumaestro.config.models import ToolOutputMode
 from satsumaestro.engine.events import (
     AssistantEvent,
     MessageStop,
@@ -60,6 +61,10 @@ from satsumaestro.tools import edit_match
 from satsumaestro.util.partial_json import partial_json_string
 
 _TOOL_RESULT_LIMIT = 2000
+# 畳んだ bash の出力を /expand で出し直せるよう持っておく件数（古いものから捨てる）
+COLLAPSED_KEEP = 20
+# この行数以下の bash の出力は畳まずに出す
+SHORT_OUTPUT_LINES = 3
 _WRITE_PREVIEW_LINES = 20
 _DIFF_PREVIEW_LINES = 40
 _NEW_FILE_PREVIEW_LINES = 10
@@ -233,6 +238,15 @@ class _FenceStream:
     context: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class CollapsedOutput:
+    """畳んだ bash の出力（``number`` は ``/expand <number>`` の番号）。"""
+
+    number: int
+    command: str
+    output: str
+
+
 class RichRenderer:
     """ストリーミング Markdown を描画し、最下部に状態行を出す ``Renderer``。"""
 
@@ -247,10 +261,15 @@ class RichRenderer:
         cwd: Path | None = None,
         context_limit: int | Callable[[], int] = 0,
         redact: bool = False,
+        tool_output: ToolOutputMode = "full",
     ) -> None:
         self.console = console or Console()
         self._cwd = cwd
         self._redact = redact
+        # summary は SHORT_OUTPUT_LINES を超える bash の出力を畳み、直近 COLLAPSED_KEEP 件を持つ
+        self._tool_output = tool_output
+        self._collapsed: dict[int, CollapsedOutput] = {}
+        self._collapsed_count = 0
         self._context_limit = context_limit
         self._loading_model = loading_model
         self._local_server: LocalKind = local_server
@@ -422,10 +441,31 @@ class RichRenderer:
             if note is not None:
                 rows.append(Text(note, style="dim"))
             return rows
+        done = _done_line(entry.started)
         if block.tool_name == "bash" and block.output.strip():
-            rows.append(_bash_output_text(block.output))
-        rows.append(Text(_done_line(entry.started), style="dim"))
+            n = len(block.output.rstrip("\n").split("\n"))
+            if self._tool_output == "summary" and n > SHORT_OUTPUT_LINES:
+                kept = self._keep_collapsed(call, block.output)
+                done += ui("cli.render.collapsed_output", n=n, number=kept.number)
+            else:
+                rows.append(_bash_output_text(block.output))
+        rows.append(Text(done, style="dim"))
         return rows
+
+    def _keep_collapsed(self, call: ToolUse, output: str) -> CollapsedOutput:
+        self._collapsed_count += 1
+        command = str(call.input.get("command", ""))
+        entry = CollapsedOutput(self._collapsed_count, command, output)
+        self._collapsed[entry.number] = entry
+        if len(self._collapsed) > COLLAPSED_KEEP:
+            del self._collapsed[next(iter(self._collapsed))]
+        return entry
+
+    def collapsed_output(self, number: int | None = None) -> CollapsedOutput | None:
+        """畳んだ bash の出力（``number`` を省くと最後の 1 つ。持っていなければ None）。"""
+        if number is None:
+            return next(reversed(self._collapsed.values()), None)
+        return self._collapsed.get(number)
 
     def _show_header(self, entry: _Running, dot: str) -> None:
         """結果より先にツールの行を出す（結果は後で ``⎿`` の行だけを足す）。"""
@@ -1066,6 +1106,18 @@ def _bash_output_text(output: str) -> Text:
         else output[:_TOOL_RESULT_LIMIT] + "\n… (truncated)"
     )
     return Text(body.rstrip(), style="dim")
+
+
+def collapsed_output_panel(entry: CollapsedOutput) -> RenderableType:
+    """``/expand`` で出し直す全文（見出しは番号とコマンドの 1 行目）。"""
+    first = entry.command.strip().split("\n", 1)[0]
+    return Panel(
+        Text(entry.output.rstrip(), style="dim"),
+        title=Text(f"#{entry.number} $ {first}"),
+        title_align="left",
+        border_style="green",
+        expand=False,
+    )
 
 
 def action_preview(

@@ -48,6 +48,7 @@ def scenario(tmp_path: Path) -> Runner:
         turns: Sequence[str] = (REQUEST, DELETE_REQUEST),
         plan: bool = True,
         commands: Sequence[tuple[str, str]] = (),
+        commands_after: Sequence[tuple[str, str]] = (),
         answer: str | Sequence[str] = "y",
         during: Callable[[int, ReplDriver, FakeOllama], None] | None = None,
         rows: int = 40,
@@ -72,6 +73,7 @@ def scenario(tmp_path: Path) -> Runner:
                 turns=turns,
                 plan=plan,
                 commands=commands,
+                commands_after=commands_after,
                 answer=answer,
                 during=during,
                 rows=rows,
@@ -412,6 +414,23 @@ def test_ctrl_c_stops_only_the_turn(scenario: Runner) -> None:
     assert [r["role"] for r in result.requests] == ["user", "user", "tool", "user"]
     assert sleeping
     assert [pid for pid in sleeping if _command_of(pid) == "sleep 37"] == []
+
+
+def test_bash_output_is_collapsed_and_expand_shows_it(scenario: Runner) -> None:
+    """成功した bash の出力は完了の行の行数だけになり、/expand 1 で全文が出る。"""
+    result = scenario(
+        "bash_collapse.jsonl",
+        turns=("数を並べて",),
+        plan=False,
+        commands_after=(("/expand 1", r"#1 \$ seq 7001 7005"),),
+    )
+    text = result.transcript.plain
+    assert tr.flat("出力 5 行（/expand 1 で全文）") in tr.flat(text)
+    expanded = text.rindex("#1 $ seq 7001 7005")
+    # 出力は /expand の前には出ていない（畳まれている）
+    assert text.index("7002") > expanded
+    assert "7001\n" not in text[:expanded]
+    assert result.report.failures == [], result.report.failures
 
 
 def test_detail_explains_what_the_call_does(scenario: Runner, tmp_path: Path) -> None:

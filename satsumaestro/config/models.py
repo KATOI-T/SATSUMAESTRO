@@ -27,6 +27,7 @@ class RetryConfig(BaseModel):
 
 
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+ToolOutputMode = Literal["summary", "full"]
 
 
 class SamplingConfig(BaseModel):

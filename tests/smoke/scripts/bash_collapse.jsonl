@@ -1,0 +1,5 @@
+# 4 行以上の bash の出力は完了の行に行数だけを出して畳み、/expand 1 で全文を出し直す。
+# 出力（7002 など）はコマンドの文面（seq 7001 7005）に現れないので、出た位置で畳んだかが分かる。
+{"when": {"role": "user", "contains": "数を並べて"}, "reply": {"tool_calls": [{"name": "bash", "args": {"command": "seq 7001 7005"}}]}, "note": "出力 5 行の bash"}
+{"when": {"role": "tool", "tool": "bash"}, "reply": {"text": "5 行出ました。"}, "note": "結果を受けて終える"}
+{"reply": {"text": "了解しました。"}, "note": "catch-all"}

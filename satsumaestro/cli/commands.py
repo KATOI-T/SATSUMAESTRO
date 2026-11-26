@@ -16,6 +16,7 @@ from rich.text import Text
 
 from satsumaestro.cli import language_gate
 from satsumaestro.cli.modes import mode_markup
+from satsumaestro.cli.render import COLLAPSED_KEEP, collapsed_output_panel
 from satsumaestro.cli.updates import update_hint
 from satsumaestro.config.loader import save_model, save_screen_language
 from satsumaestro.config.models import ROLE_NAMES, ProviderConfig, ReasoningEffort
@@ -129,6 +130,11 @@ SLASH_COMMANDS: tuple[ReplCommand, ...] = (
     ReplCommand(
         "clear",
         lambda: ui("cli.commands.clear_the_conversation_todos_and"),
+    ),
+    ReplCommand(
+        "expand",
+        lambda: ui("cli.commands.show_a_collapsed_bash_output"),
+        usage="[n]",
     ),
     ReplCommand(
         "insights",
@@ -727,6 +733,30 @@ class SlashDispatcher:
         self.rt.store.save(session)
         cleared = ui("cli.commands.cleared_the_conversation_todos_and")
         self._print(f"[dim]{cleared}[/dim]")
+
+    async def _cmd_expand(self, args: list[str]) -> None:
+        number: int | None = None
+        if args:
+            if not args[0].lstrip("#").isdigit():
+                self._print(f"[yellow]{ui('cli.commands.expand_number_expected')}[/yellow]")
+                return
+            number = int(args[0].lstrip("#"))
+        entry = self.render.collapsed_output(number) if self.render is not None else None
+        if entry is not None:
+            self._print(collapsed_output_panel(entry))
+            return
+        latest = self.render.collapsed_output() if self.render is not None else None
+        if latest is None:
+            self._print(f"[dim]{ui('cli.commands.no_collapsed_output_yet')}[/dim]")
+            return
+        missing = ui(
+            "cli.commands.collapsed_output_not_kept",
+            number=number,
+            keep=COLLAPSED_KEEP,
+            first=max(1, latest.number - COLLAPSED_KEEP + 1),
+            last=latest.number,
+        )
+        self._print(f"[dim]{escape(missing)}[/dim]")
 
     async def _cmd_insights(self, args: list[str]) -> None:
         if self.trace_log is None:
