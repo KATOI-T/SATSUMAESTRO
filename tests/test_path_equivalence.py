@@ -9,6 +9,7 @@ import pytest
 
 from satsumaestro.engine.events import MessageStop, TextDelta, ToolUse
 from satsumaestro.engine.turn import PermissionOutcome
+from satsumaestro.prompt import builder
 from satsumaestro.prompt.builder import SystemPromptBuilder
 from satsumaestro.security import PermissionMode, classify, deletion_guard, state_write_guard
 from satsumaestro.security.allowlist import (
@@ -471,9 +472,9 @@ async def test_deny_rule_stops_another_spelling_in_the_runtime(tmp_path: Path) -
 
 # ── system の git 節が起こす git ──
 async def test_git_section_does_not_run_commands_named_in_the_repository_config(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``.git/config`` が指す diff・変換・監視のコマンドを、git 節の採取で起こさない。"""
+    """``.git/config`` が指す diff・変換・監視・clean フィルタを、git 節の採取で起こさない。"""
     repo = tmp_path / "repo"
     marks = tmp_path / "marks"
     repo.mkdir()
@@ -492,16 +493,58 @@ async def test_git_section_does_not_run_commands_named_in_the_repository_config(
     git("config", "user.email", "t@example.com")
     git("config", "user.name", "t")
     (repo / "a.txt").write_text("a\n")
-    (repo / ".gitattributes").write_text("*.txt diff=tc\n")
+    (repo / "b.md").write_text("b\n")
+    (repo / ".gitattributes").write_text("*.txt diff=tc filter=evil\n*.md filter=own\n")
     git("add", "-A")
     git("commit", "-q", "-m", "init")
     (repo / "a.txt").write_text("a\nb\n")
+    (repo / "b.md").write_text("b\nc\n")
     git("config", "diff.external", command("external-diff", "exit 0"))
     git("config", "diff.tc.textconv", command("textconv", 'cat "$1"'))
     git("config", "core.fsmonitor", command("fsmonitor", "exit 1"))
+    git("config", "filter.evil.clean", command("clean", "cat"))
+    git("config", "filter.evil.required", "true")
+    # 利用者自身の設定（git-lfs など）のフィルタは、これまでどおり使う
+    own = tmp_path / "own.gitconfig"
+    own.write_text(f'[filter "own"]\n\tclean = {command("own-clean", "cat")}\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(own))
 
     turn = await SystemPromptBuilder().snapshot(repo)
 
-    assert sorted(p.name for p in marks.iterdir()) == []
+    assert sorted(p.name for p in marks.iterdir()) == ["own-clean"]
     assert " M a.txt" in turn.git_state
     assert "a.txt +1 -0" in turn.git_state
+    assert "b.md +1 -0" in turn.git_state
+
+
+async def test_only_filters_from_the_repository_config_are_turned_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """打ち消すのはリポジトリの層（local・worktree）のフィルタだけ。古い git では全部。"""
+    listing = {
+        "scoped": "global\0filter.lfs.clean\ngit-lfs clean\0local\0filter.evil.process\nx\0"
+        "worktree\0filter.Wt.clean\ny\0local\0filter.clean\nz\0command\0filter.cmd.clean\nw\0",
+        "plain": "filter.lfs.clean\ngit-lfs clean\0core.bare\nfalse\0",
+    }
+
+    async def fake_git(cwd: Path, *args: str) -> str | None:
+        return listing["scoped"] if "--show-scope" in args else listing["plain"]
+
+    monkeypatch.setattr(builder, "_git_text", fake_git)
+    off = await builder._filter_overrides(Path("."))
+    assert off == (
+        *("-c", "filter.Wt.clean=", "-c", "filter.Wt.process=", "-c", "filter.Wt.required=false"),
+        *("-c", "filter.evil.clean=", "-c", "filter.evil.process="),
+        *("-c", "filter.evil.required=false"),
+    )
+    listing["scoped"] = "local\0filter.a=b.clean\nx\0"
+    assert await builder._filter_overrides(Path(".")) is None
+
+    async def old_git(cwd: Path, *args: str) -> str | None:
+        return None if "--show-scope" in args else listing["plain"]
+
+    monkeypatch.setattr(builder, "_git_text", old_git)
+    assert await builder._filter_overrides(Path(".")) == (
+        *("-c", "filter.lfs.clean=", "-c", "filter.lfs.process="),
+        *("-c", "filter.lfs.required=false"),
+    )

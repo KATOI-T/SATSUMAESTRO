@@ -92,7 +92,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before this change, that starts with `./` or is an absolute path inside the working directory no
   longer matches, so the tool asks again: write the rule relative to the working directory.
 - The git commands that collect the git state for the system prompt no longer run the commands the
-  repository's config names (`core.fsmonitor`, `diff.external` and a `textconv` filter).
+  repository's config names (`core.fsmonitor`, `diff.external`, a `textconv` filter and a `clean`
+  filter). Filters from your own git config, such as Git LFS, still run.
 
 ## [0.5.3] - 2026-11-22
 
