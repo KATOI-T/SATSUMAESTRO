@@ -2,16 +2,59 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from pathlib import Path, PurePath
 
 from satsumaestro.util.environ import ENVIRON
 
 AGENT_DIRNAME = ".satsuma"
 
 
-def in_state_dir(relative: Path) -> bool:
+def names_component(relative: PurePath, name: str, root: Path | None = None) -> bool:
+    """``relative`` の成分が ``name`` か（大小は区別せず、``root`` があれば同じ実体かも見る）。"""
+    folded = name.casefold()
+    if any(part.casefold() == folded for part in relative.parts):
+        return True
+    if root is None:
+        return False
+    here = str(root)
+    for part in relative.parts:
+        sibling = os.path.join(here, name)
+        here = os.path.join(here, part)
+        try:
+            # たいていの親には ``name`` が無いので、先にそちらを見て 1 回の stat で次へ進む
+            target = os.stat(sibling)
+            if os.path.samestat(os.stat(here), target):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def in_state_dir(relative: Path, root: Path | None = None) -> bool:
     """ワークスペース相対パスが状態ディレクトリ配下（またはそれ自体）か。"""
-    return AGENT_DIRNAME in relative.parts
+    return names_component(relative, AGENT_DIRNAME, root)
+
+
+def resolve_from(path: str, root: Path) -> Path | None:
+    """``path`` を ``root`` 起点で解決した絶対パス（リンクも辿る。解決できなければ ``None``）。"""
+    try:
+        candidate = Path(path)
+        return (candidate if candidate.is_absolute() else root / candidate).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def rule_form(path: str, root: Path) -> str:
+    """policy のパスの規則と照らす形（``root`` からの相対パス。外は絶対パス・区切りは ``/``）。"""
+    resolved = resolve_from(path, root)
+    if resolved is None:
+        return path
+    if resolved == root:
+        return "."
+    if resolved.is_relative_to(root):
+        return resolved.relative_to(root).as_posix()
+    return resolved.as_posix()
 
 
 def default_config_home() -> Path:

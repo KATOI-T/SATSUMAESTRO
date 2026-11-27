@@ -41,7 +41,8 @@ class WorkspaceJail:
             return False
         if not cand.is_relative_to(self.root):
             return False
-        return in_state_dir(cand.relative_to(self.root)) and cand not in self._visible_state
+        hidden = in_state_dir(cand.relative_to(self.root), self.root)
+        return hidden and cand not in self._visible_state
 
     def resolve(self, p: str | Path, *, allow_hidden: bool = False) -> Path:
         """``p`` を絶対パスへ解決し、jail 内であることを保証して返す。"""

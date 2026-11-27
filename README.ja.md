@@ -444,6 +444,10 @@ bash のコマンドと削除は確認が必要です。`repl`（対話）は確
 権限は `.satsuma/policy.md` の 1 ファイル（Deny・Ask・Allow の規則と基準のモード）で設計できます。
 [`.satsuma/policy.md.example`](https://github.com/KATOI-T/SATSUMAESTRO/blob/main/.satsuma/policy.md.example)
 から始めてください。ファイルが無ければ既定のモードで動きます。
+`path` の規則は、作業ディレクトリから解決した形のパスと照らします。`./src/a.py`・`lib/../src/a.py`・
+絶対パスのどれで書かれても `src/a.py` の規則に当たり、リンクは先を辿り、作業ディレクトリの外のパスは
+絶対パスのままです。Deny と Ask の規則は、書かれたままの形でも、大文字と小文字を区別しない読み方でも
+照らします。
 
 **既定で確認なしに動くもの**
 

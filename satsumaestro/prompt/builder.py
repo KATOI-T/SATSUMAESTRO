@@ -18,7 +18,15 @@ from satsumaestro.util.proc import terminate
 _HALF_SEPARATOR = "\n\n"
 
 _GIT_TIMEOUT_S = 5.0
-_GIT_READ_OPTS = ("--no-optional-locks", "-c", "core.quotePath=false")
+# リポジトリの設定が指すコマンド（監視・外部の diff・変換）を起こさせない
+_GIT_READ_OPTS = (
+    "--no-optional-locks",
+    "-c",
+    "core.quotePath=false",
+    "-c",
+    "core.fsmonitor=false",
+)
+_GIT_DIFF_ARGS = ("diff", "--no-ext-diff", "--no-textconv")
 _MAX_GIT_STATE_BYTES = 2_000
 
 _GIT_BACKGROUND_NOTE = (
@@ -358,7 +366,7 @@ class SystemPromptBuilder:
         status = await _git_text(cwd, *_GIT_READ_OPTS, "status", "--short")
         if status is None:
             return "", ""
-        diff = await _git_text(cwd, *_GIT_READ_OPTS, "diff") or ""
+        diff = await _git_text(cwd, *_GIT_READ_OPTS, *_GIT_DIFF_ARGS) or ""
         state = _git_status_note(status, diff)
         combined = f"# Git\n{state}"
         if status.strip():
