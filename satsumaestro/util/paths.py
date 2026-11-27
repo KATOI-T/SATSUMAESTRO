@@ -54,7 +54,21 @@ def rule_form(path: str, root: Path) -> str:
         return "."
     if resolved.is_relative_to(root):
         return resolved.relative_to(root).as_posix()
+    head = _root_written_otherwise(resolved, root)
+    if head is not None:
+        return resolved.relative_to(head).as_posix()
     return resolved.as_posix()
+
+
+def _root_written_otherwise(resolved: Path, root: Path) -> Path | None:
+    """``resolved`` の先頭が ``root`` と同じ実体（大小などの書き方だけ違う）ならその先頭。"""
+    if len(resolved.parts) < len(root.parts):
+        return None
+    head = Path(*resolved.parts[: len(root.parts)])
+    try:
+        return head if os.path.samestat(os.stat(head), os.stat(root)) else None
+    except (OSError, ValueError):
+        return None
 
 
 def default_config_home() -> Path:

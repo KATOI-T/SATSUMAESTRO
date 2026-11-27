@@ -251,6 +251,21 @@ def test_rule_form_of_other_spellings(ws: Path) -> None:
     assert rule_form("a\x00b", ws) == "a\x00b"
 
 
+def test_rule_form_of_the_root_written_in_another_case(ws: Path) -> None:
+    """根を別の大小で書いた絶対パスも、同じ実体なら中のパスとして照らす（MCP のツールなど）。"""
+    other = ws.parent / "other"
+    other.mkdir()
+    assert rule_form(str(other / "x.txt"), ws) == (other / "x.txt").as_posix()
+    upper = ws.parent / ws.name.upper()
+    if not upper.exists():
+        pytest.skip("this file system tells letter case apart")
+    assert rule_form(str(upper / "secrets" / "key.txt"), ws) == "secrets/key.txt"
+    assert rule_form(str(upper), ws) == "."
+    policy = parse_policy_markdown(_POLICY).policy
+    inp = rule_input({"path": str(upper / "secrets" / "key.txt")}, ws)
+    assert policy.authorize("mcp__files__read", inp, WW).decision == "deny"
+
+
 def test_rule_input_keeps_the_written_path(ws: Path) -> None:
     inp = rule_input({"path": "./docs/a.md", "content": "x"}, ws)
     assert inp == {"path": "docs/a.md", "content": "x"}
