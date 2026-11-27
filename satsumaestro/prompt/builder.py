@@ -465,7 +465,8 @@ async def _filter_overrides(cwd: Path) -> tuple[str, ...] | None:
         if section == "filter" and driver and variable in ("clean", "process"):
             if scope in _REPOSITORY_SCOPES:
                 drivers.add(driver)
-    if any("=" in d for d in drivers):
+    # = を含む名前と復号できない名前は -c で打ち消せない
+    if any("=" in d or "\ufffd" in d for d in drivers):
         return None
     overrides: list[str] = []
     for driver in sorted(drivers):

@@ -517,6 +517,57 @@ async def test_git_section_does_not_run_commands_named_in_the_repository_config(
     assert "b.md +1 -0" in turn.git_state
 
 
+async def test_git_section_fails_closed_for_a_non_utf8_filter_name(tmp_path: Path) -> None:
+    """復号不能な filter 名を別名へ置換せず、採取を止めて clean を起こさない。"""
+    repo = tmp_path / "repo"
+    marker = tmp_path / "clean-ran"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "a.txt").write_text("original\n")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "init")
+
+    (repo / ".gitattributes").write_bytes(b"a.txt filter=bad\xff\n")
+    (repo / "a.txt").write_text("modified\n")
+    with (repo / ".git" / "config").open("ab") as config:
+        config.write(b'\n[filter "bad\xff"]\n')
+        config.write(f"\tclean = touch '{marker}'; cat\n".encode())
+        config.write(b"\trequired = true\n")
+
+    turn = await SystemPromptBuilder().snapshot(repo)
+
+    assert not marker.exists()
+    assert turn.git == ""
+    assert turn.git_state == ""
+
+
+async def test_git_section_counts_lines_of_a_file_in_another_encoding(tmp_path: Path) -> None:
+    """Shift_JIS のファイルを変えても、git 節に行数が出る。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "memo.txt").write_bytes("こんにちは\n".encode("shift_jis"))
+    git("add", "memo.txt")
+    git("commit", "-q", "-m", "init")
+    (repo / "memo.txt").write_bytes("こんばんは\n".encode("shift_jis"))
+
+    turn = await SystemPromptBuilder().snapshot(repo)
+
+    assert "memo.txt +1 -1" in turn.git_state
+
+
 async def test_only_filters_from_the_repository_config_are_turned_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -538,6 +589,8 @@ async def test_only_filters_from_the_repository_config_are_turned_off(
         *("-c", "filter.evil.required=false"),
     )
     listing["scoped"] = "local\0filter.a=b.clean\nx\0"
+    assert await builder._filter_overrides(Path(".")) is None
+    listing["scoped"] = "local\0filter.bad\ufffd.clean\nx\0"
     assert await builder._filter_overrides(Path(".")) is None
 
     async def old_git(cwd: Path, *args: str) -> str | None:
