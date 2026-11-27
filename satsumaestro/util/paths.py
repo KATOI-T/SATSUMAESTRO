@@ -50,7 +50,11 @@ def inside_entry(relative: PurePath, entry: Path, root: Path) -> bool:
 
 def in_state_dir(relative: Path, root: Path | None = None) -> bool:
     """ワークスペース相対パスが状態ディレクトリ配下（またはそれ自体）か。"""
-    return names_component(relative, AGENT_DIRNAME, root)
+    if names_component(relative, AGENT_DIRNAME, root):
+        return True
+    if root is None or not (root / AGENT_DIRNAME).is_symlink():
+        return False
+    return inside_entry(relative, root / AGENT_DIRNAME, root)
 
 
 def resolve_from(path: str, root: Path) -> Path | None:

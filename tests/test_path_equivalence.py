@@ -132,6 +132,41 @@ def test_state_directory_in_another_case_is_hidden(ws: Path) -> None:
     assert not jail.hides("docs/a.md")
 
 
+def test_a_state_link_to_a_directory_inside_is_guarded(tmp_path: Path) -> None:
+    """``.satsuma`` が中の別のディレクトリへのリンクでも、隠し・書き込み・削除の禁止が効く。"""
+    root = (tmp_path / "proj").resolve()
+    (root / "metadata" / "state" / "plans").mkdir(parents=True)
+    (root / "metadata" / "state" / "policy.md").write_text("mode: workspace-write\n")
+    (root / ".satsuma").symlink_to("metadata/state")
+    jail = WorkspaceJail(root, visible_state=[".satsuma/plans/p.md"])
+    for path in (".satsuma/policy.md", "metadata/state/policy.md", "metadata/state"):
+        assert jail.hides(path), path
+        with pytest.raises(StateDirError):
+            jail.resolve(path)
+    assert not jail.hides("metadata/state/plans/p.md")
+    assert not jail.hides("metadata/notes.md")
+    assert state_write_guard.check_tool("write_file", "metadata/state/policy.md", root)
+    assert state_write_guard.check_bash("echo x > metadata/state/policy.md", root)
+    assert deletion_guard.check_bash("rm -rf metadata/state", root) is not None
+    assert deletion_guard.check_bash("rm -rf .satsuma/policy.md", root) is not None
+    assert deletion_guard.check_bash("rm -rf metadata/notes.md", root) is None
+
+
+def test_a_linked_user_config_home_is_protected(
+    ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``~/.satsuma`` がリンク（dotfiles の置き場など）でも、指す先とその中身を守る。"""
+    home = (tmp_path / "home").resolve()
+    (home / "dotfiles" / "satsuma" / "sessions").mkdir(parents=True)
+    (home / "dotfiles" / "notes").mkdir()
+    (home / ".satsuma").symlink_to("dotfiles/satsuma")
+    monkeypatch.setenv("HOME", str(home))
+    for command in ("rm -rf ~/.satsuma/sessions", "rm -rf ~/dotfiles/satsuma"):
+        assert deletion_guard.check_bash(command, ws) is not None, command
+    assert state_write_guard.check_bash("echo x > ~/dotfiles/satsuma/settings.json", ws)
+    assert deletion_guard.check_bash("rm -rf ~/dotfiles/notes", ws) is None
+
+
 @pytest.mark.parametrize(
     "command",
     [

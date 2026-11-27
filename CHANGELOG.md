@@ -81,7 +81,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   directory. On a file system that ignores letter case (the macOS default) these names open the same
   files, but the checks compared the names exactly and let them pass. A link that leads into `.git`
   is caught too, and so is a write into the directory that `.git` points to when `.git` is a link or
-  a `gitdir:` file (`git init --separate-git-dir`).
+  a `gitdir:` file (`git init --separate-git-dir`). When `.satsuma` or `~/.satsuma` is a link, the
+  directory it points to is guarded as the state directory under its own name as well.
 - A `path` rule in `.satsuma/policy.md` is matched against the path as resolved from the working
   directory. Before, it was matched against the path as written, so a Deny or Ask rule for
   `secrets/*` missed `./secrets/key.txt`, `docs/../secrets/key.txt`, the absolute path and
