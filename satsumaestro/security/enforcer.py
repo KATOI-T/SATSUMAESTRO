@@ -6,7 +6,7 @@ from enum import StrEnum
 from pathlib import Path, PurePath
 from typing import Any
 
-from satsumaestro.util.paths import names_component, resolve_from
+from satsumaestro.util.paths import inside_entry, names_component, resolve_from
 
 
 class PermissionMode(StrEnum):
@@ -100,6 +100,28 @@ def _resolves_into_git(value: str, root: Path) -> bool:
     resolved = resolve_from(value, root)
     if resolved is None:
         return False
-    if resolved.is_relative_to(root):
-        return names_component(resolved.relative_to(root), ".git", root)
-    return names_component(resolved, ".git")
+    if not resolved.is_relative_to(root):
+        return names_component(resolved, ".git")
+    relative = resolved.relative_to(root)
+    if names_component(relative, ".git", root):
+        return True
+    moved = _moved_git_dir(root)
+    return moved is not None and inside_entry(relative, moved, root)
+
+
+def _moved_git_dir(root: Path) -> Path | None:
+    """``root/.git`` がリンクか ``gitdir:`` のファイルで別の場所を指すなら、その場所。"""
+    entry = root / ".git"
+    if entry.is_symlink():
+        return entry
+    try:
+        if not entry.is_file():
+            return None
+        with entry.open("rb") as f:
+            line = f.read(4096).decode("utf-8", errors="replace").partition("\n")[0]
+    except (OSError, ValueError):
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    target = Path(line.removeprefix("gitdir:").strip())
+    return target if target.is_absolute() else root / target

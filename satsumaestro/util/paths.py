@@ -31,6 +31,23 @@ def names_component(relative: PurePath, name: str, root: Path | None = None) -> 
     return False
 
 
+def inside_entry(relative: PurePath, entry: Path, root: Path) -> bool:
+    """``root/relative`` が ``entry``（リンクは先を辿る）と同じ実体か、その中か。"""
+    try:
+        target = os.stat(entry)
+    except (OSError, ValueError):
+        return False
+    here = str(root)
+    for part in relative.parts:
+        here = os.path.join(here, part)
+        try:
+            if os.path.samestat(os.stat(here), target):
+                return True
+        except (OSError, ValueError):
+            return False
+    return False
+
+
 def in_state_dir(relative: Path, root: Path | None = None) -> bool:
     """ワークスペース相対パスが状態ディレクトリ配下（またはそれ自体）か。"""
     return names_component(relative, AGENT_DIRNAME, root)

@@ -98,6 +98,32 @@ def test_a_link_to_git_needs_full_access(ws: Path) -> None:
     assert classify("edit_file", {"path": str(ws / "g" / "config")}, WW, ws) is DFA
 
 
+def test_a_git_link_to_a_directory_inside_needs_full_access(tmp_path: Path) -> None:
+    """``.git`` が中の別のディレクトリへのリンクでも、その中への書き込みは確認に回る。"""
+    root = (tmp_path / "proj").resolve()
+    (root / "metadata" / "repository").mkdir(parents=True)
+    (root / "docs").mkdir()
+    (root / ".git").symlink_to("metadata/repository")
+    (root / "g").symlink_to(".git")
+    for path in ("metadata/repository/config", "g/config", str(root / "metadata/repository")):
+        assert classify("write_file", {"path": path}, WW, root) is DFA, path
+    for path in ("metadata/notes.md", "docs/a.md"):
+        assert classify("write_file", {"path": path}, WW, root) is WW, path
+
+
+def test_a_git_file_that_points_inside_needs_full_access(tmp_path: Path) -> None:
+    """``gitdir:`` のファイル（``git init --separate-git-dir``）が指す中のディレクトリも同じ。"""
+    root = (tmp_path / "proj").resolve()
+    (root / "meta" / "repo" / "hooks").mkdir(parents=True)
+    (root / ".git").write_text(f"gitdir: {root / 'meta' / 'repo'}\n")
+    assert classify("write_file", {"path": "meta/repo/hooks/pre-commit"}, WW, root) is DFA
+    (root / ".git").write_text("gitdir: meta/repo\n")
+    assert classify("edit_file", {"path": "meta/repo/config"}, WW, root) is DFA
+    assert classify("write_file", {"path": "meta/notes.md"}, WW, root) is WW
+    (root / ".git").write_text("not a pointer\n")
+    assert classify("write_file", {"path": "meta/repo/config"}, WW, root) is WW
+
+
 def test_state_directory_in_another_case_is_hidden(ws: Path) -> None:
     jail = WorkspaceJail(ws)
     assert jail.hides(".SATSUMA/policy.md")
