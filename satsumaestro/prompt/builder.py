@@ -18,7 +18,16 @@ from satsumaestro.util.proc import terminate
 _HALF_SEPARATOR = "\n\n"
 
 _GIT_TIMEOUT_S = 5.0
-_GIT_READ_OPTS = ("--no-optional-locks", "-c", "core.quotePath=false")
+# リポジトリの設定が指すコマンド（監視・外部の diff・変換）を起こさせない
+_GIT_READ_OPTS = (
+    "--no-optional-locks",
+    "-c",
+    "core.quotePath=false",
+    "-c",
+    "core.fsmonitor=false",
+)
+_GIT_DIFF_ARGS = ("diff", "--no-ext-diff", "--no-textconv")
+_REPOSITORY_SCOPES = frozenset({"local", "worktree"})
 _MAX_GIT_STATE_BYTES = 2_000
 
 _GIT_BACKGROUND_NOTE = (
@@ -355,10 +364,14 @@ class SystemPromptBuilder:
 
     async def _git_snapshot(self, cwd: Path) -> tuple[str, str]:
         """``(system の git 節, 作業ツリーの要約)``。"""
-        status = await _git_text(cwd, *_GIT_READ_OPTS, "status", "--short")
+        filters = await _filter_overrides(cwd)
+        if filters is None:
+            return "", ""
+        opts = (*_GIT_READ_OPTS, *filters)
+        status = await _git_text(cwd, *opts, "status", "--short")
         if status is None:
             return "", ""
-        diff = await _git_text(cwd, *_GIT_READ_OPTS, "diff") or ""
+        diff = await _git_text(cwd, *opts, *_GIT_DIFF_ARGS) or ""
         state = _git_status_note(status, diff)
         combined = f"# Git\n{state}"
         if status.strip():
@@ -430,6 +443,36 @@ def _diff_header_path(rest: str) -> str:
 def _is_claude_model(model: str) -> bool:
     m = model.lower()
     return any(k in m for k in ("claude", "opus", "sonnet", "haiku", "anthropic"))
+
+
+async def _filter_overrides(cwd: Path) -> tuple[str, ...] | None:
+    """リポジトリの設定が定める clean フィルタを打ち消す ``-c`` の並び（作れなければ ``None``）。"""
+    listing = await _git_text(cwd, "config", "--list", "--show-scope", "--null")
+    if listing is None:
+        # --show-scope の無い古い git では、どの層のフィルタも打ち消す
+        listing = await _git_text(cwd, "config", "--list", "--null")
+        if listing is None:
+            return None
+        fields = listing.split("\0")
+        entries = [("local", field) for field in fields]
+    else:
+        fields = listing.split("\0")
+        entries = list(zip(fields[0::2], fields[1::2], strict=False))
+    drivers: set[str] = set()
+    for scope, entry in entries:
+        section, _, rest = entry.partition("\n")[0].partition(".")
+        driver, _, variable = rest.rpartition(".")
+        if section == "filter" and driver and variable in ("clean", "process"):
+            if scope in _REPOSITORY_SCOPES:
+                drivers.add(driver)
+    # = を含む名前と復号できない名前は -c で打ち消せない
+    if any("=" in d or "\ufffd" in d for d in drivers):
+        return None
+    overrides: list[str] = []
+    for driver in sorted(drivers):
+        for setting in ("clean=", "process=", "required=false"):
+            overrides += ["-c", f"filter.{driver}.{setting}"]
+    return tuple(overrides)
 
 
 async def _git_text(cwd: Path, *args: str) -> str | None:

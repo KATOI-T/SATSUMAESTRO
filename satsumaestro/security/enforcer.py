@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any
+
+from satsumaestro.util.paths import inside_entry, names_component, resolve_from
 
 
 class PermissionMode(StrEnum):
@@ -59,8 +61,9 @@ def classify(
     tool_name: str,
     inp: Any,
     spec_default: PermissionMode,
+    root: Path | None = None,
 ) -> PermissionMode:
-    """具体呼び出しから必要権限モードを導出する。"""
+    """具体呼び出しから必要権限モードを導出する（``root`` があればリンクの先も見る）。"""
 
     if tool_name == "bash":
         return PermissionMode.DANGER_FULL_ACCESS
@@ -68,7 +71,7 @@ def classify(
         action = str(getattr(inp, "action", ""))
         return PermissionMode.WORKSPACE_WRITE if action == "format" else PermissionMode.READ_ONLY
     if tool_name in _WRITE_TOOLS or tool_name == "notebook_edit":
-        if _targets_git_dir(inp):
+        if _targets_git_dir(inp, root):
             return PermissionMode.DANGER_FULL_ACCESS
         if tool_name in _WRITE_TOOLS:
             return PermissionMode.WORKSPACE_WRITE
@@ -78,7 +81,7 @@ def classify(
     return spec_default
 
 
-def _targets_git_dir(inp: Any) -> bool:
+def _targets_git_dir(inp: Any, root: Path | None = None) -> bool:
     """書込ツール入力の対象パスが ``.git`` ディレクトリ配下（または ``.git`` 自体）か。"""
 
     for key in ("path", "notebook_path"):
@@ -86,6 +89,39 @@ def _targets_git_dir(inp: Any) -> bool:
         if value is None and isinstance(inp, dict):
             value = inp.get(key)
         if isinstance(value, str) and value:
-            if ".git" in PurePath(value).parts:
+            if names_component(PurePath(value), ".git"):
+                return True
+            if root is not None and _resolves_into_git(value, root):
                 return True
     return False
+
+
+def _resolves_into_git(value: str, root: Path) -> bool:
+    resolved = resolve_from(value, root)
+    if resolved is None:
+        return False
+    if not resolved.is_relative_to(root):
+        return names_component(resolved, ".git")
+    relative = resolved.relative_to(root)
+    if names_component(relative, ".git", root):
+        return True
+    moved = _moved_git_dir(root)
+    return moved is not None and inside_entry(relative, moved, root)
+
+
+def _moved_git_dir(root: Path) -> Path | None:
+    """``root/.git`` がリンクか ``gitdir:`` のファイルで別の場所を指すなら、その場所。"""
+    entry = root / ".git"
+    if entry.is_symlink():
+        return entry
+    try:
+        if not entry.is_file():
+            return None
+        with entry.open("rb") as f:
+            line = f.read(4096).decode("utf-8", errors="replace").partition("\n")[0]
+    except (OSError, ValueError):
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    target = Path(line.removeprefix("gitdir:").strip())
+    return target if target.is_absolute() else root / target

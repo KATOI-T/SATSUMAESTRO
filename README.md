@@ -495,6 +495,10 @@ You can design the permissions in one file, `.satsuma/policy.md` (Deny, Ask and 
 base mode). Start from
 [`.satsuma/policy.md.example`](https://github.com/KATOI-T/SATSUMAESTRO/blob/main/.satsuma/policy.md.example);
 without the file, the default mode applies.
+A `path` rule is matched against the path as resolved from the working directory: `./src/a.py`,
+`lib/../src/a.py` and the absolute path all match a rule for `src/a.py`, links are followed, and a
+path outside the working directory stays absolute. Deny and Ask rules also match the path as
+written, and with letter case ignored.
 
 **What runs without asking by default**
 

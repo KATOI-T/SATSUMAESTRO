@@ -177,7 +177,7 @@ from satsumaestro.security.deletion_guard import (
 from satsumaestro.security.enforcer import PermissionMode, classify, mode_le
 from satsumaestro.security.external_reads import WEB_TOOLS, ExternalReads
 from satsumaestro.security.jail import PATH_ESCAPE_PREFIX, WorkspaceJail
-from satsumaestro.security.policy import PermissionOutcome, PermissionPolicy
+from satsumaestro.security.policy import PermissionOutcome, PermissionPolicy, rule_input
 from satsumaestro.security.self_invocation_guard import (
     PROHIBITED_SELF_INVOCATION_GUIDANCE,
     PROHIBITED_SELF_INVOCATION_REPEAT,
@@ -2672,11 +2672,15 @@ class ConversationRuntime:
                     ),
                 )
 
-            required = classify(call.name, effective_input, self._spec_mode(call.name))
-            own = classify(call.name, effective_input, self._spec_mode(call.name, overrides=False))
+            root = self._ctx.jail.root
+            required = classify(call.name, effective_input, self._spec_mode(call.name), root)
+            own_default = self._spec_mode(call.name, overrides=False)
+            own = classify(call.name, effective_input, own_default, root)
             if self._plan_mode_active() and self._targets_plan_file(call.name, effective_input):
                 required = own = PermissionMode.READ_ONLY
-            outcome = self.policy.authorize(call.name, input_dict, required, override=hook.override)
+            # 規則とはパスを解決した形で照らす（確認のカードと実行には書かれたままの入力を渡す）
+            rule_dict = rule_input(input_dict, root)
+            outcome = self.policy.authorize(call.name, rule_dict, required, override=hook.override)
             if (
                 outcome.decision != "deny"
                 and self._plan_mode_active()
@@ -2828,7 +2832,7 @@ class ConversationRuntime:
                         decision="deny", reason="permission prompt returned no decision"
                     )
                 if outcome.remember and isinstance(self.policy, PermissionResolver):
-                    self.policy.record(call.name, input_dict)
+                    self.policy.record(call.name, rule_dict)
                 if call.name == "web_fetch" and outcome.decision == "allow":
                     self._first_use_cleared().add("web_fetch")
                 elif first_fetch is not None and outcome.reason == NONINTERACTIVE_DENY_REASON:
@@ -3056,7 +3060,7 @@ class ConversationRuntime:
             return False
         if self._targets_plan_file(call.name, inp):
             return False
-        required = classify(call.name, inp, self._spec_mode(call.name))
+        required = classify(call.name, inp, self._spec_mode(call.name), self._ctx.jail.root)
         return not mode_le(required, PermissionMode.READ_ONLY)
 
     def _base_mode(self) -> PermissionMode:

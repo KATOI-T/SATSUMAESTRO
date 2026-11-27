@@ -2,16 +2,94 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from pathlib import Path, PurePath
 
 from satsumaestro.util.environ import ENVIRON
 
 AGENT_DIRNAME = ".satsuma"
 
 
-def in_state_dir(relative: Path) -> bool:
+def names_component(relative: PurePath, name: str, root: Path | None = None) -> bool:
+    """``relative`` の成分が ``name`` か（大小は区別せず、``root`` があれば同じ実体かも見る）。"""
+    folded = name.casefold()
+    if any(part.casefold() == folded for part in relative.parts):
+        return True
+    if root is None:
+        return False
+    here = str(root)
+    for part in relative.parts:
+        sibling = os.path.join(here, name)
+        here = os.path.join(here, part)
+        try:
+            # たいていの親には ``name`` が無いので、先にそちらを見て 1 回の stat で次へ進む
+            target = os.stat(sibling)
+            if os.path.samestat(os.stat(here), target):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def inside_entry(relative: PurePath, entry: Path, root: Path) -> bool:
+    """``root/relative`` が ``entry``（リンクは先を辿る）と同じ実体か、その中か。"""
+    try:
+        target = os.stat(entry)
+    except (OSError, ValueError):
+        return False
+    here = str(root)
+    for part in relative.parts:
+        here = os.path.join(here, part)
+        try:
+            if os.path.samestat(os.stat(here), target):
+                return True
+        except (OSError, ValueError):
+            return False
+    return False
+
+
+def in_state_dir(relative: Path, root: Path | None = None) -> bool:
     """ワークスペース相対パスが状態ディレクトリ配下（またはそれ自体）か。"""
-    return AGENT_DIRNAME in relative.parts
+    if names_component(relative, AGENT_DIRNAME, root):
+        return True
+    if root is None or not (root / AGENT_DIRNAME).is_symlink():
+        return False
+    return inside_entry(relative, root / AGENT_DIRNAME, root)
+
+
+def resolve_from(path: str, root: Path) -> Path | None:
+    """``path`` を ``root`` 起点で解決した絶対パス（リンクも辿る。解決できなければ ``None``）。"""
+    try:
+        candidate = Path(path)
+        return (candidate if candidate.is_absolute() else root / candidate).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def rule_form(path: str, root: Path) -> str:
+    """policy のパスの規則と照らす形（``root`` からの相対パス。外は絶対パス・区切りは ``/``）。"""
+    resolved = resolve_from(path, root)
+    if resolved is None:
+        return path
+    if resolved == root:
+        return "."
+    if resolved.is_relative_to(root):
+        return resolved.relative_to(root).as_posix()
+    head = _root_written_otherwise(resolved, root)
+    if head is not None:
+        return resolved.relative_to(head).as_posix()
+    return resolved.as_posix()
+
+
+def _root_written_otherwise(resolved: Path, root: Path) -> Path | None:
+    """``resolved`` の先頭が ``root`` と同じ実体（大小などの書き方だけ違う）ならその先頭。"""
+    if len(resolved.parts) < len(root.parts):
+        return None
+    head = Path(*resolved.parts[: len(root.parts)])
+    try:
+        return head if os.path.samestat(os.stat(head), os.stat(root)) else None
+    except (OSError, ValueError):
+        return None
 
 
 def default_config_home() -> Path:

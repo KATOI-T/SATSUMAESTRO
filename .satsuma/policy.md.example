@@ -20,6 +20,13 @@ mode: workspace-write
 #   - <tool> when <field> re:<regex>  regex match / 正規表現に合うとき
 #   <field>: command (bash) | path (files) | url (web)
 #
+# A path is matched as resolved from the working directory: ./src/a.py, lib/../src/a.py and an
+# absolute path all become src/a.py, links are followed, and a path outside stays absolute.
+# Deny and Ask also match the path as written, and with letter case ignored.
+# path は作業ディレクトリから解決した形で照らす（./src/a.py・lib/../src/a.py・絶対パスはどれも
+# src/a.py。リンクは先を辿り、外のパスは絶対パスのまま）。Deny と Ask は、書かれたままの形でも、
+# 大文字と小文字を区別しない読み方でも照らす。
+#
 # A rule matches one tool name only: write_file does not cover edit_file.
 # 規則はツール名の完全一致。write_file の規則は edit_file には効かない。
 #

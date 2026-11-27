@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Literal
 
 import regex
 from pydantic import BaseModel, Field
 
 from satsumaestro.security.enforcer import PermissionMode, mode_le
+from satsumaestro.util.paths import rule_form
 
 _log = logging.getLogger(__name__)
 
@@ -69,6 +72,35 @@ def field_value(tool_input: dict[str, Any], field: str) -> object:
     return None
 
 
+class RuleInput(dict[str, Any]):
+    """パスの欄を解決した形に直した、規則と照らす入力（書かれたままの値は ``written``）。"""
+
+    def __init__(self, resolved: Mapping[str, Any], written: Mapping[str, str]) -> None:
+        super().__init__(resolved)
+        self.written = dict(written)
+
+
+def rule_input(tool_input: Mapping[str, Any], root: Path) -> RuleInput:
+    """ツールの入力のパスの欄を、作業ディレクトリ ``root`` で解決した形に直す。"""
+    resolved = dict(tool_input)
+    written: dict[str, str] = {}
+    for key in _FIELD_KEYS["path"]:
+        value = resolved.get(key)
+        if isinstance(value, str):
+            written[key] = value
+            resolved[key] = rule_form(value, root)
+    return RuleInput(resolved, written)
+
+
+def _written_value(tool_input: Mapping[str, Any], field: str) -> str | None:
+    """欄 ``field`` に書かれたままの値（解決した形に直していない入力なら ``None``）。"""
+    if isinstance(tool_input, RuleInput):
+        for key in _FIELD_KEYS.get(field, (field,)):
+            if key in tool_input.written:
+                return tool_input.written[key]
+    return None
+
+
 class RuleMatch(BaseModel):
     """1 ルールのマッチ条件。"""
 
@@ -80,8 +112,8 @@ class RuleMatch(BaseModel):
     def _tool_matches(self, tool_name: str) -> bool:
         return self.tool in (None, "*") or self.tool == tool_name
 
-    def matches(self, tool_name: str, tool_input: dict[str, Any]) -> bool:
-        """``tool_name`` / ``tool_input`` がこのルールに合致するか。"""
+    def matches(self, tool_name: str, tool_input: dict[str, Any], *, strict: bool = False) -> bool:
+        """このルールに合致するか（``strict`` は書かれたままの形と大小を無視した形でも見る）。"""
 
         if not self._tool_matches(tool_name):
             return False
@@ -93,11 +125,19 @@ class RuleMatch(BaseModel):
         value = field_value(tool_input, self.field)
         if not isinstance(value, str):
             return False
+        if not (strict and self.field == "path"):
+            return self._hits(value)
+        forms = dict.fromkeys((value, _written_value(tool_input, self.field) or value))
+        return any(self._hits(form, fold=fold) for form in forms for fold in (False, True))
+
+    def _hits(self, value: str, *, fold: bool = False) -> bool:
+        """照合の条件（glob か正規表現）が ``value`` に当たるか（``fold`` は大小を区別しない）。"""
         if self.glob is not None:
-            return re.fullmatch(_glob_to_regex(self.glob), value) is not None
+            flags = re.IGNORECASE if fold else 0
+            return re.fullmatch(_glob_to_regex(self.glob), value, flags) is not None
         if self.regex is not None:
             try:
-                compiled = regex.compile(self.regex)
+                compiled = regex.compile(self.regex, regex.IGNORECASE if fold else 0)
             except regex.error:
                 return False
             return _regex_search(compiled, value)
@@ -178,7 +218,8 @@ class PermissionPolicy(BaseModel):
     ) -> PermissionOutcome | None:
         """``verdict`` の規則のうち、書いた順で最初に当たったもの。"""
         rules = {"deny": self.deny, "ask": self.ask, "allow": self.allow}[verdict]
-        matching = (r for r in rules if r.match.matches(tool_name, tool_input))
+        strict = verdict != "allow"
+        matching = (r for r in rules if r.match.matches(tool_name, tool_input, strict=strict))
         if verdict == "allow":
             hits = list(matching)
             hit = next((r for r in hits if r.match.field is not None), hits[0] if hits else None)

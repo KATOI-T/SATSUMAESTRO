@@ -77,6 +77,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an "interrupted" result, so the next request is accepted. Ctrl-C at a question, such as a
   permission card or the plan approval, now answers no at once instead of waiting for Enter.
   ([#67](https://github.com/KATOI-T/SATSUMAESTRO/issues/67))
+- Writing `.GIT/config` or `.SATSUMA/policy.md` is treated as writing under `.git` or the state
+  directory. On a file system that ignores letter case (the macOS default) these names open the same
+  files, but the checks compared the names exactly and let them pass. A link that leads into `.git`
+  is caught too, and so is a write into the directory that `.git` points to when `.git` is a link or
+  a `gitdir:` file (`git init --separate-git-dir`). When `.satsuma` or `~/.satsuma` is a link, the
+  directory it points to is guarded as the state directory under its own name as well.
+- A `path` rule in `.satsuma/policy.md` is matched against the path as resolved from the working
+  directory. Before, it was matched against the path as written, so a Deny or Ask rule for
+  `secrets/*` missed `./secrets/key.txt`, `docs/../secrets/key.txt`, the absolute path and
+  `SECRETS/key.txt`, and an Allow rule for `docs/*` matched `docs/../.env`. Deny and Ask rules also
+  match the path as written, and with letter case ignored. A path remembered with `a` is kept in the
+  resolved form, so it covers the same file written another way. An Allow rule, or a path remembered
+  before this change, that starts with `./` or is an absolute path inside the working directory no
+  longer matches, so the tool asks again: write the rule relative to the working directory.
+- The git commands that collect the git state for the system prompt no longer run the commands the
+  repository's config names (`core.fsmonitor`, `diff.external`, a `textconv` filter and a `clean`
+  filter). Filters from your own git config, such as Git LFS, still run.
 
 ## [0.5.3] - 2026-11-22
 

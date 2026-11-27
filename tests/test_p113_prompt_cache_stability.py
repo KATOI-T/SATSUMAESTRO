@@ -215,13 +215,17 @@ async def test_git_calls_use_no_optional_locks(tmp_path: Path, monkeypatch) -> N
 
     async def fake_run_git(cwd: Path, *args: str) -> str | None:
         seen.append(args)
-        return "" if args[-1] == "diff" else " M x.py"
+        return " M x.py" if "status" in args else ""
 
     monkeypatch.setattr("satsumaestro.prompt.builder._git_text", fake_run_git)
     await SystemPromptBuilder().snapshot(tmp_path)
 
-    opts = ("--no-optional-locks", "-c", "core.quotePath=false")
-    assert seen == [(*opts, "status", "--short"), (*opts, "diff")]
+    opts = ("--no-optional-locks", "-c", "core.quotePath=false", "-c", "core.fsmonitor=false")
+    assert seen == [
+        ("config", "--list", "--show-scope", "--null"),
+        (*opts, "status", "--short"),
+        (*opts, "diff", "--no-ext-diff", "--no-textconv"),
+    ]
 
 
 def test_system_prompt_joined_uses_blank_line_separator() -> None:

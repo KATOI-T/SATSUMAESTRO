@@ -9,7 +9,13 @@ import stat
 from collections.abc import Iterator
 from pathlib import Path
 
-from satsumaestro.util.paths import AGENT_DIRNAME, default_config_home, in_state_dir
+from satsumaestro.util.paths import (
+    AGENT_DIRNAME,
+    default_config_home,
+    in_state_dir,
+    inside_entry,
+    names_component,
+)
 
 PROHIBITED_DELETION_PREFIX = "deletion prohibited:"
 
@@ -129,13 +135,27 @@ def _forbidden(target: Path, workspace: Path, *, allow_workspace: bool = False) 
 
 def _in_agent_state(target: Path, workspace: Path) -> bool:
     """作業ディレクトリの ``.satsuma`` か ``~/.satsuma``（とその中身）か。"""
-    if target.is_relative_to(workspace) and in_state_dir(target.relative_to(workspace)):
+    if target.is_relative_to(workspace) and in_state_dir(target.relative_to(workspace), workspace):
         return True
     home = default_config_home().expanduser()
     home = home.parent.resolve() / home.name if home.name else home.resolve()
-    if workspace.is_relative_to(home):
+    if _within(workspace, home):
         return False
-    return target == home or target.is_relative_to(home)
+    if _within(target, home):
+        return True
+    # 置き場所の名前を別の書き方（``~/.SATSUMA`` など）で書いても、同じ場所として守る
+    parent = home.parent
+    if not home.name or target == parent or not target.is_relative_to(parent):
+        return False
+    return names_component(Path(target.relative_to(parent).parts[0]), home.name, parent)
+
+
+def _within(path: Path, home: Path) -> bool:
+    """``path`` が ``home`` そのものかその中か（``home`` がリンクなら指す先でも見る）。"""
+    if path == home or path.is_relative_to(home):
+        return True
+    top = Path(path.anchor)
+    return home.is_symlink() and inside_entry(path.relative_to(top), home, top)
 
 
 def _needs_privilege(target: Path) -> bool:
