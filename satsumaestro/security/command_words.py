@@ -23,6 +23,12 @@ _KEYWORDS = frozenset(
 # 予約語の time が前に付く物（それ以外の time は包みのコマンドとして読む）
 _TIMED = frozenset({"{", "!", "if", "while", "until", "for", "select", "case", "[[", "function"})
 _CASE_ENDS = frozenset({";;", ";&", ";;&"})
+_SEQUENCE = re.compile(
+    r"(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?|([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?"
+)
+# ブレース展開で作る語の数と入れ子の上限（超えたら展開せずにそのまま読む）
+_MAX_BRACE_WORDS = 1024
+_MAX_BRACE_NESTING = 64
 
 
 class Token(NamedTuple):
@@ -124,6 +130,117 @@ def _closing_paren(text: str, i: int) -> int:
             level -= 1
         i += 1
     return len(text)
+
+
+class _TooManyWords(Exception):
+    pass
+
+
+_Chars = list[tuple[str, bool]]
+
+
+def _brace_words(pieces: list[tuple[str, bool]]) -> list[str] | None:
+    """引用していない ``{a,b}``・``{1..3}`` を展開した語。展開する物が無ければ ``None``。"""
+    chars = [(c, quoted) for piece, quoted in pieces for c in piece]
+    if not any(c == "{" and not quoted for c, quoted in chars):
+        return None
+    try:
+        expanded = _expand_braces(chars, [_MAX_BRACE_WORDS], 0)
+    except _TooManyWords:
+        return None
+    if expanded == [chars]:
+        return None
+    # 展開で空になった語は消える（引用した空の文字列を含む語は残る）
+    keep_empty = any(piece == "" and quoted for piece, quoted in pieces)
+    words = ["".join(c for c, _ in word) for word in expanded]
+    return [word for word in words if word or keep_empty]
+
+
+def _expand_braces(chars: _Chars, budget: list[int], nesting: int) -> list[_Chars]:
+    found = _brace_at(chars)
+    if found is None:
+        budget[0] -= 1
+        if budget[0] < 0:
+            raise _TooManyWords
+        return [chars]
+    if nesting >= _MAX_BRACE_NESTING:
+        raise _TooManyWords
+    start, end, alternatives = found
+    expanded: list[_Chars] = []
+    for alternative in alternatives:
+        word = chars[:start] + alternative + chars[end + 1 :]
+        expanded.extend(_expand_braces(word, budget, nesting + 1))
+    return expanded
+
+
+def _brace_at(chars: _Chars) -> tuple[int, int, list[_Chars]] | None:
+    """最初に展開する括弧の位置と、中の選択肢。``${…}`` と選択肢の無い括弧は飛ばす。"""
+    i = 0
+    while i < len(chars):
+        if chars[i] != ("{", False):
+            i += 1
+            continue
+        end = _matching_brace(chars, i)
+        if end is not None and i and chars[i - 1] == ("$", False):
+            i = end + 1
+            continue
+        alternatives = None if end is None else _alternatives(chars[i + 1 : end])
+        if end is not None and alternatives is not None:
+            return i, end, alternatives
+        i += 1
+    return None
+
+
+def _matching_brace(chars: _Chars, i: int) -> int | None:
+    depth = 0
+    for j in range(i, len(chars)):
+        if chars[j] == ("{", False):
+            depth += 1
+        elif chars[j] == ("}", False):
+            depth -= 1
+            if depth == 0:
+                return j
+    return None
+
+
+def _alternatives(inner: _Chars) -> list[_Chars] | None:
+    """括弧の中の、引用していない ``,`` で分けた選択肢か ``x..y`` の並び。"""
+    parts: list[_Chars] = [[]]
+    depth = 0
+    for c, quoted in inner:
+        if not quoted and c == "{":
+            depth += 1
+        elif not quoted and c == "}":
+            depth -= 1
+        elif not quoted and c == "," and depth == 0:
+            parts.append([])
+            continue
+        parts[-1].append((c, quoted))
+    if len(parts) > 1:
+        return parts
+    if any(quoted for _, quoted in inner):
+        return None
+    values = _sequence("".join(c for c, _ in inner))
+    return None if values is None else [[(c, False) for c in value] for value in values]
+
+
+def _sequence(text: str) -> list[str] | None:
+    """``1..5``・``01..10..3``・``a..e`` の並び。並びでなければ ``None``。"""
+    match = _SEQUENCE.fullmatch(text)
+    if match is None:
+        return None
+    first, last, step = match[1] or match[4], match[2] or match[5], match[3] or match[6]
+    letters = match[4] is not None
+    low, high = (ord(first), ord(last)) if letters else (int(first), int(last))
+    stride = abs(int(step or 1)) or 1
+    if abs(high - low) // stride >= _MAX_BRACE_WORDS:
+        raise _TooManyWords
+    values = range(low, high + 1, stride) if low <= high else range(low, high - 1, -stride)
+    if letters:
+        return [chr(v) for v in values]
+    padded = any(len(e.lstrip("-")) > 1 and e.lstrip("-").startswith("0") for e in (first, last))
+    width = max(len(first), len(last)) if padded else 0
+    return [str(v).zfill(width) for v in values]
 
 
 def words(text: str) -> list[str]:
@@ -276,7 +393,7 @@ class _Lexer:
         self.parens = 0
         self.end: int | None = None
         self.out: list[Token] = []
-        self.word: list[str] = []
+        self.word: list[tuple[str, bool]] = []
         self.subs: list[str] = []
         self.in_word = False
         self.quoted = False
@@ -314,13 +431,13 @@ class _Lexer:
                 closing = self.backquote(self.i + 1, _BACKQUOTE_ESCAPE)
                 if closing is None:
                     return self.unclosed()
-                self.word.append(text[self.i : closing + 1])
+                self.word.append((text[self.i : closing + 1], True))
                 self.in_word = True
                 self.i = closing + 1
             elif (op := _operator_at(text, self.i)) is not None:
                 self.operator(op)
             else:
-                self.word.append(c)
+                self.word.append((c, False))
                 self.in_word = True
                 self.i += 1
         self.flush()
@@ -333,11 +450,14 @@ class _Lexer:
     def flush(self) -> None:
         if not self.in_word:
             return
-        text = "".join(self.word)
+        text = "".join(piece for piece, _ in self.word)
+        expanded = None
         if self.heredoc_next is not None:
             self.heredocs.append((text, self.heredoc_next == "<<-", self.quoted))
             self.heredoc_next = None
-        self.out.append(Token(text, "word"))
+        else:
+            expanded = _brace_words(self.word)
+        self.out.extend(Token(word, "word") for word in ([text] if expanded is None else expanded))
         self.out.extend(Token(inner, "substitution") for inner in self.subs)
         self.word.clear()
         self.subs.clear()
@@ -345,7 +465,8 @@ class _Lexer:
 
     def operator(self, op: str) -> None:
         # 2>file の 2 は語でなくリダイレクトの番号
-        if op in _REDIRECTS and self.in_word and not self.quoted and "".join(self.word).isdigit():
+        digits = "".join(piece for piece, _ in self.word).isdigit()
+        if op in _REDIRECTS and self.in_word and not self.quoted and digits:
             self.word.clear()
             self.in_word = False
         self.flush()
@@ -366,7 +487,7 @@ class _Lexer:
     def backslash(self) -> None:
         nxt = self.text[self.i + 1 : self.i + 2]
         if nxt != "\n" and nxt:
-            self.word.append(nxt)
+            self.word.append((nxt, True))
             self.in_word = self.quoted = True
         self.i += 2
 
@@ -374,7 +495,7 @@ class _Lexer:
         end = self.text.find("'", start)
         if end < 0:
             return False
-        self.word.append(self.text[start:end])
+        self.word.append((self.text[start:end], True))
         self.in_word = self.quoted = True
         self.i = end + 1
         return True
@@ -391,7 +512,7 @@ class _Lexer:
             i += 1
         if i >= len(self.text):
             return False
-        self.word.append("".join(buf))
+        self.word.append(("".join(buf), True))
         self.in_word = self.quoted = True
         self.i = i + 1
         return True
@@ -420,7 +541,7 @@ class _Lexer:
             i = end + 1
         if i >= len(text):
             return False
-        self.word.append("".join(buf))
+        self.word.append(("".join(buf), True))
         self.in_word = self.quoted = True
         self.i = i + 1
         return True
