@@ -6,8 +6,12 @@ from pathlib import Path
 
 import pytest
 
+import satsumaestro.engine  # noqa: F401
 from satsumaestro.security import deletion_guard, self_invocation_guard, state_write_guard
+from satsumaestro.security.bash_pipeline import review_read_only
 from satsumaestro.security.command_words import segments, substitutions, tokenize
+from satsumaestro.security.enforcer import PermissionMode
+from satsumaestro.security.remember_guard import remember_blocker
 
 
 def _segments(command: str) -> list[list[str]]:
@@ -149,3 +153,114 @@ def test_state_writes_are_found_on_later_lines_and_in_heredocs(ws: Path, command
 def test_heredoc_text_is_not_taken_for_a_state_write(ws: Path) -> None:
     command = "cat <<EOF > notes.md\necho x > .satsuma/policy.md\nEOF"
     assert state_write_guard.check_bash(command, ws) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("if a; then b x; elif c; then d; else e; fi", [["a"], ["b", "x"], ["c"], ["d"], ["e"]]),
+        ("while a; do b; done", [["a"], ["b"]]),
+        ("until a; do b; done", [["a"], ["b"]]),
+        ("for i in a b; do c $i; done", [["c", "$i"]]),
+        ("for i do a; done", [["a"]]),
+        ("select x in a b; do c; done", [["c"]]),
+        ("{ a; b; }", [["a"], ["b"]]),
+        ("! a", [["a"]]),
+        ("case $x in a|b) c;; (d) e;; *) f\nesac", [["c"], ["e"], ["f"]]),
+        ("case $x in a) case $y in b) c;; esac;; d) e;; esac; g", [["c"], ["e"], ["g"]]),
+        ("case x\nin\n  x) a ;;\nesac", [["a"]]),
+        ("case x in x) a; esac; b", [["a"], ["b"]]),
+        ("function f { a; }", [["a"]]),
+        ("function f() { a; }", [["a"]]),
+        ("time { a; }", [["a"]]),
+        ("time -p if a; then b; fi", [["a"], ["b"]]),
+        ("time -p a", [["time", "-p", "a"]]),
+        ("coproc w { a; }", [["a"]]),
+        ("coproc a b", [["a", "b"]]),
+        ("echo if then { ! }", [["echo", "if", "then", "{", "!", "}"]]),
+        ("FOO=1 if x", [["FOO=1", "if", "x"]]),
+    ],
+)
+def test_reserved_words_are_read_only_where_a_command_starts(
+    command: str, expected: list[list[str]]
+) -> None:
+    assert _segments(command) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "case x in $(a)) b;; esac",
+        "case $(a) in x) b;; esac",
+        "for x in $(a); do b; done",
+    ],
+)
+def test_a_substitution_in_for_words_or_case_patterns_is_still_read(command: str) -> None:
+    assert ["a"] in _segments(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "if true; then satsumaestro repl; fi",
+        "if satsumaestro repl; then :; fi",
+        "while true; do satsumaestro repl; done",
+        "until false; do stro prompt x; done",
+        "for i in 1; do satsumaestro repl; done",
+        "{ satsumaestro repl; }",
+        "! satsumaestro repl",
+        "case x in x) satsumaestro repl;; esac",
+        "time { satsumaestro repl; }",
+        "function f { satsumaestro repl; }; f",
+        "coproc satsumaestro repl",
+    ],
+)
+def test_self_invocation_is_found_inside_compound_commands(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "for satsumaestro in a b; do echo $satsumaestro; done",
+        "case $1 in satsumaestro|stro) echo self;; esac",
+        "case $1 in (stro) echo self;; esac",
+    ],
+)
+def test_loop_words_and_case_patterns_are_not_taken_for_self_invocation(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "if true; then rm -rf ..; fi",
+        "{ rm -rf ..; }",
+        "! rm -rf ..",
+        "while true; do rm -rf ..; done",
+        "case x in *) rm -rf ..;; esac",
+    ],
+)
+def test_deletions_are_found_inside_compound_commands(ws: Path, command: str) -> None:
+    assert deletion_guard.check_bash(command, ws) is not None
+
+
+def test_loop_words_are_not_taken_for_a_deletion(ws: Path) -> None:
+    assert deletion_guard.check_bash("for x in rm -rf ..; do echo $x; done", ws) is None
+
+
+def test_a_find_inside_a_compound_command_is_read_by_the_state_write_guard(ws: Path) -> None:
+    command = "if true; then find . -name '*.md' -exec sed -i s/a/b/ {} +; fi"
+    assert state_write_guard.check_bash(command, ws) is not None
+
+
+def test_read_only_mode_reads_commands_inside_compound_commands() -> None:
+    verdict = review_read_only("if true; then rm notes.txt; fi", PermissionMode.READ_ONLY)
+    assert verdict.kind != "allow"
+    assert review_read_only("for f in *.md; do cat $f; done", PermissionMode.READ_ONLY).kind == (
+        "allow"
+    )
+
+
+def test_a_deletion_inside_a_compound_command_cannot_be_remembered() -> None:
+    assert remember_blocker("bash", {"command": "{ rm -rf build; }"}) is not None

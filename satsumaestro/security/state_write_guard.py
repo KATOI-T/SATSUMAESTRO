@@ -170,7 +170,7 @@ def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = Tru
         nonlocal here
         if not words:
             return
-        _, name, args = _unwrap(words)
+        _, name, args = _unwrap(command_words.command_start(words))
         if name == "find" and not find_patterns:
             args = [a for i, a in enumerate(args) if not i or args[i - 1] not in _FIND_PATTERNS]
         for arg in args:

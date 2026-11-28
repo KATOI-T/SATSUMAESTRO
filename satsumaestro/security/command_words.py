@@ -12,6 +12,13 @@ _HEREDOCS = frozenset({"<<", "<<-"})
 _BLANKS = " \t"
 _MAX_DEPTH = 8
 _DQUOTE_ESCAPES = '"\\$`\n'
+# コマンドの位置に来たときだけ予約語として読む語
+_KEYWORDS = frozenset(
+    {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "esac", "{", "}", "!"}
+)
+# 予約語の time が前に付く物（それ以外の time は包みのコマンドとして読む）
+_TIMED = frozenset({"{", "!", "if", "while", "until", "for", "select", "case", "[[", "function"})
+_CASE_ENDS = frozenset({";;", ";&", ";;&"})
 
 
 class Token(NamedTuple):
@@ -27,26 +34,16 @@ def tokenize(command: str) -> list[Token] | None:
 
 
 def segments(tokens: list[Token], depth: int = 0) -> list[list[str]]:
-    """区切りで分けた単純コマンドごとの語（リダイレクトとその行き先は除く）。"""
-    found: list[list[str]] = [[]]
-    target_next = False
-    for token in tokens:
-        if token.kind == "word":
-            if target_next:
-                target_next = False
-            else:
-                found[-1].append(token.text)
-        elif token.kind == "redirect":
-            target_next = True
-        elif token.kind == "op":
-            target_next = False
-            found.append([])
-        elif token.kind == "heredoc" and depth < _MAX_DEPTH:
-            # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
-            for inner in substitutions(token.text):
-                found.extend(segments(tokenize(inner) or [], depth + 1))
-            found.append([])
-    return [words for words in found if words]
+    """単純コマンドごとの語（予約語・リダイレクトとその行き先・for と case の語は除く）。"""
+    return _Commands(tokens, depth).run()
+
+
+def command_start(words: list[str]) -> list[str]:
+    """先頭の予約語（``then``・``do``・``{``・``!`` など）を除いた語。"""
+    i = 0
+    while i < len(words) and words[i] in _KEYWORDS:
+        i += 1
+    return words[i:]
 
 
 def substitutions(text: str) -> list[str]:
@@ -98,6 +95,118 @@ def _closing_paren(text: str, i: int) -> int:
 def words(text: str) -> list[str]:
     """``text`` の語だけ（記号は捨てる）。読めなければ空。"""
     return [t.text for t in tokenize(text) or [] if t.kind == "word"]
+
+
+class _Commands:
+    """語と記号の並びを、予約語と for・case の作りを見分けて単純コマンドに分ける。"""
+
+    def __init__(self, tokens: list[Token], depth: int) -> None:
+        self.tokens = tokens
+        self.depth = depth
+        self.found: list[list[str]] = [[]]
+        self.start = True
+        self.cases = 0
+        self.pattern = False
+        self.pattern_begins = False
+
+    def run(self) -> list[list[str]]:
+        target_next = False
+        i = 0
+        while i < len(self.tokens):
+            text, kind = self.tokens[i]
+            if self.pattern and self.in_pattern(text, kind):
+                pass
+            elif kind == "redirect":
+                target_next = True
+            elif kind == "op":
+                target_next = False
+                self.separate(text)
+            elif kind == "word" and target_next:
+                target_next = False
+            elif kind == "word" and self.start:
+                i = self.command_word(i)
+            elif kind == "word":
+                self.found[-1].append(text)
+            elif kind == "heredoc" and self.depth < _MAX_DEPTH:
+                # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
+                for inner in substitutions(text):
+                    self.found.extend(segments(tokenize(inner) or [], self.depth + 1))
+                self.found.append([])
+            i += 1
+        return [words for words in self.found if words]
+
+    def separate(self, op: str) -> None:
+        if op in _CASE_ENDS and self.cases:
+            self.pattern = self.pattern_begins = True
+        self.start = True
+        self.found.append([])
+
+    def in_pattern(self, text: str, kind: str) -> bool:
+        """case の型の語と記号なら読み飛ばす。型でない物が来たらコマンドとして読み直す。"""
+        if kind == "word" and text == "esac" and self.pattern_begins:
+            self.cases -= 1
+            self.pattern = False
+            self.separate(text)
+        elif kind == "word":
+            self.pattern_begins = False
+        elif kind == "op" and text == "\n":
+            pass
+        elif kind == "op" and text == "(" and self.pattern_begins:
+            self.pattern_begins = False
+        elif kind == "op" and text == "|" and not self.pattern_begins:
+            pass
+        elif kind == "op" and text == ")" and not self.pattern_begins:
+            self.pattern = False
+            self.separate(text)
+        else:
+            self.pattern = False
+            return False
+        return True
+
+    def command_word(self, i: int) -> int:
+        """コマンドの位置の語を読み、読み終えた最後の位置を返す。"""
+        text = self.tokens[i].text
+        if text in _KEYWORDS:
+            if text == "esac" and self.cases:
+                self.cases -= 1
+            return i
+        if text == "function" and self.word_at(i + 1):
+            return i + 1
+        if text == "coproc":
+            return i + 1 if self.word_at(i + 1) and self.word_at(i + 2, "{") else i
+        if text in ("for", "select") and self.word_at(i + 1):
+            # for 名前 in 語… の語はコマンドでない。$( などの記号で読みをやめる
+            if not self.word_at(i + 2, "in"):
+                return i + 1
+            end = i + 3
+            while self.word_at(end):
+                end += 1
+            return end - 1
+        if text == "case" and self.word_at(i + 1):
+            end = i + 2
+            while self.op_at(end, "\n"):
+                end += 1
+            if self.word_at(end, "in"):
+                self.cases += 1
+                self.pattern = self.pattern_begins = True
+                return end
+        if text == "time":
+            end = i + 1
+            while self.word_at(end, "-p") or self.word_at(end, "--"):
+                end += 1
+            if self.op_at(end, "(") or (self.word_at(end) and self.tokens[end].text in _TIMED):
+                return end - 1
+        self.found[-1].append(text)
+        self.start = False
+        return i
+
+    def word_at(self, i: int, text: str | None = None) -> bool:
+        if i >= len(self.tokens) or self.tokens[i].kind != "word":
+            return False
+        return text is None or self.tokens[i].text == text
+
+    def op_at(self, i: int, text: str) -> bool:
+        return i < len(self.tokens) and self.tokens[i] == Token(text, "op")
 
 
 class _Lexer:
