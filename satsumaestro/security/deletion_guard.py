@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import glob
 import os
-import shlex
+import re
 import stat
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
+from satsumaestro.security import command_words
 from satsumaestro.security.find_expr import FindExpression
 from satsumaestro.util.paths import (
     AGENT_DIRNAME,
@@ -34,15 +35,34 @@ _WRAPPERS = frozenset({"command", "builtin", "exec", "nice", "nohup", "time"})
 # 削除の判定で剥がす包みと、値を次の語で取るオプション（短い形の字・長い形）
 _WRAPPER_OPTIONS: dict[str, tuple[str, frozenset[str]]] = {
     "builtin": ("", frozenset()),
+    "caffeinate": ("tw", frozenset()),
     "command": ("", frozenset()),
     "env": ("uCPSa", frozenset({"--unset", "--chdir", "--split-string", "--argv0"})),
     "exec": ("a", frozenset()),
     "nice": ("n", frozenset({"--adjustment"})),
     "nohup": ("", frozenset()),
+    "setsid": ("", frozenset()),
     "stdbuf": ("ioe", frozenset({"--input", "--output", "--error"})),
     "time": ("fo", frozenset({"--format", "--output"})),
     "timeout": ("sk", frozenset({"--signal", "--kill-after"})),
+    "xargs": (
+        "adEILnPsJRS",
+        frozenset(
+            {
+                "--arg-file",
+                "--delimiter",
+                "--max-args",
+                "--max-chars",
+                "--max-procs",
+                "--process-slot-var",
+            }
+        ),
+    ),
 }
+# 文を読んで動かすシェルと、値を次の語で取るオプション
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "yash", "fish"})
+_SHELL_VALUE_OPTIONS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
+_SHELL_SCRIPT_OPTIONS = frozenset({"--command", "--init-command"})
 _PRIVILEGE_VALUE_SHORT = frozenset("aCDghprRtTUu")
 _PRIVILEGE_VALUE_LONG = frozenset(
     {
@@ -60,6 +80,7 @@ _PRIVILEGE_VALUE_LONG = frozenset(
     }
 )
 _GLOB_CHARS = frozenset("*?[")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
 # 起点の前に置ける find のオプション（GNU と BSD）と、-f で始まる式の語
 _FIND_FLAGS = frozenset("EHLPXdsx")
 _FIND_EXEC = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
@@ -137,10 +158,10 @@ def bash_targets(command: str, cwd: Path) -> list[Path]:
 
 def simple_commands(command: str) -> list[tuple[bool, str, list[str]]] | None:
     """区切り記号で分けた単純コマンドごとの (特権付きか, コマンド名, 引数)。"""
-    tokens = _tokenize(command)
+    tokens = command_words.tokenize(command)
     if tokens is None:
         return None
-    return [_unwrap(words) for words in _segments(tokens)]
+    return [_unwrap(words) for words in command_words.segments(tokens)]
 
 
 def deletes(name: str, args: list[str]) -> bool:
@@ -188,22 +209,96 @@ def _climbs(raw: str) -> bool:
     return not raw.startswith(("/", "~", "$")) and ".." in Path(raw).parts
 
 
-def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:
+def _located_commands(
+    command: str, workspace: Path, depth: int = 0
+) -> Iterator[tuple[bool, str, list[str], Path]]:
     """単純コマンドごとの (特権付きか, 名前, 引数, 基準の場所)。cd と env -C をたどる。"""
-    tokens = _tokenize(command)
+    # sh -c や find -exec などが動かすコマンドも、その後に続けて返す
+    tokens = command_words.tokenize(command, complete_lines=True)
     if tokens is None:
         return
     here = workspace
-    for words in _segments(tokens):
+    for found in command_words.commands(tokens):
         moves: list[str] = []
-        privileged, name, args = _unwrap(words, moves=moves)
+        privileged, name, args = _unwrap(found.words, moves=moves)
         if name == "cd":
             here = _cd(args, here)
             continue
-        base = here
-        for move in moves:
-            base = _cd([move], base)
-        yield privileged, name, args, base
+        yield from _with_inner(privileged, name, args, _moved(here, moves), found.stdin, depth)
+
+
+def _with_inner(
+    privileged: bool, name: str, args: list[str], base: Path, stdin: str | None, depth: int
+) -> Iterator[tuple[bool, str, list[str], Path]]:
+    yield privileged, name, args, base
+    if depth >= command_words.MAX_DEPTH:
+        return
+    for script in _scripts(name, args, stdin):
+        for inner_privileged, inner, inner_args, inner_base in _located_commands(
+            script, base, depth + 1
+        ):
+            yield privileged or inner_privileged, inner, inner_args, inner_base
+    if name == "find":
+        for words in _exec_commands(args):
+            moves: list[str] = []
+            inner_privileged, inner, inner_args = _unwrap(words, moves=moves)
+            inner_base = _moved(base, moves)
+            yield from _with_inner(
+                privileged or inner_privileged, inner, inner_args, inner_base, None, depth + 1
+            )
+
+
+def _moved(base: Path, moves: list[str]) -> Path:
+    for move in moves:
+        base = _cd([move], base)
+    return base
+
+
+def _scripts(name: str, args: list[str], stdin: str | None) -> list[str]:
+    """``name args`` がシェルの文として動かすもの（``sh -c``・``eval``・シェルへ渡す入力）。"""
+    if name == "eval":
+        return [" ".join(args)] if args else []
+    if name not in _SHELLS:
+        return []
+    scripts: list[str] = []
+    command = inline = from_stdin = False
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word in ("-", "--"):
+            i += 1
+            break
+        option, eq, value = word.partition("=")
+        if option in _SHELL_SCRIPT_OPTIONS:
+            scripts.append(value if eq else (args[i + 1] if i + 1 < len(args) else ""))
+            inline = inline or option == "--command"
+            i += 1 if eq else 2
+        elif word in _SHELL_VALUE_OPTIONS:
+            i += 2
+        elif word[:1] in "-+" and len(word) > 1:
+            if word[0] == "-" and not word.startswith("--"):
+                command = command or "c" in word
+                from_stdin = from_stdin or "s" in word
+            i += 1
+        else:
+            break
+    rest = args[i:]
+    # -c なら最初の引数が文。どちらもなければ、引数のファイルか入力を文として読む
+    if command and not inline and rest:
+        scripts.append(rest[0])
+    elif not command and not inline and stdin is not None and (from_stdin or not rest):
+        scripts.append(stdin)
+    return scripts
+
+
+def _exec_commands(args: list[str]) -> list[list[str]]:
+    """find の -exec・-execdir・-ok・-okdir が動かすコマンドの語。"""
+    found: list[list[str]] = []
+    for i, action in enumerate(args):
+        if action in _FIND_EXEC:
+            end = next((j for j in range(i + 1, len(args)) if args[j] in (";", "+")), len(args))
+            found.append(args[i + 1 : end])
+    return found
 
 
 def _find_reaches_state(
@@ -370,34 +465,6 @@ def _expand(raw: str, base: Path) -> list[Path]:
     return [] if target is None else [target]
 
 
-def _tokenize(command: str) -> list[str] | None:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        return list(lexer)
-    except ValueError:
-        return None
-
-
-def _segments(tokens: list[str]) -> list[list[str]]:
-    """区切り記号（``;`` ``&&`` ``|`` など）で単純コマンドへ分ける。"""
-    segments: list[list[str]] = [[]]
-    skip_next = False
-    for tok in tokens:
-        if skip_next:
-            skip_next = False
-            continue
-        if tok and all(c in "();<>|&" for c in tok):
-            if "<" in tok or ">" in tok:
-                skip_next = not tok.endswith("&")
-                continue
-            segments.append([])
-            continue
-        segments[-1].append(tok)
-    return [s for s in segments if s]
-
-
 def _unwrap(words: list[str], *, moves: list[str] | None = None) -> tuple[bool, str, list[str]]:
     """``FOO=1`` / ``sudo -u x`` / ``command`` などを剥がし、(特権付きか, 名前, 引数) を返す。"""
     # moves を渡すと、包みのオプションも正しく飛ばし、env -C の移り先をそこへ足す
@@ -406,7 +473,7 @@ def _unwrap(words: list[str], *, moves: list[str] | None = None) -> tuple[bool, 
     while i < len(words):
         word = words[i]
         name = os.path.basename(word)
-        if "=" in word and not word.startswith("-") and name == word:
+        if _ASSIGNMENT.match(word):
             i += 1
         elif name in _PRIVILEGE_COMMANDS:
             privileged = True
@@ -440,7 +507,7 @@ def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tupl
             # -S は値を語に分けて env の引数として読み直す。-C は作業場所を移す
             split = _option_value(word, words, i, "S", "--split-string", (short, long))
             if split is not None:
-                words = [*words[:i], *(_tokenize(split[0]) or []), *words[split[1] :]]
+                words = [*words[:i], *command_words.words(split[0]), *words[split[1] :]]
                 continue
             move = _option_value(word, words, i, "C", "--chdir", (short, long))
             if move is not None:

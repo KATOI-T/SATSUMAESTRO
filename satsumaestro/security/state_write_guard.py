@@ -6,6 +6,7 @@ import shlex
 from collections.abc import Iterable
 from pathlib import Path
 
+from satsumaestro.security import command_words
 from satsumaestro.security.auto_allow import (
     _AUTO_ALLOW_COMMANDS,
     _RULES,
@@ -18,8 +19,9 @@ from satsumaestro.security.deletion_guard import (
     _find_reaches_state,
     _in_agent_state,
     _located_commands,
+    _moved,
     _runs_deleter,
-    _tokenize,
+    _scripts,
     _unwrap,
 )
 from satsumaestro.tools.mkdir_hint import pure_mkdir_targets
@@ -157,20 +159,38 @@ def _find_writes_state(command: str, workspace: Path) -> Path | None:
     return None
 
 
-def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = True) -> list[Path]:
+def _mentioned_paths(
+    command: str, workspace: Path, *, find_patterns: bool = True, depth: int = 0
+) -> list[Path]:
     """コマンドに出てくるパスらしい語（引数・リダイレクト先・``of=`` の右辺）を絶対パスにする。"""
-    tokens = _tokenize(command)
+    tokens = command_words.tokenize(command, complete_lines=True)
     if tokens is None:
         return []
     paths: list[Path] = []
     here = workspace
     words: list[str] = []
+    here_string: str | None = None
+    heredocs = 0
+    # ヒアドキュメントの本文は改行の後に来るので、渡す先のコマンドを順に控えておく
+    owners: list[tuple[str, list[str], Path]] = []
+    nested = depth < command_words.MAX_DEPTH
+
+    def read(script: str, base: Path) -> None:
+        paths.extend(_mentioned_paths(script, base, find_patterns=find_patterns, depth=depth + 1))
 
     def flush() -> None:
-        nonlocal here
+        nonlocal here, here_string, heredocs
+        moves: list[str] = []
+        _, inner, inner_args = _unwrap(command_words.command_start(words), moves=moves)
+        base = _moved(here, moves)
+        if nested:
+            for script in _scripts(inner, inner_args, here_string):
+                read(script, base)
+        owners.extend([(inner, inner_args, base)] * heredocs)
+        here_string, heredocs = None, 0
         if not words:
             return
-        _, name, args = _unwrap(words)
+        _, name, args = _unwrap(command_words.command_start(words))
         if name == "find" and not find_patterns:
             args = [a for i, a in enumerate(args) if not i or args[i - 1] not in _FIND_PATTERNS]
         for arg in args:
@@ -181,25 +201,41 @@ def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = Tru
             here = _cd(args, here)
         words.clear()
 
-    redirect_next = False
+    redirect: str | None = None
     for tok in tokens:
-        if tok and all(c in "();<>|&" for c in tok):
-            if "<" in tok or ">" in tok:
-                redirect_next = not tok.endswith("&")
-                continue
+        if tok.kind == "redirect":
+            redirect = tok.text
+            heredocs += tok.text in ("<<", "<<-")
+        elif tok.kind == "op":
+            redirect = None
             flush()
-            continue
-        if redirect_next:
-            redirect_next = False
-            paths.extend(_expand(tok, here))
-            continue
-        words.append(tok)
+        elif tok.kind == "word" and redirect is not None:
+            if redirect == "<<<":
+                here_string = tok.text
+            elif redirect not in ("<<", "<<-"):
+                paths.extend(_expand(tok.text, here))
+            redirect = None
+        elif tok.kind == "word":
+            words.append(tok.text)
+        elif tok.kind in ("heredoc", "heredoc-literal"):
+            owner = owners.pop(0) if owners else None
+            if owner is not None and nested:
+                for script in _scripts(owner[0], owner[1], tok.text):
+                    read(script, owner[2])
+            if tok.kind == "heredoc" and nested:
+                for inner in command_words.substitutions(tok.text):
+                    read(inner, here)
+        elif tok.kind == "substitution" and nested:
+            read(tok.text, here)
     flush()
     return paths
 
 
 def _read_only(command: str, workspace: Path) -> bool:
     """bash 自動許可と同じ語彙・規則で、読み取り専用と言えるか（パスの検査はしない）。"""
+    tokens = command_words.tokenize(command)
+    if tokens is None or any(t.kind == "substitution" for t in tokens):
+        return False
     segments = split_command_segments(command)
     if isinstance(segments, str):
         return False
