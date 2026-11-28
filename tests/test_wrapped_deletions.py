@@ -54,6 +54,20 @@ def workspace(tmp_path: Path) -> Path:
         "env -iC / rm -rf tmp",
         "env -C .. rm -rf work",
         "cd build && env -C .. rm -rf .satsuma",
+        "env -a name rm -rf ..",
+        "env -ia name rm -rf ..",
+        "env --argv0 name rm -rf ..",
+        "env --argv0=name rm -rf ..",
+        "env --unse HOME rm -rf ..",
+        "env --split='rm -rf ..'",
+        "env --ch / rm -rf tmp",
+        "env --ch=/ rm -rf tmp",
+        "timeout --sig KILL 5 rm -rf ..",
+        "timeout --kill 1 5 rm -rf ..",
+        "nice --adj 5 rm -rf ..",
+        "stdbuf --out L rm -rf ..",
+        "time --form %e rm -rf ..",
+        "sudo --us root rm -rf build",
     ],
 )
 def test_wrapped_deletions_are_prohibited(workspace: Path, command: str) -> None:
@@ -72,6 +86,10 @@ def test_wrapped_deletions_are_prohibited(workspace: Path, command: str) -> None
         "nice -n 5 make clean",
         "command -v rm",
         "env -S 'ls ..'",
+        "timeout --foreground 5 rm -rf build",
+        "timeout --sig=KILL 5 rm -rf build",
+        "env --ignore-environment rm -rf build",
+        "env --ch=build rm -rf sub",
     ],
 )
 def test_wrapped_commands_that_do_not_delete_outside_are_allowed(

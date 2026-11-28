@@ -35,7 +35,7 @@ _WRAPPERS = frozenset({"command", "builtin", "exec", "nice", "nohup", "time"})
 _WRAPPER_OPTIONS: dict[str, tuple[str, frozenset[str]]] = {
     "builtin": ("", frozenset()),
     "command": ("", frozenset()),
-    "env": ("uCPS", frozenset({"--unset", "--chdir", "--split-string"})),
+    "env": ("uCPSa", frozenset({"--unset", "--chdir", "--split-string", "--argv0"})),
     "exec": ("a", frozenset()),
     "nice": ("n", frozenset({"--adjustment"})),
     "nohup": ("", frozenset()),
@@ -401,11 +401,11 @@ def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tupl
             break
         if name == "env":
             # -S は値を語に分けて env の引数として読み直す。-C は作業場所を移す
-            split = _option_value(word, words, i, "S", "--split-string", short)
+            split = _option_value(word, words, i, "S", "--split-string", (short, long))
             if split is not None:
                 words = [*words[:i], *(_tokenize(split[0]) or []), *words[split[1] :]]
                 continue
-            move = _option_value(word, words, i, "C", "--chdir", short)
+            move = _option_value(word, words, i, "C", "--chdir", (short, long))
             if move is not None:
                 moves.append(move[0])
         i += _option_width(word, short, long)
@@ -415,16 +415,22 @@ def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tupl
 
 
 def _option_value(
-    word: str, words: list[str], i: int, letter: str, long: str, value_letters: str
+    word: str,
+    words: list[str],
+    i: int,
+    letter: str,
+    long: str,
+    values: tuple[str, frozenset[str]],
 ) -> tuple[str, int] | None:
     """``word`` が字 ``letter``（長い形 ``long``）のオプションなら、その値と次の語の位置。"""
     if word.startswith("--"):
-        if word == long:
-            return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
-        if word.startswith(f"{long}="):
-            return word.partition("=")[2], i + 1
-        return None
-    at = next((n for n, ch in enumerate(word[1:], start=1) if ch in value_letters), None)
+        name, eq, value = word.partition("=")
+        if _long_option(name, values[1]) != long:
+            return None
+        if eq:
+            return value, i + 1
+        return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
+    at = next((n for n, ch in enumerate(word[1:], start=1) if ch in values[0]), None)
     if at is None or word[at] != letter:
         return None
     if at < len(word) - 1:
@@ -435,11 +441,20 @@ def _option_value(
 def _option_width(word: str, short: frozenset[str] | str, long: frozenset[str]) -> int:
     """オプション 1 つが占める語の数（値を次の語で取るなら 2）。"""
     if word.startswith("--"):
-        return 2 if word in long else 1
+        return 1 if "=" in word or _long_option(word, long) is None else 2
     for at, ch in enumerate(word[1:], start=1):
         if ch in short:
             return 2 if at == len(word) - 1 else 1
     return 1
+
+
+def _long_option(name: str, long: frozenset[str]) -> str | None:
+    """値を取る長いオプションのうち ``name`` が指すもの（一意な前方一致の省略形も）。"""
+    # 値を取らないオプションとも重なる省略形は、コマンド自身が曖昧として断る
+    if name in long:
+        return name
+    found = [option for option in long if option.startswith(name) and len(name) > 2]
+    return found[0] if len(found) == 1 else None
 
 
 def _privilege_edits(word: str) -> bool:
