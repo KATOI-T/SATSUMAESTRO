@@ -62,6 +62,7 @@ _PRIVILEGE_VALUE_LONG = frozenset(
 _GLOB_CHARS = frozenset("*?[")
 # 起点の前に置ける find のオプション（GNU と BSD）と、-f で始まる式の語
 _FIND_FLAGS = frozenset("EHLPXdsx")
+_FIND_EXEC = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 _FIND_F_PRIMARIES = frozenset(
     {
         "-false",
@@ -470,10 +471,8 @@ def _deletion_targets(name: str, args: list[str]) -> list[str] | None:
 
 
 def _exec_deletes(args: list[str]) -> bool:
-    """``find … -exec rm …`` / ``-execdir rm …`` か（包みの語を挟んでも）。"""
-    return any(
-        tok in ("-exec", "-execdir") and _runs_deleter(args[i + 1 :]) for i, tok in enumerate(args)
-    )
+    """``find … -exec rm …`` か（``-execdir``・``-ok``・``-okdir`` と、包みの語を挟んでも）。"""
+    return any(tok in _FIND_EXEC and _runs_deleter(args[i + 1 :]) for i, tok in enumerate(args))
 
 
 def _runs_deleter(words: list[str]) -> bool:

@@ -42,6 +42,8 @@ def _refused(command: str, cwd: Path) -> bool:
         "find . -name '*.json' -exec rm -f {} \\;",
         "find . -name '*.json' -exec env rm {} +",
         "find . -name '*.json' -execdir /bin/rm {} +",
+        "yes | find . -name '*.md' -ok rm {} \\;",
+        "find . -name '*.md' -okdir rm -f {} \\;",
         "find . -path ./.satsuma -prune -o -name '*.md' -delete",
         "find . -type d -name '.*' -exec rm -rf {} +",
         "find . -maxdepth 2 -name '*.md' -delete",
@@ -188,3 +190,9 @@ def test_the_user_config_home_is_guarded_too(
 )
 def test_options_before_the_starting_points_do_not_hide_them(workspace: Path, command: str) -> None:
     assert _refused(command, workspace)
+
+
+@pytest.mark.parametrize("action", ["-exec", "-execdir", "-ok", "-okdir"])
+def test_every_exec_action_that_runs_rm_is_checked(workspace: Path, action: str) -> None:
+    assert _refused(f"find / {action} rm -rf {{}} \;", workspace)
+    assert _refused(f"find .. -name x {action} rm {{}} +", workspace)
