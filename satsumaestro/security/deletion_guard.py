@@ -84,6 +84,7 @@ class _Deletion(NamedTuple):
     args: list[str]
     base: Path
     targets: list[Path]
+    unplaced: str = ""
 
 
 class _FindParts(NamedTuple):
@@ -103,6 +104,11 @@ def check_bash(command: str, cwd: Path) -> str | None:
     """bash コマンド中の削除が禁止なら理由を返す。"""
     workspace = cwd.resolve()
     for found in _deletions(command, workspace):
+        if found.unplaced:
+            return (
+                f"{PROHIBITED_DELETION_PREFIX} cannot tell which path {found.unplaced!r} names: "
+                "-execdir and -okdir run the command in the directory of each file found"
+            )
         for target in found.targets:
             reason = _forbidden(target, workspace, allow_workspace=found.name == "find")
             if reason is not None:
@@ -149,6 +155,37 @@ def _deletions(command: str, workspace: Path) -> Iterator[_Deletion]:
         if paths is not None:
             targets = [t for raw in paths for t in _expand(raw, base)]
             yield _Deletion(privileged, name, args, base, targets)
+        if name == "find":
+            yield from _exec_deletions(args, base, privileged)
+
+
+def _exec_deletions(args: list[str], base: Path, privileged: bool) -> Iterator[_Deletion]:
+    """find の -exec などが動かす rm の、``{}`` を含まずに書いた対象。"""
+    for i, action in enumerate(args):
+        if action not in _FIND_EXEC:
+            continue
+        end = next((j for j in range(i + 1, len(args)) if args[j] in (";", "+")), len(args))
+        moves: list[str] = []
+        inner_privileged, name, inner = _unwrap(args[i + 1 : end], moves=moves)
+        paths = _deletion_targets(name, inner) if name in _DELETE_COMMANDS else None
+        if paths is None:
+            continue
+        written = [raw for raw in paths if "{}" not in raw]
+        here = base
+        for move in moves:
+            here = _cd([move], here)
+        if action in ("-execdir", "-okdir"):
+            # 相対のパスは見つけたファイルのディレクトリから読まれる。上へ辿るものは行き先を決めない
+            climbing = next((raw for raw in written if _climbs(raw)), "")
+            if climbing:
+                yield _Deletion(privileged, name, inner, here, [], unplaced=climbing)
+                continue
+        targets = [t for raw in written for t in _expand(raw, here)]
+        yield _Deletion(privileged or inner_privileged, name, inner, here, targets)
+
+
+def _climbs(raw: str) -> bool:
+    return not raw.startswith(("/", "~", "$")) and ".." in Path(raw).parts
 
 
 def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:

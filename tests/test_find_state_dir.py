@@ -203,5 +203,39 @@ def test_options_before_the_starting_points_do_not_hide_them(workspace: Path, co
 
 @pytest.mark.parametrize("action", ["-exec", "-execdir", "-ok", "-okdir"])
 def test_every_exec_action_that_runs_rm_is_checked(workspace: Path, action: str) -> None:
-    assert _refused(f"find / {action} rm -rf {{}} \;", workspace)
+    assert _refused(f"find / {action} rm -rf {{}} \\;", workspace)
     assert _refused(f"find .. -name x {action} rm {{}} +", workspace)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find . -maxdepth 0 -exec rm -rf / \\;",
+        "find . -name x -exec rm -rf .. \\;",
+        "find . -name x -ok rm -rf .satsuma \\;",
+        "find . -name x -exec rm -f .satsuma/policy.md +",
+        "find . -name x -exec env -C / rm -rf usr \\;",
+        "find . -name x -exec sudo rm {} +",
+        "find . -name x -execdir rm -rf .satsuma \\;",
+        "find src -name x -execdir rm -rf ../.satsuma \\;",
+        "find src -name x -okdir rm -rf ../../work \\;",
+        "cd src && find . -name x -exec rm -rf ../.satsuma \\;",
+    ],
+)
+def test_paths_written_after_rm_in_an_exec_action_are_checked(
+    workspace: Path, command: str
+) -> None:
+    assert _refused(command, workspace)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find . -name '*.pyc' -exec rm -f build/stamp \\;",
+        "find src -name '*.o' -execdir rm -f {}.d \\;",
+        "find src -name x -execdir rm -f a.tmp \\;",
+        "find src -name x -exec rm -rf build/out \\;",
+    ],
+)
+def test_paths_written_after_rm_that_stay_out_are_allowed(workspace: Path, command: str) -> None:
+    assert check_bash(command, workspace) is None
