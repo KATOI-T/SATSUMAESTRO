@@ -53,6 +53,13 @@ def _refused(command: str, cwd: Path) -> bool:
         "find * .satsuma/.. -name '*.md' -delete",
         "cd src && find .. -name '*.md' -delete",
         "find . -name '*.md' -print -o -delete",
+        "find . -acl -delete",
+        "find . ! -acl -delete",
+        "find . -xattr -delete",
+        "find . ! -readable -delete",
+        "find . -name x -o ! -writable -delete",
+        "find . -unknown -delete",
+        "find . -maxdepth -delete",
     ],
 )
 def test_find_reaching_the_state_dir_is_prohibited(workspace: Path, command: str) -> None:
@@ -70,6 +77,8 @@ def test_find_reaching_the_state_dir_is_prohibited(workspace: Path, command: str
         "find . -maxdepth 1 -name '*.md' -delete",
         "find . -path ./.satsuma -prune -o -name '*.md' -exec rm {} +",
         "find . ! -path './.satsuma*' -mtime +7 -delete",
+        "find . -name '*.pyc' ! -readable -delete",
+        "find . ! -path './.satsuma*' -xattr -delete",
         "find . -mindepth 3 -name '*.md' -delete",
         "find . -name '*.md' -print -o -name '*.pyc' -delete",
         "find . -type d -empty -delete",

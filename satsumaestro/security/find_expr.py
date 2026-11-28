@@ -11,6 +11,7 @@ from pathlib import Path
 
 _NO_ARGS = frozenset(
     {
+        "-acl",
         "-d",
         "-daystart",
         "-delete",
@@ -32,15 +33,24 @@ _NO_ARGS = frozenset(
         "-prune",
         "-quit",
         "-readable",
+        "-sparse",
         "-true",
         "-warn",
         "-writable",
+        "-xattr",
         "-xdev",
     }
+)
+# 引数を取らないが、当たるかをここでは決めない語
+_UNSURE = frozenset(
+    {"-acl", "-executable", "-nogroup", "-nouser", "-readable", "-sparse", "-writable", "-xattr"}
 )
 _TWO_ARGS = frozenset({"-fprintf"})
 _OPTIONS = frozenset({"-maxdepth", "-mindepth", "-regextype"})
 _EXEC = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_OPERATORS = frozenset({"!", "-not", "-o", "-or", "-a", "-and", "(", ")", ","})
+# 引数として食われたら、語の表に無い引数なしの語を読み違えたとみなす
+_KNOWN_WORDS = _NO_ARGS | _TWO_ARGS | _OPTIONS | _EXEC | _OPERATORS
 _NAME_TESTS = {"-name": False, "-iname": True}
 _PATH_TESTS = {"-path": False, "-ipath": True, "-wholename": False, "-iwholename": True}
 _TYPES: dict[str, Callable[[int], bool]] = {
@@ -243,6 +253,8 @@ class FindExpression:
             return True
         if name in _EXEC:
             return None
+        if name in _UNSURE:
+            return None
         if name in _NO_ARGS or name in _OPTIONS:
             return True
         return None
@@ -293,7 +305,7 @@ class FindExpression:
             raise _Unreadable
         width = 0 if token in _NO_ARGS else 2 if token in _TWO_ARGS else 1
         args = self._tokens[i + 1 : i + 1 + width]
-        if len(args) < width:
+        if len(args) < width or any(a in _KNOWN_WORDS for a in args):
             raise _Unreadable
         return ("test", token, args), i + 1 + width
 
