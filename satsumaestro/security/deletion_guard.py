@@ -6,7 +6,7 @@ import glob
 import os
 import shlex
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -143,6 +143,15 @@ def deletes(name: str, args: list[str]) -> bool:
 
 def _deletions(command: str, workspace: Path) -> Iterator[_Deletion]:
     """削除コマンドごとに、特権付きか・名前・引数・基準の場所・対象の絶対パスを返す。"""
+    for privileged, name, args, base in _located_commands(command, workspace):
+        paths = _deletion_targets(name, args)
+        if paths is not None:
+            targets = [t for raw in paths for t in _expand(raw, base)]
+            yield _Deletion(privileged, name, args, base, targets)
+
+
+def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:
+    """単純コマンドごとの (特権付きか, 名前, 引数, 基準の場所)。cd と env -C をたどる。"""
     tokens = _tokenize(command)
     if tokens is None:
         return
@@ -153,23 +162,30 @@ def _deletions(command: str, workspace: Path) -> Iterator[_Deletion]:
         if name == "cd":
             here = _cd(args, here)
             continue
-        paths = _deletion_targets(name, args)
-        if paths is None:
-            continue
         base = here
         for move in moves:
             base = _cd([move], base)
-        yield _Deletion(
-            privileged, name, args, base, [t for raw in paths for t in _expand(raw, base)]
-        )
+        yield privileged, name, args, base
 
 
-def _find_reaches_state(args: list[str], base: Path, workspace: Path) -> Path | None:
-    """find の式が、起点の下にある状態ディレクトリ（とその中）に削除を届かせ得るなら、その場所。"""
+def _find_reaches_state(
+    args: list[str],
+    base: Path,
+    workspace: Path,
+    exec_changes: Callable[[list[str]], bool] | None = None,
+) -> Path | None:
+    """find の動作が、起点の下にある状態ディレクトリ（とその中）に届き得るなら、その場所。"""
+    # exec_changes を渡すと、削除でなく -exec でそれが真になるコマンドだけを見る
     parts = _find_parts(args)
     expression = FindExpression(
-        parts.expression, _runs_deleter, follow=parts.follow, depth=parts.depth
+        parts.expression,
+        exec_changes or _runs_deleter,
+        follow=parts.follow,
+        depth=parts.depth,
+        deleting=exec_changes is None,
     )
+    if not expression.acts:
+        return None
     states = _state_dirs(workspace)
     for raw in parts.roots or ["."]:
         for written in _written_roots(raw, base):
@@ -179,7 +195,7 @@ def _find_reaches_state(args: list[str], base: Path, workspace: Path) -> Path | 
             root = target.resolve()
             for state in states:
                 if state != root and state.is_relative_to(root):
-                    hit = expression.first_deleted(written, root, state)
+                    hit = expression.first_changed(written, root, state)
                     if hit is not None:
                         return hit
     return None

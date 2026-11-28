@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -14,7 +15,10 @@ from satsumaestro.security.auto_allow import (
 from satsumaestro.security.deletion_guard import (
     _cd,
     _expand,
+    _find_reaches_state,
     _in_agent_state,
+    _located_commands,
+    _runs_deleter,
     _tokenize,
     _unwrap,
 )
@@ -38,6 +42,22 @@ PLAN_DIR_WRITE_GUIDANCE = (
 AGENT_CONFIG_FILES = frozenset({f"{AGENT_DIRNAME}.json", ".env"})
 
 _CANNOT_WRITE = frozenset({"grep", "egrep", "fgrep"})
+
+# 値がパスでなく名前の型の、find の語（中身に届くかは式を読んで見る）
+_FIND_PATTERNS = frozenset(
+    {
+        "-name",
+        "-iname",
+        "-path",
+        "-ipath",
+        "-wholename",
+        "-iwholename",
+        "-regex",
+        "-iregex",
+        "-lname",
+        "-ilname",
+    }
+)
 
 _WRITE_TOOL_PATH_FIELDS = {
     "write_file": "path",
@@ -78,13 +98,15 @@ def tool_path_field(name: str) -> str | None:
 def check_bash(command: str, cwd: Path, *, visible: Iterable[Path] = ()) -> str | None:
     """bash が状態ディレクトリを書き換え得るなら理由を返す。"""
     workspace = cwd.resolve()
-    touched = [t for t in _mentioned_paths(command, workspace) if _guarded(t, workspace, visible)]
-    if not touched or _read_only(command, workspace):
+    if _read_only(command, workspace):
         return None
-    made = pure_mkdir_targets(command, workspace)
-    if made is not None and all(t.is_dir() for t in made):
-        return None
-    return _reason(touched[0])
+    mentioned = _mentioned_paths(command, workspace, find_patterns=False)
+    touched = [t for t in mentioned if _guarded(t, workspace, visible)]
+    made = pure_mkdir_targets(command, workspace) if touched else None
+    if touched and (made is None or not all(t.is_dir() for t in made)):
+        return _reason(touched[0])
+    hit = _find_writes_state(command, workspace)
+    return None if hit is None else _reason(hit)
 
 
 def config_file_tool(name: str, path: str, cwd: Path) -> Path | None:
@@ -120,7 +142,22 @@ def _guarded(target: Path, workspace: Path, visible: Iterable[Path]) -> bool:
     return _in_agent_state(target, workspace) and target not in {v.resolve() for v in visible}
 
 
-def _mentioned_paths(command: str, workspace: Path) -> list[Path]:
+def _find_writes_state(command: str, workspace: Path) -> Path | None:
+    """find が -exec などで動かす書き込みが、起点の下の状態ディレクトリに届き得るなら、その場所。"""
+
+    def writes(words: list[str]) -> bool:
+        # 削除は削除の守りが同じ式で見る
+        return not _runs_deleter(words) and not _read_only(shlex.join(words), workspace)
+
+    for _, name, args, base in _located_commands(command, workspace):
+        if name == "find":
+            hit = _find_reaches_state(args, base, workspace, writes)
+            if hit is not None:
+                return hit
+    return None
+
+
+def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = True) -> list[Path]:
     """コマンドに出てくるパスらしい語（引数・リダイレクト先・``of=`` の右辺）を絶対パスにする。"""
     tokens = _tokenize(command)
     if tokens is None:
@@ -134,6 +171,8 @@ def _mentioned_paths(command: str, workspace: Path) -> list[Path]:
         if not words:
             return
         _, name, args = _unwrap(words)
+        if name == "find" and not find_patterns:
+            args = [a for i, a in enumerate(args) if not i or args[i - 1] not in _FIND_PATTERNS]
         for arg in args:
             raw = arg.split("=", 1)[1] if "=" in arg and not arg.startswith("/") else arg
             if raw and not raw.startswith("-"):

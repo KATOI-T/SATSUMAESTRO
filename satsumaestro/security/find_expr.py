@@ -1,4 +1,4 @@
-"""find の式が、あるファイルに削除（-delete・-exec rm）を起こし得るかを読む。"""
+"""find の式が、あるファイルにそれを変える動作（-delete・-exec のコマンド）を届かせ得るかを読む。"""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class FindEntry:
 @dataclass
 class _Visit:
     below: bool = False
-    deletes: bool = False
+    changes: bool = False
     pruned: bool = False
 
 
@@ -89,13 +89,16 @@ class FindExpression:
     def __init__(
         self,
         tokens: Sequence[str],
-        runs_deleter: Callable[[list[str]], bool],
+        exec_changes: Callable[[list[str]], bool],
         *,
         follow: bool = False,
         depth: bool = False,
+        deleting: bool = True,
     ) -> None:
+        # deleting なら -delete も変更に数え、名前が . や .. の起点は変わらないとみなす
         self._tokens = list(tokens)
-        self._runs_deleter = runs_deleter
+        self._exec_changes = exec_changes
+        self._deleting = deleting
         self.follow = follow or "-follow" in self._tokens
         self._max = _depth_option(self._tokens, "-maxdepth")
         self._min = _depth_option(self._tokens, "-mindepth") or 0
@@ -108,8 +111,13 @@ class FindExpression:
         except _Unreadable:
             self._tree = None
 
-    def first_deleted(self, written: str, root: Path, start: Path) -> Path | None:
-        """起点 ``root``（書いた形 ``written``）の下の ``start`` とその中で、削除が届き得る物。"""
+    @property
+    def acts(self) -> bool:
+        """ファイルを変える動作を含むか（読めない式は含むとみなす）。"""
+        return self._tree is None or self._has_action(self._tree)
+
+    def first_changed(self, written: str, root: Path, start: Path) -> Path | None:
+        """起点 ``root``（書いた形 ``written``）の下の ``start`` とその中で、変更が届き得る物。"""
         if self._tree is None:
             return start
         entry = FindEntry(str(root), written, 0)
@@ -117,8 +125,7 @@ class FindExpression:
             reach = self._reach(entry)
             if reach is False:
                 return None
-            # 名前が . や .. の起点は、-delete も rm も消さない
-            if reach and not (k == 0 and _dot_named(written)):
+            if reach and not (k == 0 and self._deleting and _dot_named(written)):
                 return Path(entry.path)
             entry = entry.child(part)
         try:
@@ -134,18 +141,18 @@ class FindExpression:
             reach = self._reach(entry)
             if reach is True:
                 return Path(entry.path)
-            if reach is None and is_dir and self._visit(entry, below=True).deletes:
+            if reach is None and is_dir and self._visit(entry, below=True).changes:
                 pending.extend(self._children(entry, seen))
         return start
 
     def _reach(self, entry: FindEntry) -> bool | None:
-        """削除が届くなら真、find がその中へ入らないなら偽、どちらでもなければ ``None``。"""
+        """変更が届くなら真、find がその中へ入らないなら偽、どちらでもなければ ``None``。"""
         if self._max is not None and entry.depth >= self._max:
-            return entry.depth == self._max >= self._min and self._visit(entry).deletes
+            return entry.depth == self._max >= self._min and self._visit(entry).changes
         if entry.depth < self._min:
             return None
         visit = self._visit(entry)
-        if visit.deletes:
+        if visit.changes:
             return True
         return False if self._prunes and visit.pruned else None
 
@@ -174,6 +181,16 @@ class FindExpression:
             return ("f" if item.is_file(follow_symlinks=False) else ""), False
         except OSError:
             return "", False
+
+    def _has_action(self, node: _Node) -> bool:
+        if node[0] == "test":
+            return self._changes(str(node[1]), _args(node))
+        return any(self._has_action(_child(node, k)) for k in range(1, len(node)))
+
+    def _changes(self, name: str, args: list[str]) -> bool:
+        if name == "-delete":
+            return self._deleting
+        return name in _EXEC and bool(args) and self._exec_changes(args)
 
     def _visit(self, entry: FindEntry, *, below: bool = False) -> _Visit:
         """``below`` なら、``entry`` の中のどれかに当たり得るか（パスの条件だけで決める）。"""
@@ -221,13 +238,10 @@ class FindExpression:
         if name == "-prune":
             visit.pruned = visit.pruned or (sure and not visit.below)
             return True
-        if name == "-delete":
-            visit.deletes = True
+        if self._changes(name, args):
+            visit.changes = True
             return True
         if name in _EXEC:
-            if args and self._runs_deleter(args):
-                visit.deletes = True
-                return True
             return None
         if name in _NO_ARGS or name in _OPTIONS:
             return True
