@@ -113,6 +113,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `-name`, `-path` and the like are no longer taken as paths, so a `find` that leaves the state
   directory out, such as `-not -path './.satsuma/*'`, can run.
   ([#76](https://github.com/KATOI-T/SATSUMAESTRO/issues/76))
+- The guards that refuse deleting protected paths, changing the state directory and starting
+  SATSUMAESTRO from inside itself read a bash command the way the shell does. A quoted or escaped
+  `;`, `(` or `|` stays part of its word, a newline separates commands, and the commands inside
+  `if`, `while`, `until`, `for`, `case`, `{ … }`, `!` and function bodies are read. So are command
+  substitutions in backquotes or inside double quotes, the commands that `sh -c`, `bash -c` and the
+  other shells, `eval`, `xargs` and `find -exec` run, a heredoc or here-string given to a shell, and
+  words built by unquoted braces such as `{a,b}` or `{1..3}`. When a later line has an unclosed
+  quote, the lines before it are read, as the shell runs them before it stops. An assignment whose
+  value contains `/`, as in `PATH=/usr/bin cmd`, is stepped over, and the check against starting
+  SATSUMAESTRO looks behind `timeout`, `env`, `nice` and the other wrappers that the deletion guard
+  skips. The words after `for x in`, `case` patterns, quoted text and the text of a heredoc given to
+  a command other than a shell are not taken for commands. Read-only mode and the check on what `a`
+  can remember use the same reading, so they also see the commands inside `if`, `{ … }` and the like.
+- The guard that keeps the state directory from being changed checks the paths inside command
+  substitutions and inside the scripts that shells run, and no longer takes the text of a
+  here-string or a heredoc delimiter for a path, so `grep x <<< .satsuma/policy.md` can run.
 
 ## [0.5.3] - 2026-11-22
 
