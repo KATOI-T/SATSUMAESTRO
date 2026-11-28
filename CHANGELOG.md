@@ -95,14 +95,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repository's config names (`core.fsmonitor`, `diff.external`, a `textconv` filter and a `clean`
   filter). Filters from your own git config, such as Git LFS, still run.
 - The deletion guard looks behind `env`, `timeout`, `nice`, `command`, `time`, `exec` and `stdbuf`
-  and skips their options, so `timeout 5 rm -rf ..` is refused like `rm -rf ..`, and `env -C dir` is
-  read like `cd dir`. Options before the starting points of `find` (`-L`, `-H`, `-O3`, `-D`, `-x`,
-  `-f path` and others) no longer hide them: `find -L / -delete` was read as a `find` in the working
-  directory. A `find` that deletes (`-delete`, or `-exec rm` with or without `env` in front) is now
-  refused when its expression can reach the state directory (`.satsuma` or `~/.satsuma`) under a
-  starting point, as `find . -name '*.md' -delete` does. Before, only the starting points were
-  checked. `-prune` does not keep `-delete` out of a directory, because `-delete` turns on
-  `-depth`; leave the state directory out with `! -path './.satsuma*'` instead.
+  and skips their options, also env's `-a` and an abbreviated long option such as `--sig` (for
+  `sudo` too), so `timeout 5 rm -rf ..` is refused like `rm -rf ..`, and `env -C dir` is read like
+  `cd dir`. Options before the starting points of `find` (`-L`, `-H`, `-O3`, `-D`, `-x`, `-f path`
+  and others) no longer hide them: `find -L / -delete` was read as a `find` in the working
+  directory. A `find` that deletes (`-delete`, or `rm` run by `-exec`, `-execdir`, `-ok` or
+  `-okdir`, with or without `env` in front) is now refused when its expression can reach the state
+  directory (`.satsuma` or `~/.satsuma`) under a starting point, as `find . -name '*.md' -delete`
+  does. Before, only the starting points were checked. The paths written after that `rm`, as in
+  `-exec rm -rf / \;`, are checked too. `-prune` does not keep `-delete` out of a directory, because
+  `-delete` turns on `-depth`; leave the state directory out with `! -path './.satsuma*'` instead.
   ([#78](https://github.com/KATOI-T/SATSUMAESTRO/issues/78))
 - The guard that keeps the state directory from being changed reads the `find` expression too. A
   command that `-exec`, `-execdir`, `-ok` or `-okdir` runs and that is not read-only, such as
