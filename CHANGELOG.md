@@ -94,6 +94,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The git commands that collect the git state for the system prompt no longer run the commands the
   repository's config names (`core.fsmonitor`, `diff.external`, a `textconv` filter and a `clean`
   filter). Filters from your own git config, such as Git LFS, still run.
+- The deletion guard looks behind `env`, `timeout`, `nice`, `command`, `time`, `exec` and `stdbuf`
+  and skips their options, so `timeout 5 rm -rf ..` is refused like `rm -rf ..`, and `env -C dir` is
+  read like `cd dir`. Options before the starting points of `find` (`-L`, `-H`, `-O3`, `-D`, `-x`,
+  `-f path` and others) no longer hide them: `find -L / -delete` was read as a `find` in the working
+  directory. A `find` that deletes (`-delete`, or `-exec rm` with or without `env` in front) is now
+  refused when its expression can reach the state directory (`.satsuma` or `~/.satsuma`) under a
+  starting point, as `find . -name '*.md' -delete` does. Before, only the starting points were
+  checked. `-prune` does not keep `-delete` out of a directory, because `-delete` turns on
+  `-depth`; leave the state directory out with `! -path './.satsuma*'` instead.
 
 ## [0.5.3] - 2026-11-22
 
