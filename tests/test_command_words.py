@@ -1,0 +1,151 @@
+"""守りの検査が、引用・改行・ヒアドキュメントをシェルと同じに読み分ける。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from satsumaestro.security import deletion_guard, self_invocation_guard, state_write_guard
+from satsumaestro.security.command_words import segments, substitutions, tokenize
+
+
+def _segments(command: str) -> list[list[str]]:
+    tokens = tokenize(command)
+    assert tokens is not None
+    return segments(tokens)
+
+
+@pytest.fixture
+def ws(tmp_path: Path) -> Path:
+    work = tmp_path / "work"
+    (work / ".satsuma").mkdir(parents=True)
+    (work / ".satsuma" / "policy.md").write_text("rules\n")
+    (work / "src").mkdir()
+    return work
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("a b; c", [["a", "b"], ["c"]]),
+        ("a\nb", [["a"], ["b"]]),
+        ("a && b || c | d & e", [["a"], ["b"], ["c"], ["d"], ["e"]]),
+        ("echo ';' x", [["echo", ";", "x"]]),
+        ("echo \\; x", [["echo", ";", "x"]]),
+        ("echo \"a;b\" '(c)'", [["echo", "a;b", "(c)"]]),
+        (
+            "find . \\( -name x \\) -exec rm {} \\;",
+            [["find", ".", "(", "-name", "x", ")", "-exec", "rm", "{}", ";"]],
+        ),
+        ("cmd > out.txt 2>&1", [["cmd"]]),
+        ("cmd 2> err.txt < in.txt", [["cmd"]]),
+        ("cmd &> all.txt", [["cmd"]]),
+        ("echo a\\\nb", [["echo", "ab"]]),
+        ("echo hi # rm -rf ..", [["echo", "hi"]]),
+        ("echo a#b", [["echo", "a#b"]]),
+        ("echo $'a\\'b'", [["echo", "a'b"]]),
+        ("FOO='x y' cmd", [["FOO=x y", "cmd"]]),
+        ('echo "a\\"b"', [["echo", 'a"b']]),
+    ],
+)
+def test_commands_are_split_by_the_shell_rules(command: str, expected: list[list[str]]) -> None:
+    assert _segments(command) == expected
+
+
+def test_an_unclosed_quote_is_unreadable() -> None:
+    assert tokenize("echo 'a") is None
+    assert tokenize('echo "a') is None
+
+
+def test_a_heredoc_body_is_not_read_as_commands() -> None:
+    command = "cat <<EOF > notes.md\nrm -rf ..\nsatsumaestro repl\nEOF\necho done"
+    assert _segments(command) == [["cat"], ["echo", "done"]]
+
+
+def test_tabs_before_the_heredoc_end_are_stripped_with_a_dash() -> None:
+    command = "cat <<-EOF\n\trm -rf ..\n\tEOF\necho done"
+    assert _segments(command) == [["cat"], ["echo", "done"]]
+
+
+def test_substitutions_in_an_unquoted_heredoc_are_read() -> None:
+    command = "cat <<EOF\n$(satsumaestro repl)\n`rm -rf ..`\nEOF"
+    assert _segments(command) == [["cat"], ["satsumaestro", "repl"], ["rm", "-rf", ".."]]
+    assert _segments("cat <<'EOF'\n$(satsumaestro repl)\nEOF") == [["cat"]]
+
+
+def test_substitutions_skip_quoted_parentheses() -> None:
+    assert substitutions("a $(b ')' c) `d` e") == ["b ')' c", "d"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi\nsatsumaestro repl",
+        "true\n\nstro prompt x",
+        "cat <(satsumaestro repl)",
+        "cat <<EOF\n$(satsumaestro repl)\nEOF",
+    ],
+)
+def test_self_invocation_is_found_on_later_lines_and_in_heredocs(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo ';' satsumaestro",
+        "grep -r 'satsumaestro repl' .",
+        "echo hi # satsumaestro repl",
+        "cat <<EOF > notes.md\nsatsumaestro repl\nEOF",
+        "cat <<'EOF'\n$(satsumaestro repl)\nEOF",
+    ],
+)
+def test_quoted_and_heredoc_text_is_not_taken_for_self_invocation(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi\nrm -rf ..",
+        "find . \\( -name '*.md' \\) -delete",
+        "find . '(' -name '*.md' ')' -delete",
+        "find / -exec true \\; -delete",
+        "find . -name x -exec true \\; -exec rm -rf / \\;",
+        "cat <<EOF\n$(rm -rf ..)\nEOF",
+    ],
+)
+def test_deletions_are_found_on_later_lines_and_past_quoted_punctuation(
+    ws: Path, command: str
+) -> None:
+    assert deletion_guard.check_bash(command, ws) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo 'rm -rf ..'",
+        "cat <<EOF > notes.md\nrm -rf ..\nEOF",
+        "printf '%s' 'a;rm -rf ..'",
+        "find . -name '*.pyc' -exec rm {} \\;",
+    ],
+)
+def test_quoted_and_heredoc_text_is_not_taken_for_deletions(ws: Path, command: str) -> None:
+    assert deletion_guard.check_bash(command, ws) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi\necho x > .satsuma/policy.md",
+        "cat <<EOF\n$(echo x > .satsuma/policy.md)\nEOF",
+    ],
+)
+def test_state_writes_are_found_on_later_lines_and_in_heredocs(ws: Path, command: str) -> None:
+    assert state_write_guard.check_bash(command, ws) is not None
+
+
+def test_heredoc_text_is_not_taken_for_a_state_write(ws: Path) -> None:
+    command = "cat <<EOF > notes.md\necho x > .satsuma/policy.md\nEOF"
+    assert state_write_guard.check_bash(command, ws) is None

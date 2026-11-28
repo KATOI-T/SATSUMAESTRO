@@ -6,6 +6,7 @@ import shlex
 from collections.abc import Iterable
 from pathlib import Path
 
+from satsumaestro.security import command_words
 from satsumaestro.security.auto_allow import (
     _AUTO_ALLOW_COMMANDS,
     _RULES,
@@ -19,7 +20,6 @@ from satsumaestro.security.deletion_guard import (
     _in_agent_state,
     _located_commands,
     _runs_deleter,
-    _tokenize,
     _unwrap,
 )
 from satsumaestro.tools.mkdir_hint import pure_mkdir_targets
@@ -159,7 +159,7 @@ def _find_writes_state(command: str, workspace: Path) -> Path | None:
 
 def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = True) -> list[Path]:
     """コマンドに出てくるパスらしい語（引数・リダイレクト先・``of=`` の右辺）を絶対パスにする。"""
-    tokens = _tokenize(command)
+    tokens = command_words.tokenize(command)
     if tokens is None:
         return []
     paths: list[Path] = []
@@ -183,17 +183,19 @@ def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = Tru
 
     redirect_next = False
     for tok in tokens:
-        if tok and all(c in "();<>|&" for c in tok):
-            if "<" in tok or ">" in tok:
-                redirect_next = not tok.endswith("&")
-                continue
-            flush()
-            continue
-        if redirect_next:
+        if tok.kind == "redirect":
+            redirect_next = True
+        elif tok.kind == "op":
             redirect_next = False
-            paths.extend(_expand(tok, here))
-            continue
-        words.append(tok)
+            flush()
+        elif tok.kind == "word" and redirect_next:
+            redirect_next = False
+            paths.extend(_expand(tok.text, here))
+        elif tok.kind == "word":
+            words.append(tok.text)
+        elif tok.kind == "heredoc":
+            for inner in command_words.substitutions(tok.text):
+                paths.extend(_mentioned_paths(inner, here, find_patterns=find_patterns))
     flush()
     return paths
 

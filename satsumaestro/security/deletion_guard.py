@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import glob
 import os
-import shlex
 import stat
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
+from satsumaestro.security import command_words
 from satsumaestro.security.find_expr import FindExpression
 from satsumaestro.util.paths import (
     AGENT_DIRNAME,
@@ -137,10 +137,10 @@ def bash_targets(command: str, cwd: Path) -> list[Path]:
 
 def simple_commands(command: str) -> list[tuple[bool, str, list[str]]] | None:
     """区切り記号で分けた単純コマンドごとの (特権付きか, コマンド名, 引数)。"""
-    tokens = _tokenize(command)
+    tokens = command_words.tokenize(command)
     if tokens is None:
         return None
-    return [_unwrap(words) for words in _segments(tokens)]
+    return [_unwrap(words) for words in command_words.segments(tokens)]
 
 
 def deletes(name: str, args: list[str]) -> bool:
@@ -190,11 +190,11 @@ def _climbs(raw: str) -> bool:
 
 def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:
     """単純コマンドごとの (特権付きか, 名前, 引数, 基準の場所)。cd と env -C をたどる。"""
-    tokens = _tokenize(command)
+    tokens = command_words.tokenize(command)
     if tokens is None:
         return
     here = workspace
-    for words in _segments(tokens):
+    for words in command_words.segments(tokens):
         moves: list[str] = []
         privileged, name, args = _unwrap(words, moves=moves)
         if name == "cd":
@@ -370,34 +370,6 @@ def _expand(raw: str, base: Path) -> list[Path]:
     return [] if target is None else [target]
 
 
-def _tokenize(command: str) -> list[str] | None:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        return list(lexer)
-    except ValueError:
-        return None
-
-
-def _segments(tokens: list[str]) -> list[list[str]]:
-    """区切り記号（``;`` ``&&`` ``|`` など）で単純コマンドへ分ける。"""
-    segments: list[list[str]] = [[]]
-    skip_next = False
-    for tok in tokens:
-        if skip_next:
-            skip_next = False
-            continue
-        if tok and all(c in "();<>|&" for c in tok):
-            if "<" in tok or ">" in tok:
-                skip_next = not tok.endswith("&")
-                continue
-            segments.append([])
-            continue
-        segments[-1].append(tok)
-    return [s for s in segments if s]
-
-
 def _unwrap(words: list[str], *, moves: list[str] | None = None) -> tuple[bool, str, list[str]]:
     """``FOO=1`` / ``sudo -u x`` / ``command`` などを剥がし、(特権付きか, 名前, 引数) を返す。"""
     # moves を渡すと、包みのオプションも正しく飛ばし、env -C の移り先をそこへ足す
@@ -440,7 +412,7 @@ def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tupl
             # -S は値を語に分けて env の引数として読み直す。-C は作業場所を移す
             split = _option_value(word, words, i, "S", "--split-string", (short, long))
             if split is not None:
-                words = [*words[:i], *(_tokenize(split[0]) or []), *words[split[1] :]]
+                words = [*words[:i], *command_words.words(split[0]), *words[split[1] :]]
                 continue
             move = _option_value(word, words, i, "C", "--chdir", (short, long))
             if move is not None:

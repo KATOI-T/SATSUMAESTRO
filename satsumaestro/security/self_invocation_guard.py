@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 
-from satsumaestro.security.deletion_guard import _segments, _tokenize, _unwrap
+from satsumaestro.security.command_words import segments, tokenize
+from satsumaestro.security.deletion_guard import _unwrap
 
 PROHIBITED_SELF_INVOCATION_PREFIX = "self-invocation prohibited:"
 
@@ -35,10 +36,10 @@ _PYTHON_NAMES = frozenset(
 
 def check_bash(command: str) -> str | None:
     """bash コマンドが自身の起動なら理由（1 行目の文言）を返す。"""
-    tokens = _tokenize(command)
+    tokens = tokenize(command)
     if tokens is None:
         return None
-    for words in _segments(tokens):
+    for words in segments(tokens):
         _privileged, name, args = _unwrap(words)
         found = _self_invocation(name, args)
         if found is not None:
