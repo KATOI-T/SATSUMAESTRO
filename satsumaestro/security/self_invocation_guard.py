@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from satsumaestro.security.command_words import segments, tokenize
-from satsumaestro.security.deletion_guard import _unwrap
+from satsumaestro.security.deletion_guard import _located_commands
 
 PROHIBITED_SELF_INVOCATION_PREFIX = "self-invocation prohibited:"
 
@@ -36,11 +36,8 @@ _PYTHON_NAMES = frozenset(
 
 def check_bash(command: str) -> str | None:
     """bash コマンドが自身の起動なら理由（1 行目の文言）を返す。"""
-    tokens = tokenize(command, complete_lines=True)
-    if tokens is None:
-        return None
-    for words in segments(tokens):
-        _privileged, name, args = _unwrap(words)
+    # 作業場所は名前の判定に使わないので、cd をたどる起点は何でもよい
+    for _privileged, name, args, _base in _located_commands(command, Path("/")):
         found = _self_invocation(name, args)
         if found is not None:
             return (

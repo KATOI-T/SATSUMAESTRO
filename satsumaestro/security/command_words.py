@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 # 長い物から当てる。引用やエスケープの中の記号は語の一部になる
@@ -37,9 +38,22 @@ def tokenize(command: str, *, complete_lines: bool = False) -> list[Token] | Non
     return _Lexer(command, complete_lines=complete_lines).run()
 
 
-def segments(tokens: list[Token], depth: int = 0) -> list[list[str]]:
-    """単純コマンドごとの語（予約語・リダイレクトとその行き先・for と case の語は除く）。"""
+@dataclass
+class Command:
+    """単純コマンドの語と、ヒアドキュメントか ``<<<`` で渡す入力。"""
+
+    words: list[str] = field(default_factory=list)
+    stdin: str | None = None
+
+
+def commands(tokens: list[Token], depth: int = 0) -> list[Command]:
+    """単純コマンドごとの語と入力（予約語・リダイレクトとその行き先・for と case の語は除く）。"""
     return _Commands(tokens, depth).run()
+
+
+def segments(tokens: list[Token], depth: int = 0) -> list[list[str]]:
+    """単純コマンドごとの語。"""
+    return [command.words for command in commands(tokens, depth)]
 
 
 def command_start(words: list[str]) -> list[str]:
@@ -123,43 +137,51 @@ class _Commands:
     def __init__(self, tokens: list[Token], depth: int) -> None:
         self.tokens = tokens
         self.depth = depth
-        self.found: list[list[str]] = [[]]
+        self.found: list[Command] = [Command()]
+        self.awaiting: list[Command] = []
         self.start = True
         self.cases = 0
         self.pattern = False
         self.pattern_begins = False
 
-    def run(self) -> list[list[str]]:
-        target_next = False
+    def run(self) -> list[Command]:
+        redirect: str | None = None
         i = 0
         while i < len(self.tokens):
             text, kind = self.tokens[i]
             if self.pattern and self.in_pattern(text, kind):
                 pass
             elif kind == "redirect":
-                target_next = True
+                redirect = text
             elif kind == "op":
-                target_next = False
+                redirect = None
                 self.separate(text)
-            elif kind == "word" and target_next:
-                target_next = False
+            elif kind == "word" and redirect is not None:
+                if redirect == "<<<":
+                    self.found[-1].stdin = text
+                elif redirect in _HEREDOCS:
+                    self.awaiting.append(self.found[-1])
+                redirect = None
             elif kind == "word" and self.start:
                 i = self.command_word(i)
             elif kind == "word":
-                self.found[-1].append(text)
-            elif kind == "heredoc" and self.depth < MAX_DEPTH:
-                # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
-                for inner in substitutions(text):
-                    self.found.extend(self.inner(inner))
-                self.found.append([])
+                self.found[-1].words.append(text)
+            elif kind in ("heredoc", "heredoc-literal"):
+                if self.awaiting:
+                    self.awaiting.pop(0).stdin = text
+                if kind == "heredoc" and self.depth < MAX_DEPTH:
+                    # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
+                    for inner in substitutions(text):
+                        self.found.extend(self.inner(inner))
+                    self.found.append(Command())
             elif kind == "substitution" and self.depth < MAX_DEPTH:
                 # 語の中の置き換えは、そのコマンドより先に動く
                 self.found[-1:-1] = self.inner(text)
             i += 1
-        return [words for words in self.found if words]
+        return [command for command in self.found if command.words]
 
-    def inner(self, text: str) -> list[list[str]]:
-        return segments(tokenize(text, complete_lines=True) or [], self.depth + 1)
+    def inner(self, text: str) -> list[Command]:
+        return commands(tokenize(text, complete_lines=True) or [], self.depth + 1)
 
     def closes_case_pattern(self) -> bool:
         """ここまでの並びが case の型を読み終えたところで、次の ``)`` が型を閉じるか。"""
@@ -171,7 +193,7 @@ class _Commands:
         if op in _CASE_ENDS and self.cases:
             self.pattern = self.pattern_begins = True
         self.start = True
-        self.found.append([])
+        self.found.append(Command())
 
     def in_pattern(self, text: str, kind: str) -> bool:
         """case の型の語と記号なら読み飛ばす。型でない物が来たらコマンドとして読み直す。"""
@@ -228,7 +250,7 @@ class _Commands:
                 end += 1
             if self.op_at(end, "(") or (self.word_at(end) and self.tokens[end].text in _TIMED):
                 return end - 1
-        self.found[-1].append(text)
+        self.found[-1].words.append(text)
         self.start = False
         return i
 
