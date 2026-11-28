@@ -6,9 +6,11 @@ import glob
 import os
 import shlex
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import NamedTuple
 
+from satsumaestro.security.find_expr import FindExpression
 from satsumaestro.util.paths import (
     AGENT_DIRNAME,
     default_config_home,
@@ -29,6 +31,18 @@ PROHIBITED_DELETION_GUIDANCE = (
 _DELETE_COMMANDS = frozenset({"rm", "rmdir", "unlink"})
 _PRIVILEGE_COMMANDS = frozenset({"sudo", "doas"})
 _WRAPPERS = frozenset({"command", "builtin", "exec", "nice", "nohup", "time"})
+# 削除の判定で剥がす包みと、値を次の語で取るオプション（短い形の字・長い形）
+_WRAPPER_OPTIONS: dict[str, tuple[str, frozenset[str]]] = {
+    "builtin": ("", frozenset()),
+    "command": ("", frozenset()),
+    "env": ("uCPSa", frozenset({"--unset", "--chdir", "--split-string", "--argv0"})),
+    "exec": ("a", frozenset()),
+    "nice": ("n", frozenset({"--adjustment"})),
+    "nohup": ("", frozenset()),
+    "stdbuf": ("ioe", frozenset({"--input", "--output", "--error"})),
+    "time": ("fo", frozenset({"--format", "--output"})),
+    "timeout": ("sk", frozenset({"--signal", "--kill-after"})),
+}
 _PRIVILEGE_VALUE_SHORT = frozenset("aCDghprRtTUu")
 _PRIVILEGE_VALUE_LONG = frozenset(
     {
@@ -46,6 +60,38 @@ _PRIVILEGE_VALUE_LONG = frozenset(
     }
 )
 _GLOB_CHARS = frozenset("*?[")
+# 起点の前に置ける find のオプション（GNU と BSD）と、-f で始まる式の語
+_FIND_FLAGS = frozenset("EHLPXdsx")
+_FIND_EXEC = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_FIND_F_PRIMARIES = frozenset(
+    {
+        "-false",
+        "-files0-from",
+        "-flags",
+        "-fls",
+        "-follow",
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-fstype",
+    }
+)
+
+
+class _Deletion(NamedTuple):
+    privileged: bool
+    name: str
+    args: list[str]
+    base: Path
+    targets: list[Path]
+    unplaced: str = ""
+
+
+class _FindParts(NamedTuple):
+    follow: bool
+    depth: bool
+    roots: list[str]
+    expression: list[str]
 
 
 def check_path(path: str, cwd: Path) -> str | None:
@@ -57,15 +103,24 @@ def check_path(path: str, cwd: Path) -> str | None:
 def check_bash(command: str, cwd: Path) -> str | None:
     """bash コマンド中の削除が禁止なら理由を返す。"""
     workspace = cwd.resolve()
-    for privileged, name, targets in _deletions(command, workspace):
-        for target in targets:
-            reason = _forbidden(target, workspace, allow_workspace=name == "find")
+    for found in _deletions(command, workspace):
+        if found.unplaced:
+            return (
+                f"{PROHIBITED_DELETION_PREFIX} cannot tell which path {found.unplaced!r} names: "
+                "-execdir and -okdir run the command in the directory of each file found"
+            )
+        for target in found.targets:
+            reason = _forbidden(target, workspace, allow_workspace=found.name == "find")
             if reason is not None:
                 return reason
-            if privileged:
+            if found.privileged:
                 return f"{PROHIBITED_DELETION_PREFIX} cannot delete with sudo ({target})"
-        if privileged and not targets:
+        if found.privileged and not found.targets:
             return f"{PROHIBITED_DELETION_PREFIX} cannot delete with sudo"
+        if found.name == "find":
+            hit = _find_reaches_state(found.args, found.base, workspace)
+            if hit is not None:
+                return _state_reason(hit)
     return None
 
 
@@ -77,7 +132,7 @@ def path_targets(path: str, cwd: Path) -> list[Path]:
 
 def bash_targets(command: str, cwd: Path) -> list[Path]:
     """bash コマンドが消すパス（絶対パス）。"""
-    return [t for _, _, targets in _deletions(command, cwd.resolve()) for t in targets]
+    return [t for found in _deletions(command, cwd.resolve()) for t in found.targets]
 
 
 def simple_commands(command: str) -> list[tuple[bool, str, list[str]]] | None:
@@ -93,20 +148,122 @@ def deletes(name: str, args: list[str]) -> bool:
     return _deletion_targets(name, args) is not None
 
 
-def _deletions(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[Path]]]:
-    """削除コマンドごとに (特権付きか, コマンド名, 対象の絶対パス) を返す。"""
-    commands = simple_commands(command)
-    if commands is None:
+def _deletions(command: str, workspace: Path) -> Iterator[_Deletion]:
+    """削除コマンドごとに、特権付きか・名前・引数・基準の場所・対象の絶対パスを返す。"""
+    for privileged, name, args, base in _located_commands(command, workspace):
+        paths = _deletion_targets(name, args)
+        if paths is not None:
+            targets = [t for raw in paths for t in _expand(raw, base)]
+            yield _Deletion(privileged, name, args, base, targets)
+        if name == "find":
+            yield from _exec_deletions(args, base, privileged)
+
+
+def _exec_deletions(args: list[str], base: Path, privileged: bool) -> Iterator[_Deletion]:
+    """find の -exec などが動かす rm の、``{}`` を含まずに書いた対象。"""
+    for i, action in enumerate(args):
+        if action not in _FIND_EXEC:
+            continue
+        end = next((j for j in range(i + 1, len(args)) if args[j] in (";", "+")), len(args))
+        moves: list[str] = []
+        inner_privileged, name, inner = _unwrap(args[i + 1 : end], moves=moves)
+        paths = _deletion_targets(name, inner) if name in _DELETE_COMMANDS else None
+        if paths is None:
+            continue
+        written = [raw for raw in paths if "{}" not in raw]
+        here = base
+        for move in moves:
+            here = _cd([move], here)
+        if action in ("-execdir", "-okdir"):
+            # 相対のパスは見つけたファイルのディレクトリから読まれる。上へ辿るものは行き先を決めない
+            climbing = next((raw for raw in written if _climbs(raw)), "")
+            if climbing:
+                yield _Deletion(privileged, name, inner, here, [], unplaced=climbing)
+                continue
+        targets = [t for raw in written for t in _expand(raw, here)]
+        yield _Deletion(privileged or inner_privileged, name, inner, here, targets)
+
+
+def _climbs(raw: str) -> bool:
+    return not raw.startswith(("/", "~", "$")) and ".." in Path(raw).parts
+
+
+def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:
+    """単純コマンドごとの (特権付きか, 名前, 引数, 基準の場所)。cd と env -C をたどる。"""
+    tokens = _tokenize(command)
+    if tokens is None:
         return
     here = workspace
-    for privileged, name, args in commands:
+    for words in _segments(tokens):
+        moves: list[str] = []
+        privileged, name, args = _unwrap(words, moves=moves)
         if name == "cd":
             here = _cd(args, here)
             continue
-        paths = _deletion_targets(name, args)
-        if paths is None:
-            continue
-        yield privileged, name, [t for raw in paths for t in _expand(raw, here)]
+        base = here
+        for move in moves:
+            base = _cd([move], base)
+        yield privileged, name, args, base
+
+
+def _find_reaches_state(
+    args: list[str],
+    base: Path,
+    workspace: Path,
+    exec_changes: Callable[[list[str]], bool] | None = None,
+) -> Path | None:
+    """find の動作が、起点の下にある状態ディレクトリ（とその中）に届き得るなら、その場所。"""
+    # exec_changes を渡すと、削除でなく -exec でそれが真になるコマンドだけを見る
+    parts = _find_parts(args)
+    expression = FindExpression(
+        parts.expression,
+        exec_changes or _runs_deleter,
+        follow=parts.follow,
+        depth=parts.depth,
+        deleting=exec_changes is None,
+    )
+    if not expression.acts:
+        return None
+    states = _state_dirs(workspace)
+    for raw in parts.roots or ["."]:
+        for written in _written_roots(raw, base):
+            target = _target(written, base)
+            if target is None:
+                continue
+            root = target.resolve()
+            for state in states:
+                if state != root and state.is_relative_to(root):
+                    hit = expression.first_changed(written, root, state)
+                    if hit is not None:
+                        return hit
+    return None
+
+
+def _state_dirs(workspace: Path) -> list[Path]:
+    """作業ディレクトリの ``.satsuma`` と ``~/.satsuma``（あるものだけ。リンクなら指す先も）。"""
+    home = _config_home()
+    places = [workspace / AGENT_DIRNAME]
+    if not _within(workspace, home):
+        places.append(home)
+    found: list[Path] = []
+    for place in places:
+        for path in (place, place.resolve()):
+            if os.path.lexists(path) and path not in found:
+                found.append(path)
+    return found
+
+
+def _written_roots(raw: str, base: Path) -> list[str]:
+    """シェルが展開した後の起点の書き方（find が出すパスの頭になる）。"""
+    written = os.path.expanduser(raw.replace("${HOME}", "~").replace("$HOME", "~"))
+    if any(c in written for c in _GLOB_CHARS):
+        try:
+            matches = sorted(glob.glob(written, root_dir=base))
+        except ValueError:
+            matches = []
+        if matches:
+            return matches
+    return [written]
 
 
 def _forbidden(target: Path, workspace: Path, *, allow_workspace: bool = False) -> str | None:
@@ -124,21 +281,24 @@ def _forbidden(target: Path, workspace: Path, *, allow_workspace: bool = False) 
             f"directory above it ({target})"
         )
     if _in_agent_state(target, workspace):
-        return (
-            f"{PROHIBITED_DELETION_PREFIX} cannot delete the agent's state directory "
-            f"({AGENT_DIRNAME}/): {target}"
-        )
+        return _state_reason(target)
     if _needs_privilege(target):
         return f"{PROHIBITED_DELETION_PREFIX} cannot delete a location that needs sudo ({target})"
     return None
+
+
+def _state_reason(target: Path) -> str:
+    return (
+        f"{PROHIBITED_DELETION_PREFIX} cannot delete the agent's state directory "
+        f"({AGENT_DIRNAME}/): {target}"
+    )
 
 
 def _in_agent_state(target: Path, workspace: Path) -> bool:
     """作業ディレクトリの ``.satsuma`` か ``~/.satsuma``（とその中身）か。"""
     if target.is_relative_to(workspace) and in_state_dir(target.relative_to(workspace), workspace):
         return True
-    home = default_config_home().expanduser()
-    home = home.parent.resolve() / home.name if home.name else home.resolve()
+    home = _config_home()
     if _within(workspace, home):
         return False
     if _within(target, home):
@@ -148,6 +308,12 @@ def _in_agent_state(target: Path, workspace: Path) -> bool:
     if not home.name or target == parent or not target.is_relative_to(parent):
         return False
     return names_component(Path(target.relative_to(parent).parts[0]), home.name, parent)
+
+
+def _config_home() -> Path:
+    """ユーザー設定の置き場所（親だけ実体をたどった絶対パス）。"""
+    home = default_config_home().expanduser()
+    return home.parent.resolve() / home.name if home.name else home.resolve()
 
 
 def _within(path: Path, home: Path) -> bool:
@@ -232,8 +398,9 @@ def _segments(tokens: list[str]) -> list[list[str]]:
     return [s for s in segments if s]
 
 
-def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
+def _unwrap(words: list[str], *, moves: list[str] | None = None) -> tuple[bool, str, list[str]]:
     """``FOO=1`` / ``sudo -u x`` / ``command`` などを剥がし、(特権付きか, 名前, 引数) を返す。"""
+    # moves を渡すと、包みのオプションも正しく飛ばし、env -C の移り先をそこへ足す
     privileged = False
     i = 0
     while i < len(words):
@@ -251,7 +418,9 @@ def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
                     break
                 if _privilege_edits(word):
                     return True, "sudoedit", words[i + 1 :]
-                i += _privilege_option_width(word)
+                i += _option_width(word, _PRIVILEGE_VALUE_SHORT, _PRIVILEGE_VALUE_LONG)
+        elif moves is not None and name in _WRAPPER_OPTIONS:
+            words, i = _skip_wrapper(name, words, i + 1, moves)
         elif name in _WRAPPERS:
             i += 1
         else:
@@ -259,14 +428,70 @@ def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
     return privileged, "", []
 
 
-def _privilege_option_width(word: str) -> int:
-    """sudo / doas のオプション 1 つが占める語の数（値を次の語で取るなら 2）。"""
+def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tuple[list[str], int]:
+    """包み ``name`` のオプション（timeout は時間も）を飛ばした語の並びと、中のコマンドの位置。"""
+    short, long = _WRAPPER_OPTIONS[name]
+    while i < len(words) and words[i].startswith("-") and (words[i] != "-" or name == "env"):
+        word = words[i]
+        if word == "--":
+            i += 1
+            break
+        if name == "env":
+            # -S は値を語に分けて env の引数として読み直す。-C は作業場所を移す
+            split = _option_value(word, words, i, "S", "--split-string", (short, long))
+            if split is not None:
+                words = [*words[:i], *(_tokenize(split[0]) or []), *words[split[1] :]]
+                continue
+            move = _option_value(word, words, i, "C", "--chdir", (short, long))
+            if move is not None:
+                moves.append(move[0])
+        i += _option_width(word, short, long)
+    if name == "timeout" and i < len(words):
+        i += 1
+    return words, i
+
+
+def _option_value(
+    word: str,
+    words: list[str],
+    i: int,
+    letter: str,
+    long: str,
+    values: tuple[str, frozenset[str]],
+) -> tuple[str, int] | None:
+    """``word`` が字 ``letter``（長い形 ``long``）のオプションなら、その値と次の語の位置。"""
     if word.startswith("--"):
-        return 2 if word in _PRIVILEGE_VALUE_LONG else 1
+        name, eq, value = word.partition("=")
+        if _long_option(name, values[1]) != long:
+            return None
+        if eq:
+            return value, i + 1
+        return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
+    at = next((n for n, ch in enumerate(word[1:], start=1) if ch in values[0]), None)
+    if at is None or word[at] != letter:
+        return None
+    if at < len(word) - 1:
+        return word[at + 1 :], i + 1
+    return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
+
+
+def _option_width(word: str, short: frozenset[str] | str, long: frozenset[str]) -> int:
+    """オプション 1 つが占める語の数（値を次の語で取るなら 2）。"""
+    if word.startswith("--"):
+        return 1 if "=" in word or _long_option(word, long) is None else 2
     for at, ch in enumerate(word[1:], start=1):
-        if ch in _PRIVILEGE_VALUE_SHORT:
+        if ch in short:
             return 2 if at == len(word) - 1 else 1
     return 1
+
+
+def _long_option(name: str, long: frozenset[str]) -> str | None:
+    """値を取る長いオプションのうち ``name`` が指すもの（一意な前方一致の省略形も）。"""
+    # 値を取らないオプションとも重なる省略形は、コマンド自身が曖昧として断る
+    if name in long:
+        return name
+    found = [option for option in long if option.startswith(name) and len(name) > 2]
+    return found[0] if len(found) == 1 else None
 
 
 def _privilege_edits(word: str) -> bool:
@@ -293,23 +518,49 @@ def _deletion_targets(name: str, args: list[str]) -> list[str] | None:
                 after_dashdash = True
         return paths
     if name == "find" and ("-delete" in args or _exec_deletes(args)):
-        roots: list[str] = []
-        for tok in args:
-            if tok.startswith("-") or tok in ("(", "!", ")"):
-                break
-            roots.append(tok)
-        return roots or ["."]
+        return _find_parts(args).roots or ["."]
     return None
 
 
 def _exec_deletes(args: list[str]) -> bool:
-    """``find … -exec rm …`` / ``-execdir rm …`` か。"""
-    return any(
-        tok in ("-exec", "-execdir")
-        and i + 1 < len(args)
-        and os.path.basename(args[i + 1]) in _DELETE_COMMANDS
-        for i, tok in enumerate(args)
-    )
+    """``find … -exec rm …`` か（``-execdir``・``-ok``・``-okdir`` と、包みの語を挟んでも）。"""
+    return any(tok in _FIND_EXEC and _runs_deleter(args[i + 1 :]) for i, tok in enumerate(args))
+
+
+def _runs_deleter(words: list[str]) -> bool:
+    return _unwrap(words, moves=[])[1] in _DELETE_COMMANDS
+
+
+def _find_parts(args: list[str]) -> _FindParts:
+    """find の引数を、起点の前のオプション（-L・-d・-f など）・起点・式に分ける。"""
+    follow = depth = False
+    roots: list[str] = []
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            i += 1
+            break
+        if word == "-D" or (word.startswith("-O") and word[2:].isdigit()):
+            i += 2 if word == "-D" else 1
+            continue
+        flags, f, path = word[1:].partition("f")
+        if not word.startswith("-") or not flags + f or not set(flags) <= _FIND_FLAGS:
+            break
+        if f and word in _FIND_F_PRIMARIES:
+            break
+        for ch in flags:
+            follow = ch == "L" if ch in "HLP" else follow
+            depth = depth or ch == "d"
+        i += 1
+        if f:
+            if not path and i < len(args):
+                path, i = args[i], i + 1
+            roots.append(path)
+    while i < len(args) and not args[i].startswith("-") and args[i] not in ("(", "!", ")", ","):
+        roots.append(args[i])
+        i += 1
+    return _FindParts(follow, depth, roots, args[i:])
 
 
 def _cd(args: list[str], here: Path) -> Path:
