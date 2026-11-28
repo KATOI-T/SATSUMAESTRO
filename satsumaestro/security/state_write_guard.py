@@ -157,7 +157,9 @@ def _find_writes_state(command: str, workspace: Path) -> Path | None:
     return None
 
 
-def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = True) -> list[Path]:
+def _mentioned_paths(
+    command: str, workspace: Path, *, find_patterns: bool = True, depth: int = 0
+) -> list[Path]:
     """コマンドに出てくるパスらしい語（引数・リダイレクト先・``of=`` の右辺）を絶対パスにする。"""
     tokens = command_words.tokenize(command)
     if tokens is None:
@@ -193,15 +195,26 @@ def _mentioned_paths(command: str, workspace: Path, *, find_patterns: bool = Tru
             paths.extend(_expand(tok.text, here))
         elif tok.kind == "word":
             words.append(tok.text)
+        elif depth >= command_words.MAX_DEPTH:
+            continue
         elif tok.kind == "heredoc":
             for inner in command_words.substitutions(tok.text):
-                paths.extend(_mentioned_paths(inner, here, find_patterns=find_patterns))
+                paths.extend(
+                    _mentioned_paths(inner, here, find_patterns=find_patterns, depth=depth + 1)
+                )
+        elif tok.kind == "substitution":
+            paths.extend(
+                _mentioned_paths(tok.text, here, find_patterns=find_patterns, depth=depth + 1)
+            )
     flush()
     return paths
 
 
 def _read_only(command: str, workspace: Path) -> bool:
     """bash 自動許可と同じ語彙・規則で、読み取り専用と言えるか（パスの検査はしない）。"""
+    tokens = command_words.tokenize(command)
+    if tokens is None or any(t.kind == "substitution" for t in tokens):
+        return False
     segments = split_command_segments(command)
     if isinstance(segments, str):
         return False

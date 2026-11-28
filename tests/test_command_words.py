@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -264,3 +265,110 @@ def test_read_only_mode_reads_commands_inside_compound_commands() -> None:
 
 def test_a_deletion_inside_a_compound_command_cannot_be_remembered() -> None:
     assert remember_blocker("bash", {"command": "{ rm -rf build; }"}) is not None
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("echo `a b` c", [["a", "b"], ["echo", "`a b`", "c"]]),
+        ('echo "$(a b)" c', [["a", "b"], ["echo", "$(a b)", "c"]]),
+        ('echo "`a`"', [["a"], ["echo", "`a`"]]),
+        ('echo "$(echo "q u") x"', [["echo", "q u"], ["echo", '$(echo "q u") x']]),
+        ('echo "x$(a "$(b)")y"', [["b"], ["a", "$(b)"], ["echo", 'x$(a "$(b)")y']]),
+        ("echo `echo \\`a\\``", [["a"], ["echo", "`a`"], ["echo", "`echo \\`a\\``"]]),
+        ('echo "`echo \\"a\\"`"', [["echo", "a"], ["echo", '`echo \\"a\\"`']]),
+        ("echo '$(a)' \"\\$(b)\" '`c`'", [["echo", "$(a)", "$(b)", "`c`"]]),
+        ("cat <(a) >(b)", [["cat"], ["a"], ["b"]]),
+    ],
+)
+def test_substitutions_in_words_are_read_before_their_command(
+    command: str, expected: list[list[str]]
+) -> None:
+    assert _segments(command) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo "$(case x in x) a;; esac) and"',
+        "cat <<EOF\n$(case x in x) a;; esac)\nEOF",
+    ],
+)
+def test_a_case_pattern_does_not_end_a_substitution(command: str) -> None:
+    assert ["a"] in _segments(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'x="$(cat <<EOF\n))\nEOF\n)"; b',
+        'echo "$(echo a # )\n)"; b',
+    ],
+)
+def test_heredocs_and_comments_inside_a_substitution_do_not_end_it(command: str) -> None:
+    assert _segments(command)[-1] == ["b"]
+
+
+def test_an_unclosed_substitution_is_unreadable() -> None:
+    assert tokenize("echo `a") is None
+    assert tokenize('echo "$(a"') is None
+    assert substitutions("$(case x in x) y;; esac) z") == ["case x in x) y;; esac"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo `satsumaestro repl`",
+        'echo "$(satsumaestro repl)"',
+        'echo "`stro prompt x`"',
+        'x="$(satsumaestro repl)"',
+        'echo "$(echo "$(satsumaestro repl)")"',
+        'echo "$(case x in x) satsumaestro repl;; esac)"',
+    ],
+)
+def test_self_invocation_is_found_in_backquotes_and_double_quoted_substitutions(
+    command: str,
+) -> None:
+    assert self_invocation_guard.check_bash(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo '`satsumaestro repl`'",
+        'echo "\\$(satsumaestro repl)"',
+        "echo '$(stro prompt x)'",
+    ],
+)
+def test_text_that_the_shell_does_not_run_is_not_taken_for_self_invocation(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is None
+
+
+@pytest.mark.parametrize("command", ['echo "$(rm -rf ..)"', "echo `rm -rf ..`"])
+def test_deletions_are_found_in_backquotes_and_double_quoted_substitutions(
+    ws: Path, command: str
+) -> None:
+    assert deletion_guard.check_bash(command, ws) is not None
+
+
+@pytest.mark.parametrize(
+    "command", ['echo "$(echo x > .satsuma/policy.md)"', "echo `cp x .satsuma/policy.md`"]
+)
+def test_state_writes_are_found_in_backquotes_and_double_quoted_substitutions(
+    ws: Path, command: str
+) -> None:
+    assert state_write_guard.check_bash(command, ws) is not None
+
+
+def test_single_quoted_substitution_text_is_not_taken_for_a_state_write(ws: Path) -> None:
+    command = "echo '$(echo x > .satsuma/policy.md)' > notes.md"
+    assert state_write_guard.check_bash(command, ws) is None
+
+
+def test_deeply_nested_substitutions_are_read_quickly(ws: Path) -> None:
+    command = "echo " + '"$(' * 400 + "satsumaestro repl" + ')"' * 400
+    started = time.monotonic()
+    self_invocation_guard.check_bash(command)
+    deletion_guard.check_bash(command, ws)
+    state_write_guard.check_bash(command, ws)
+    assert time.monotonic() - started < 2

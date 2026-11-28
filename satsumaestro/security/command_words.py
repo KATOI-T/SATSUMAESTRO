@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import NamedTuple
 
 # 長い物から当てる。引用やエスケープの中の記号は語の一部になる
@@ -10,8 +11,10 @@ _REDIRECTS = ("&>>", "<<<", "<<-", "&>", ">>", ">|", ">&", "<<", "<&", "<>", ">"
 _OPERATORS = sorted((*_SEPARATORS, *_REDIRECTS), key=len, reverse=True)
 _HEREDOCS = frozenset({"<<", "<<-"})
 _BLANKS = " \t"
-_MAX_DEPTH = 8
+MAX_DEPTH = 8
 _DQUOTE_ESCAPES = '"\\$`\n'
+_BACKQUOTE_ESCAPE = re.compile(r"\\([\\`$])")
+_BACKQUOTE_ESCAPE_IN_DQUOTES = re.compile(r"\\([\\`$\"])")
 # コマンドの位置に来たときだけ予約語として読む語
 _KEYWORDS = frozenset(
     {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "esac", "{", "}", "!"}
@@ -22,7 +25,7 @@ _CASE_ENDS = frozenset({";;", ";&", ";;&"})
 
 
 class Token(NamedTuple):
-    """語（``word``）・区切り（``op``）・リダイレクト（``redirect``）・ヒアドキュメントの本文。"""
+    """語・区切り（``op``）・リダイレクト・ヒアドキュメントの本文・語の中の置き換えの中身。"""
 
     text: str
     kind: str
@@ -55,18 +58,34 @@ def substitutions(text: str) -> list[str]:
         if c == "\\":
             i += 2
         elif text.startswith("$(", i):
-            end = _closing_paren(text, i + 2)
+            end = _substitution_end(text, i + 2, 0)
+            end = len(text) if end is None else end
             found.append(text[i + 2 : end])
             i = end + 1
         elif c == "`":
-            end = i + 1
-            while end < len(text) and text[end] != "`":
-                end += 2 if text[end] == "\\" else 1
-            found.append(text[i + 1 : end])
+            end = _backquote_end(text, i + 1)
+            found.append(_BACKQUOTE_ESCAPE.sub(r"\1", text[i + 1 : end]))
             i = end + 1
         else:
             i += 1
     return found
+
+
+def _substitution_end(text: str, start: int, level: int) -> int | None:
+    """``$(`` の後の ``start`` から中身を読み、閉じる ``)`` の位置。閉じなければ ``None``。"""
+    if level >= MAX_DEPTH:
+        end = _closing_paren(text, start)
+        return None if end >= len(text) else end
+    lexer = _Lexer(text, start=start, level=level + 1)
+    lexer.run()
+    return lexer.end
+
+
+def _backquote_end(text: str, i: int) -> int:
+    """``i`` から始まるバッククォートの中身を閉じる位置。無ければ末尾。"""
+    while i < len(text) and text[i] != "`":
+        i += 2 if text[i] == "\\" else 1
+    return min(i, len(text))
 
 
 def _closing_paren(text: str, i: int) -> int:
@@ -127,13 +146,22 @@ class _Commands:
                 i = self.command_word(i)
             elif kind == "word":
                 self.found[-1].append(text)
-            elif kind == "heredoc" and self.depth < _MAX_DEPTH:
+            elif kind == "heredoc" and self.depth < MAX_DEPTH:
                 # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
                 for inner in substitutions(text):
                     self.found.extend(segments(tokenize(inner) or [], self.depth + 1))
                 self.found.append([])
+            elif kind == "substitution" and self.depth < MAX_DEPTH:
+                # 語の中の置き換えは、そのコマンドより先に動く
+                self.found[-1:-1] = segments(tokenize(text) or [], self.depth + 1)
             i += 1
         return [words for words in self.found if words]
+
+    def closes_case_pattern(self) -> bool:
+        """ここまでの並びが case の型を読み終えたところで、次の ``)`` が型を閉じるか。"""
+        # 深さを上限にして作ると、置き換えとヒアドキュメントの中は読まない（形だけを見る）
+        self.run()
+        return self.pattern and not self.pattern_begins
 
     def separate(self, op: str) -> None:
         if op in _CASE_ENDS and self.cases:
@@ -210,11 +238,16 @@ class _Commands:
 
 
 class _Lexer:
-    def __init__(self, command: str) -> None:
+    def __init__(self, command: str, *, start: int = 0, level: int = 0) -> None:
         self.text = command
-        self.i = 0
+        self.i = start
+        # level が 1 以上なら $( の中身を読み、閉じる ) の位置を end に置いて止まる
+        self.level = level
+        self.parens = 0
+        self.end: int | None = None
         self.out: list[Token] = []
         self.word: list[str] = []
+        self.subs: list[str] = []
         self.in_word = False
         self.quoted = False
         self.heredoc_next: str | None = None
@@ -222,7 +255,7 @@ class _Lexer:
 
     def run(self) -> list[Token] | None:
         text = self.text
-        while self.i < len(text):
+        while self.i < len(text) and self.end is None:
             c = text[self.i]
             if c in _BLANKS:
                 self.flush()
@@ -246,6 +279,13 @@ class _Lexer:
             elif c == '"':
                 if not self.double_quote():
                     return None
+            elif c == "`":
+                closing = self.backquote(self.i + 1, _BACKQUOTE_ESCAPE)
+                if closing is None:
+                    return None
+                self.word.append(text[self.i : closing + 1])
+                self.in_word = True
+                self.i = closing + 1
             elif (op := _operator_at(text, self.i)) is not None:
                 self.operator(op)
             else:
@@ -264,7 +304,9 @@ class _Lexer:
             self.heredocs.append((text, self.heredoc_next == "<<-", self.quoted))
             self.heredoc_next = None
         self.out.append(Token(text, "word"))
+        self.out.extend(Token(inner, "substitution") for inner in self.subs)
         self.word.clear()
+        self.subs.clear()
         self.in_word = self.quoted = False
 
     def operator(self, op: str) -> None:
@@ -273,6 +315,14 @@ class _Lexer:
             self.word.clear()
             self.in_word = False
         self.flush()
+        if self.level and op == "(":
+            self.parens += 1
+        elif self.level and op == ")":
+            if self.parens:
+                self.parens -= 1
+            elif not _Commands(self.out, MAX_DEPTH).closes_case_pattern():
+                self.end = self.i
+                return
         kind = "redirect" if op in _REDIRECTS else "op"
         self.out.append(Token(op, kind))
         if op in _HEREDOCS:
@@ -313,22 +363,41 @@ class _Lexer:
         return True
 
     def double_quote(self) -> bool:
+        text = self.text
         i = self.i + 1
         buf: list[str] = []
-        while i < len(self.text) and self.text[i] != '"':
-            if self.text[i] == "\\" and self.text[i + 1 : i + 2] in tuple(_DQUOTE_ESCAPES):
-                if self.text[i + 1] != "\n":
-                    buf.append(self.text[i + 1])
+        while i < len(text) and text[i] != '"':
+            if text[i] == "\\" and text[i + 1 : i + 2] in tuple(_DQUOTE_ESCAPES):
+                if text[i + 1] != "\n":
+                    buf.append(text[i + 1])
                 i += 2
                 continue
-            buf.append(self.text[i])
-            i += 1
-        if i >= len(self.text):
+            # 二重引用の中でも $(…) と `…` は動く。中の引用は中身の側で閉じる
+            end: int | None = i
+            if text.startswith("$(", i):
+                end = _substitution_end(text, i + 2, self.level)
+                if end is not None:
+                    self.subs.append(text[i + 2 : end])
+            elif text[i] == "`":
+                end = self.backquote(i + 1, _BACKQUOTE_ESCAPE_IN_DQUOTES)
+            if end is None:
+                return False
+            buf.append(text[i : end + 1])
+            i = end + 1
+        if i >= len(text):
             return False
         self.word.append("".join(buf))
         self.in_word = self.quoted = True
         self.i = i + 1
         return True
+
+    def backquote(self, start: int, escapes: re.Pattern[str]) -> int | None:
+        """``start`` から始まるバッククォートの中身を置き換えとして控え、閉じる位置を返す。"""
+        end = _backquote_end(self.text, start)
+        if end >= len(self.text):
+            return None
+        self.subs.append(escapes.sub(r"\1", self.text[start:end]))
+        return end
 
     def read_heredocs(self) -> None:
         """改行の後に続くヒアドキュメントの本文を、区切りの行まで 1 つの語として除けておく。"""
