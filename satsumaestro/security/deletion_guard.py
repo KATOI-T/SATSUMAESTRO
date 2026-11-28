@@ -29,6 +29,18 @@ PROHIBITED_DELETION_GUIDANCE = (
 _DELETE_COMMANDS = frozenset({"rm", "rmdir", "unlink"})
 _PRIVILEGE_COMMANDS = frozenset({"sudo", "doas"})
 _WRAPPERS = frozenset({"command", "builtin", "exec", "nice", "nohup", "time"})
+# 削除の判定で剥がす包みと、値を次の語で取るオプション（短い形の字・長い形）
+_WRAPPER_OPTIONS: dict[str, tuple[str, frozenset[str]]] = {
+    "builtin": ("", frozenset()),
+    "command": ("", frozenset()),
+    "env": ("uCPS", frozenset({"--unset", "--chdir", "--split-string"})),
+    "exec": ("a", frozenset()),
+    "nice": ("n", frozenset({"--adjustment"})),
+    "nohup": ("", frozenset()),
+    "stdbuf": ("ioe", frozenset({"--input", "--output", "--error"})),
+    "time": ("fo", frozenset({"--format", "--output"})),
+    "timeout": ("sk", frozenset({"--signal", "--kill-after"})),
+}
 _PRIVILEGE_VALUE_SHORT = frozenset("aCDghprRtTUu")
 _PRIVILEGE_VALUE_LONG = frozenset(
     {
@@ -95,18 +107,23 @@ def deletes(name: str, args: list[str]) -> bool:
 
 def _deletions(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[Path]]]:
     """削除コマンドごとに (特権付きか, コマンド名, 対象の絶対パス) を返す。"""
-    commands = simple_commands(command)
-    if commands is None:
+    tokens = _tokenize(command)
+    if tokens is None:
         return
     here = workspace
-    for privileged, name, args in commands:
+    for words in _segments(tokens):
+        moves: list[str] = []
+        privileged, name, args = _unwrap(words, moves=moves)
         if name == "cd":
             here = _cd(args, here)
             continue
         paths = _deletion_targets(name, args)
         if paths is None:
             continue
-        yield privileged, name, [t for raw in paths for t in _expand(raw, here)]
+        base = here
+        for move in moves:
+            base = _cd([move], base)
+        yield privileged, name, [t for raw in paths for t in _expand(raw, base)]
 
 
 def _forbidden(target: Path, workspace: Path, *, allow_workspace: bool = False) -> str | None:
@@ -232,8 +249,9 @@ def _segments(tokens: list[str]) -> list[list[str]]:
     return [s for s in segments if s]
 
 
-def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
+def _unwrap(words: list[str], *, moves: list[str] | None = None) -> tuple[bool, str, list[str]]:
     """``FOO=1`` / ``sudo -u x`` / ``command`` などを剥がし、(特権付きか, 名前, 引数) を返す。"""
+    # moves を渡すと、包みのオプションも正しく飛ばし、env -C の移り先をそこへ足す
     privileged = False
     i = 0
     while i < len(words):
@@ -251,7 +269,9 @@ def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
                     break
                 if _privilege_edits(word):
                     return True, "sudoedit", words[i + 1 :]
-                i += _privilege_option_width(word)
+                i += _option_width(word, _PRIVILEGE_VALUE_SHORT, _PRIVILEGE_VALUE_LONG)
+        elif moves is not None and name in _WRAPPER_OPTIONS:
+            words, i = _skip_wrapper(name, words, i + 1, moves)
         elif name in _WRAPPERS:
             i += 1
         else:
@@ -259,12 +279,53 @@ def _unwrap(words: list[str]) -> tuple[bool, str, list[str]]:
     return privileged, "", []
 
 
-def _privilege_option_width(word: str) -> int:
-    """sudo / doas のオプション 1 つが占める語の数（値を次の語で取るなら 2）。"""
+def _skip_wrapper(name: str, words: list[str], i: int, moves: list[str]) -> tuple[list[str], int]:
+    """包み ``name`` のオプション（timeout は時間も）を飛ばした語の並びと、中のコマンドの位置。"""
+    short, long = _WRAPPER_OPTIONS[name]
+    while i < len(words) and words[i].startswith("-") and (words[i] != "-" or name == "env"):
+        word = words[i]
+        if word == "--":
+            i += 1
+            break
+        if name == "env":
+            # -S は値を語に分けて env の引数として読み直す。-C は作業場所を移す
+            split = _option_value(word, words, i, "S", "--split-string", short)
+            if split is not None:
+                words = [*words[:i], *(_tokenize(split[0]) or []), *words[split[1] :]]
+                continue
+            move = _option_value(word, words, i, "C", "--chdir", short)
+            if move is not None:
+                moves.append(move[0])
+        i += _option_width(word, short, long)
+    if name == "timeout" and i < len(words):
+        i += 1
+    return words, i
+
+
+def _option_value(
+    word: str, words: list[str], i: int, letter: str, long: str, value_letters: str
+) -> tuple[str, int] | None:
+    """``word`` が字 ``letter``（長い形 ``long``）のオプションなら、その値と次の語の位置。"""
     if word.startswith("--"):
-        return 2 if word in _PRIVILEGE_VALUE_LONG else 1
+        if word == long:
+            return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
+        if word.startswith(f"{long}="):
+            return word.partition("=")[2], i + 1
+        return None
+    at = next((n for n, ch in enumerate(word[1:], start=1) if ch in value_letters), None)
+    if at is None or word[at] != letter:
+        return None
+    if at < len(word) - 1:
+        return word[at + 1 :], i + 1
+    return (words[i + 1], i + 2) if i + 1 < len(words) else ("", i + 1)
+
+
+def _option_width(word: str, short: frozenset[str] | str, long: frozenset[str]) -> int:
+    """オプション 1 つが占める語の数（値を次の語で取るなら 2）。"""
+    if word.startswith("--"):
+        return 2 if word in long else 1
     for at, ch in enumerate(word[1:], start=1):
-        if ch in _PRIVILEGE_VALUE_SHORT:
+        if ch in short:
             return 2 if at == len(word) - 1 else 1
     return 1
 
