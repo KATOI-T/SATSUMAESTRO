@@ -103,6 +103,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   starting point, as `find . -name '*.md' -delete` does. Before, only the starting points were
   checked. `-prune` does not keep `-delete` out of a directory, because `-delete` turns on
   `-depth`; leave the state directory out with `! -path './.satsuma*'` instead.
+  ([#78](https://github.com/KATOI-T/SATSUMAESTRO/issues/78))
 - The guard that keeps the state directory from being changed reads the `find` expression too. A
   command that `-exec`, `-execdir`, `-ok` or `-okdir` runs and that is not read-only, such as
   `sed -i`, is refused when the expression can reach `.satsuma` or `~/.satsuma` under a starting
