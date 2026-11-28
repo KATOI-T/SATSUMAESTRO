@@ -115,6 +115,9 @@ class FindExpression:
         # -delete と -depth は深い方から見るので -prune が効かない
         self._prunes = not depth and not any(t in ("-delete", "-depth", "-d") for t in tokens)
         self._tree: _Node | None
+        if not self._tokens:
+            self._tree = ("test", "-print", [])
+            return
         try:
             node, end = self._list(0)
             self._tree = node if end == len(self._tokens) else None

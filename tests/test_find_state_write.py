@@ -91,6 +91,13 @@ def test_deleting_with_find_is_left_to_the_deletion_guard(workspace: Path) -> No
     assert reason is not None and reason.startswith(deletion_guard.PROHIBITED_DELETION_PREFIX)
 
 
+@pytest.mark.parametrize(
+    "command", ["touch x && find .", "find . && touch x", "find . -maxdepth 1 && touch x"]
+)
+def test_a_find_without_an_action_does_not_count_as_a_write(workspace: Path, command: str) -> None:
+    assert state_write_guard.check_bash(command, workspace) is None
+
+
 def test_a_root_named_dot_counts_for_writes(workspace: Path) -> None:
     """rm は . を消さないが、書き込みのコマンドには . がそのまま渡る。"""
     assert _refused("find . -maxdepth 0 -exec chmod -R 700 {} +", workspace)
