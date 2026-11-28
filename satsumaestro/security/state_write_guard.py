@@ -161,7 +161,7 @@ def _mentioned_paths(
     command: str, workspace: Path, *, find_patterns: bool = True, depth: int = 0
 ) -> list[Path]:
     """コマンドに出てくるパスらしい語（引数・リダイレクト先・``of=`` の右辺）を絶対パスにする。"""
-    tokens = command_words.tokenize(command)
+    tokens = command_words.tokenize(command, complete_lines=True)
     if tokens is None:
         return []
     paths: list[Path] = []

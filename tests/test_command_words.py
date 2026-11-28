@@ -365,6 +365,45 @@ def test_single_quoted_substitution_text_is_not_taken_for_a_state_write(ws: Path
     assert state_write_guard.check_bash(command, ws) is None
 
 
+def test_the_lines_before_an_unclosed_quote_are_read_when_asked() -> None:
+    tokens = tokenize("a\nb 'c", complete_lines=True)
+    assert tokens is not None
+    assert segments(tokens) == [["a"]]
+    assert tokenize("a; b 'c", complete_lines=True) == []
+    assert tokenize("a\nb 'c") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'satsumaestro repl\necho "unclosed',
+        "satsumaestro repl\necho 'unclosed",
+        "satsumaestro repl\necho `unclosed",
+        'satsumaestro repl\necho "$(unclosed',
+        "cat <<EOF\nx\nEOF\nstro prompt x\necho $'unclosed",
+        'cat <<EOF\n$(satsumaestro repl\necho "x)\nEOF',
+    ],
+)
+def test_self_invocation_is_found_on_the_lines_before_an_unclosed_quote(command: str) -> None:
+    assert self_invocation_guard.check_bash(command) is not None
+
+
+def test_a_line_that_ends_in_an_unclosed_quote_runs_nothing() -> None:
+    assert self_invocation_guard.check_bash('satsumaestro repl; echo "unclosed') is None
+    assert self_invocation_guard.check_bash('echo "unclosed\nsatsumaestro repl') is None
+
+
+def test_deletions_and_state_writes_are_found_before_an_unclosed_quote(ws: Path) -> None:
+    assert deletion_guard.check_bash("rm -rf ..\necho 'x", ws) is not None
+    assert state_write_guard.check_bash("echo x > .satsuma/policy.md\necho 'x", ws) is not None
+
+
+def test_read_only_and_remember_checks_still_find_an_unclosed_quote_unreadable() -> None:
+    assert deletion_guard.simple_commands("cat a\necho 'x") is None
+    assert review_read_only("cat a\necho 'x", PermissionMode.READ_ONLY).kind != "allow"
+    assert remember_blocker("bash", {"command": "cat a\necho 'x"}) is not None
+
+
 def test_deeply_nested_substitutions_are_read_quickly(ws: Path) -> None:
     command = "echo " + '"$(' * 400 + "satsumaestro repl" + ')"' * 400
     started = time.monotonic()

@@ -190,7 +190,7 @@ def _climbs(raw: str) -> bool:
 
 def _located_commands(command: str, workspace: Path) -> Iterator[tuple[bool, str, list[str], Path]]:
     """単純コマンドごとの (特権付きか, 名前, 引数, 基準の場所)。cd と env -C をたどる。"""
-    tokens = command_words.tokenize(command)
+    tokens = command_words.tokenize(command, complete_lines=True)
     if tokens is None:
         return
     here = workspace

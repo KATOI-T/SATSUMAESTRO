@@ -31,9 +31,10 @@ class Token(NamedTuple):
     kind: str
 
 
-def tokenize(command: str) -> list[Token] | None:
-    """語と記号の並び。引用が閉じていなければ ``None``。"""
-    return _Lexer(command).run()
+def tokenize(command: str, *, complete_lines: bool = False) -> list[Token] | None:
+    """語と記号の並び。引用が閉じなければ ``None``（``complete_lines`` ならその行より前の分）。"""
+    # シェルは閉じない引用の行に来るまで、前の行を動かしている
+    return _Lexer(command, complete_lines=complete_lines).run()
 
 
 def segments(tokens: list[Token], depth: int = 0) -> list[list[str]]:
@@ -149,13 +150,16 @@ class _Commands:
             elif kind == "heredoc" and self.depth < MAX_DEPTH:
                 # 区切りを引用しないヒアドキュメントは、本文の $(…) と `…` を実行する
                 for inner in substitutions(text):
-                    self.found.extend(segments(tokenize(inner) or [], self.depth + 1))
+                    self.found.extend(self.inner(inner))
                 self.found.append([])
             elif kind == "substitution" and self.depth < MAX_DEPTH:
                 # 語の中の置き換えは、そのコマンドより先に動く
-                self.found[-1:-1] = segments(tokenize(text) or [], self.depth + 1)
+                self.found[-1:-1] = self.inner(text)
             i += 1
         return [words for words in self.found if words]
+
+    def inner(self, text: str) -> list[list[str]]:
+        return segments(tokenize(text, complete_lines=True) or [], self.depth + 1)
 
     def closes_case_pattern(self) -> bool:
         """ここまでの並びが case の型を読み終えたところで、次の ``)`` が型を閉じるか。"""
@@ -238,9 +242,13 @@ class _Commands:
 
 
 class _Lexer:
-    def __init__(self, command: str, *, start: int = 0, level: int = 0) -> None:
+    def __init__(
+        self, command: str, *, start: int = 0, level: int = 0, complete_lines: bool = False
+    ) -> None:
         self.text = command
         self.i = start
+        self.complete_lines = complete_lines
+        self.complete = 0
         # level が 1 以上なら $( の中身を読み、閉じる ) の位置を end に置いて止まる
         self.level = level
         self.parens = 0
@@ -265,6 +273,7 @@ class _Lexer:
                 self.out.append(Token("\n", "op"))
                 self.i += 1
                 self.read_heredocs()
+                self.complete = len(self.out)
             elif c == "#" and not self.in_word:
                 end = text.find("\n", self.i)
                 self.i = len(text) if end < 0 else end
@@ -272,17 +281,17 @@ class _Lexer:
                 self.backslash()
             elif c == "'":
                 if not self.single_quote(self.i + 1):
-                    return None
+                    return self.unclosed()
             elif c == "$" and text.startswith("$'", self.i):
                 if not self.ansi_quote():
-                    return None
+                    return self.unclosed()
             elif c == '"':
                 if not self.double_quote():
-                    return None
+                    return self.unclosed()
             elif c == "`":
                 closing = self.backquote(self.i + 1, _BACKQUOTE_ESCAPE)
                 if closing is None:
-                    return None
+                    return self.unclosed()
                 self.word.append(text[self.i : closing + 1])
                 self.in_word = True
                 self.i = closing + 1
@@ -295,6 +304,9 @@ class _Lexer:
         self.flush()
         self.read_heredocs()
         return self.out
+
+    def unclosed(self) -> list[Token] | None:
+        return self.out[: self.complete] if self.complete_lines else None
 
     def flush(self) -> None:
         if not self.in_word:

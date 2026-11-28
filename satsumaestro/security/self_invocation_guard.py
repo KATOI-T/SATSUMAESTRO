@@ -36,7 +36,7 @@ _PYTHON_NAMES = frozenset(
 
 def check_bash(command: str) -> str | None:
     """bash コマンドが自身の起動なら理由（1 行目の文言）を返す。"""
-    tokens = tokenize(command)
+    tokens = tokenize(command, complete_lines=True)
     if tokens is None:
         return None
     for words in segments(tokens):
